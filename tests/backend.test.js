@@ -256,15 +256,25 @@ t('doPost: JSON roto, error controlado y error interno sin filtrar detalles', ()
   assert.deepStrictEqual(JSON.parse(b.ctx.doGet().getContent()), { ok: true, app: 'cuba', version: 1 });
 });
 
-t('link de emparejado: lleva la URL /exec y el token, y se puede decodificar', () => {
+t('link de emparejado: usa la URL /exec guardada y el token, y se puede decodificar', () => {
   const b = boot(); delete b.log.props.CUBA_TOKEN;
+  assert.strictEqual(b.ctx.pairingLink_(), null, 'sin URL guardada no hay link');
+  b.log.props.CUBA_URL = 'https://script.google.com/macros/s/AKfy_cb-1/exec';
   const link = b.ctx.pairingLink_();
   assert.ok(link.startsWith('https://tomgarro.github.io/cuba-gastos/#cfg='));
   const cfg = JSON.parse(Buffer.from(link.split('#cfg=')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
-  assert.strictEqual(cfg.u, 'https://script.google.com/macros/s/ABC/exec');
+  assert.strictEqual(cfg.u, 'https://script.google.com/macros/s/AKfy_cb-1/exec');
   assert.strictEqual(cfg.t, b.log.props.CUBA_TOKEN); assert.ok(/^[0-9a-f]{64}$/.test(cfg.t));
   assert.strictEqual(b.ctx.pairingLink_(), link, 'no cambia el token en cada llamada');
-  assert.strictEqual(boot({ url: '' }).ctx.pairingLink_(), null, 'sin despliegue no hay link');
+});
+
+t('URL de la app web: solo se acepta …/macros/s/<id>/exec (no /dev ni otras)', () => {
+  const b = boot();
+  ['https://script.google.com/macros/s/ABC/dev', 'http://script.google.com/macros/s/ABC/exec', 'https://evil.com/macros/s/ABC/exec', '', 'https://script.google.com/macros/s/ABC/exec?x=1'].forEach((u) => {
+    assert.strictEqual(b.ctx.isExecUrl_(u), false, u);
+    b.log.props.CUBA_URL = u; assert.strictEqual(b.ctx.pairingLink_(), null, u);
+  });
+  assert.strictEqual(b.ctx.isExecUrl_('https://script.google.com/macros/s/ABC_d-1/exec'), true);
 });
 
 console.log(n + ' pruebas del backend');

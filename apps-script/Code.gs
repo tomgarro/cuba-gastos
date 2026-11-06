@@ -22,7 +22,8 @@ var CUBA = {
   APP_URL: 'https://tomgarro.github.io/cuba-gastos/',
   MAX_BATCH: 500,
   LOCK_MS: 20000,
-  TOKEN_PROP: 'CUBA_TOKEN'
+  TOKEN_PROP: 'CUBA_TOKEN',
+  URL_PROP: 'CUBA_URL'
 };
 
 var TABS = {
@@ -442,12 +443,32 @@ function tokenOrCreate_() {
   return t;
 }
 
+/** Solo la URL de la implementación (…/macros/s/<id>/exec). Ojo: getUrl() devuelve la de prueba (/dev), que no sirve. */
+function isExecUrl_(u) {
+  return /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(String(u || '').trim());
+}
+
 function pairingLink_() {
-  var url = ScriptApp.getService().getUrl();
-  if (!url) return null;
-  url = url.replace(/\/dev$/, '/exec');
+  var url = PropertiesService.getScriptProperties().getProperty(CUBA.URL_PROP);
+  if (!isExecUrl_(url)) return null;
   var cfg = Utilities.base64EncodeWebSafe(JSON.stringify({ u: url, t: tokenOrCreate_() }));
   return CUBA.APP_URL + '#cfg=' + cfg;
+}
+
+/** Pide pegar la URL de la app web (Implementar → Administrar implementaciones → Copiar) y la guarda. */
+function pedirUrl_() {
+  var ui = SpreadsheetApp.getUi();
+  for (;;) {
+    var r = ui.prompt('URL de la app web', 'Pegá la URL que termina en /exec (Implementar → Administrar implementaciones → Copiar).', ui.ButtonSet.OK_CANCEL);
+    if (r.getSelectedButton() !== ui.Button.OK) return false;
+    var u = String(r.getResponseText() || '').trim();
+    if (isExecUrl_(u)) { PropertiesService.getScriptProperties().setProperty(CUBA.URL_PROP, u); return true; }
+    ui.alert('Esa URL no sirve', 'Tiene que empezar con https://script.google.com/macros/s/ y terminar en /exec.', ui.ButtonSet.OK);
+  }
+}
+
+function cambiarUrl() {
+  if (pedirUrl_()) mostrarEmparejado();
 }
 
 /* ------------------------------------------------------------------ */
@@ -457,6 +478,7 @@ function pairingLink_() {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('🐕 Cuba')
     .addItem('Link para emparejar celulares', 'mostrarEmparejado')
+    .addItem('Cambiar URL de la app web', 'cambiarUrl')
     .addItem('Cambiar token (desconecta los celulares)', 'rotarToken')
     .addToUi();
 }
@@ -464,10 +486,7 @@ function onOpen() {
 function mostrarEmparejado() {
   var ui = SpreadsheetApp.getUi();
   var link = pairingLink_();
-  if (!link) {
-    ui.alert('Falta publicar la app web', 'En Apps Script: Implementar → Nueva implementación → Aplicación web. Después volvé a este menú.', ui.ButtonSet.OK);
-    return;
-  }
+  if (!link) { if (!pedirUrl_()) return; link = pairingLink_(); }
   var safe = link.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   var html = HtmlService.createHtmlOutput(
     '<div style="font-family:sans-serif;font-size:14px">' +

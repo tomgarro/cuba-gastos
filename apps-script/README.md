@@ -6,7 +6,7 @@
 
 1. En la Sheet: **Extensiones → Apps Script**. Borrá lo que haya, pegá el contenido de `Code.gs` y guardá.
 2. **Implementar → Nueva implementación → Aplicación web.** *Ejecutar como:* **yo**. *Quién tiene acceso:* **Cualquier persona**. Autorizá los permisos que pide. (El acceso real lo controla el token; la otra persona no necesita acceso al script.)
-3. Volvé a la Sheet y recargá la página: aparece el menú **🐕 Cuba → Link para emparejar celulares**.
+3. Volvé a la Sheet y recargá la página: aparece el menú **🐕 Cuba → Link para emparejar celulares**. La primera vez pide pegar la URL de la app web (en Implementar → Administrar implementaciones → Copiar); se guarda sola. Apps Script no la puede averiguar: la que da es la de prueba y no sirve.
 4. Abrí ese link **una vez en cada celular** (mandalo por un chat privado: lleva la clave). La app guarda la conexión y borra el link de la barra de direcciones.
 
 Para desconectar celulares: **🐕 Cuba → Cambiar token** (los celulares tienen que abrir el link nuevo). Si cambiás `Code.gs`, hay que **Implementar → Administrar implementaciones → editar → Nueva versión**.
