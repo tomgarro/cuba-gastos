@@ -110,8 +110,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   // ---- Sin conexión: se ve lo último, no se puede anotar, no se rompe nada ----
   state.down = true;
   await B.p.click('.fab'); await B.p.fill('#fdesc', 'Fantasma'); await B.p.fill('[data-in=amount]', '500'); await B.p.click('[data-act=save]');
-  await B.p.waitForSelector('#toast.show');
-  assert.ok(/No hay conexión con la Sheet/.test(await B.p.locator('#toast').innerText()), await B.p.locator('#toast').innerText());
+  await B.p.waitForFunction(() => /No hay conexión con la Sheet/.test((document.querySelector('#toast') || {}).innerText || ''), null, { timeout: 5000 });
   await B.p.click('[data-act=close]');
   await B.p.waitForSelector('.banner >> text=Sin conexión');
   assert.ok((await B.txt()).includes('Cena'), 'sigue mostrando lo último');
