@@ -41,3 +41,4 @@ Orden por dependencia. Marcar a medida que se completa.
 - [ ] Bancos: solo importación de resúmenes
 
 - v0.6: avisos de vencimientos por mail + notificación nativa (ntfy). Telegram descartado por decisión del usuario.
+- v0.6.2: importación de Splitwise con mapeo de nombres, moneda del lote y Deshacer desde Ajustes.
