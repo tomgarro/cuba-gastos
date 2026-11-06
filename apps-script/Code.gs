@@ -36,6 +36,8 @@ var TABS = {
   Categorias: ['id', 'nombre', 'emoji', 'presupuesto_mensual_centavos', 'moneda'],
   Comercios: ['patron', 'comercio', 'categoria', 'veces', 'actualizado'],
   Etiquetas: ['id', 'movimiento_id', 'categoria', 'confianza', 'fuente', 'estado', 'creado_por', 'creado_en'],
+  ReglasResumen: ['patron', 'comparte', 'categoria', 'veces', 'actualizado'],
+  Resumenes: ['id', 'tarjeta', 'persona_id', 'cierre', 'vencimiento', 'proximo_cierre', 'consumos', 'compartidos', 'creado_por', 'creado_en'],
   Config: ['clave', 'valor']
 };
 
@@ -106,7 +108,9 @@ var ACTIONS = {
   undoLote: actionUndoLote_,
   categorizar: actionCategorizar_,
   aprender: actionAprender_,
-  etiquetar: actionEtiquetar_
+  etiquetar: actionEtiquetar_,
+  registrarResumen: actionRegistrarResumen_,
+  aprenderResumen: actionAprenderResumen_
 };
 
 /** Acciones que solo leen o llaman afuera: no toman el candado (Gemini tarda y no debe frenar las cargas). */
@@ -136,6 +140,8 @@ function actionRead_() {
     lotes: readTab_('Lotes'),
     etiquetas: readTab_('Etiquetas').map(etiquetaOut_),
     categorias: readTab_('Categorias'),
+    reglas_resumen: readTab_('ReglasResumen').map(function (r) { return { patron: String(r.patron), comparte: String(r.comparte), categoria: String(r.categoria) }; }),
+    resumenes: readTab_('Resumenes').map(resumenOut_),
     config: config
   };
 }
@@ -418,7 +424,7 @@ function isDate_(s) {
 
 function sheet_(name) {
   var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(name);
-  if (!sh && (name === 'Etiquetas' || name === 'Comercios')) {  // pestañas agregadas después de v0.2: se crean solas con sus encabezados
+  if (!sh && (name === 'Etiquetas' || name === 'Comercios' || name === 'ReglasResumen' || name === 'Resumenes')) {  // pestañas agregadas después de v0.2: se crean solas con sus encabezados
     sh = ss.insertSheet(name); sh.getRange(1, 1, 1, TABS[name].length).setValues([TABS[name]]).setFontWeight('bold'); sh.setFrozenRows(1);
     sh.getRange(2, 1, 1998, TABS[name].length).setNumberFormat('@');
   }
@@ -805,6 +811,7 @@ function plata_(c, mon) {
 /** Disparador diario. `hoy` solo se pasa en las pruebas. */
 function avisarVencimientos(hoy) {
   hoy = typeof hoy === 'string' ? hoy : Utilities.formatDate(new Date(), AVISO.TZ, 'yyyy-MM-dd');
+  try { avisarResumenes_(hoy); } catch (e) { console.error('resúmenes: ' + e.message); }
   var props = PropertiesService.getScriptProperties();
   var sent = []; try { sent = JSON.parse(props.getProperty(AVISO.SENT_PROP) || '[]'); } catch (e) { sent = []; }
   var list = avisosPendientes_(readTab_('Recurrentes'), hoy, sent);
@@ -1035,4 +1042,84 @@ function activarResumenMensual() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'resumenMensual') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('resumenMensual').timeBased().onMonthDay(1).atHour(9).inTimezone(AVISO.TZ).create();
   ui.alert('Listo: el día 1 de cada mes (9 h) les llega el resumen del mes anterior a los mails de los avisos. Para ver cómo queda, usá «Mandarme un resumen de ejemplo».');
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Resúmenes de tarjeta: qué es compartido y cuándo falta subir uno    */
+/* ------------------------------------------------------------------ */
+
+function resumenOut_(r) {
+  return { id: String(r.id), tarjeta: String(r.tarjeta), persona_id: String(r.persona_id), cierre: String(r.cierre), vencimiento: String(r.vencimiento),
+    proximo_cierre: String(r.proximo_cierre), consumos: Number(r.consumos) || 0, compartidos: Number(r.compartidos) || 0 };
+}
+
+/** Anota que un resumen ya se subió (no guarda los consumos: los compartidos son movimientos y lo demás no se guarda). Idempotente. */
+function actionRegistrarResumen_(req) {
+  checkSchema_();
+  var persona = idOf_(req.persona_id, 'persona_id'), tarjeta = text_(req.tarjeta, 40);
+  if (!tarjeta) fail_('pedido_invalido', 'Falta la tarjeta.');
+  var cierre = req.cierre, venc = req.vencimiento || '', prox = req.proximo_cierre || '';
+  if (!isDate_(cierre)) fail_('pedido_invalido', 'cierre: fecha inválida.');
+  if (venc && !isDate_(venc)) fail_('pedido_invalido', 'vencimiento: fecha inválida.');
+  if (prox && !isDate_(prox)) fail_('pedido_invalido', 'proximo_cierre: fecha inválida.');
+  var id = (tarjeta + '_' + persona + '_' + cierre).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  var hay = readTab_('Resumenes').some(function (r) { return String(r.id) === id; });
+  if (hay) return { ok: true, duplicado: true };
+  appendRows_(sheet_('Resumenes'), [[id, tarjeta, persona, cierre, venc, prox, Math.max(0, Number(req.consumos) || 0), Math.max(0, Number(req.compartidos) || 0), text_(req.creado_por, 40), new Date().toISOString()]], TABS.Resumenes.length);
+  return { ok: true, id: id };
+}
+
+/** «Este comercio es compartido / personal»: lo ven los dos, porque la Sheet es una sola. */
+function actionAprenderResumen_(req) {
+  checkSchema_();
+  var list = req.reglas;
+  if (!Array.isArray(list) || !list.length || list.length > 300) fail_('pedido_invalido', 'reglas: de 1 a 300.');
+  var sh = sheet_('ReglasResumen'), cols = TABS.ReglasResumen, last = sh.getLastRow(), now = new Date().toISOString();
+  var vals = last >= 2 ? sh.getRange(2, 1, last - 1, cols.length).getValues() : [], pos = {};
+  vals.forEach(function (r, i) { pos[String(r[0])] = i; });
+  var nuevas = [], cambios = 0;
+  list.forEach(function (x) {
+    var p = patron_(text_(x && x.descripcion, 80)); if (!p) return;
+    var comparte = x.comparte === 'si' ? 'si' : x.comparte === 'no' ? 'no' : ''; if (!comparte) return;
+    var cat = categoriaValida_(x.categoria) ? x.categoria : '';
+    if (pos.hasOwnProperty(p)) {
+      var i = pos[p], row = vals[i];
+      sh.getRange(i + 2, 2, 1, 4).setValues([[comparte, cat || row[2], (Number(row[3]) || 0) + 1, now]]); cambios++;
+    } else { pos[p] = vals.length + nuevas.length; nuevas.push([p, comparte, cat, 1, now]); }
+    if (comparte === 'si' && cat && cat !== 'otros') aprenderComercio_(text_(x.descripcion, 80), cat, now);
+  });
+  if (nuevas.length) appendRows_(sh, nuevas, cols.length);
+  return { ok: true, nuevas: nuevas.length, actualizadas: cambios };
+}
+
+/** Diario: si ya pasó el cierre de la tarjeta y no se subió el resumen siguiente, avisa a quien lo sube (una vez por cierre). */
+function avisarResumenes_(hoy) {
+  var props = PropertiesService.getScriptProperties(), sent = [];
+  try { sent = JSON.parse(props.getProperty(AVISO.SENT_PROP) || '[]'); } catch (e) { sent = []; }
+  var ultimo = {};
+  readTab_('Resumenes').forEach(function (r) {
+    var k = r.tarjeta + '|' + r.persona_id;
+    if (!ultimo[k] || String(r.cierre) > String(ultimo[k].cierre)) ultimo[k] = r;
+  });
+  var topics = topicsOf_(), avisos = [];
+  Object.keys(ultimo).forEach(function (k) {
+    var r = ultimo[k], prox = String(r.proximo_cierre || ''); if (!prox) return;
+    var limite = new Date(Date.parse(prox + 'T00:00:00Z') + 2 * 86400000).toISOString().slice(0, 10);   // 2 días de gracia
+    if (hoy < limite) return;
+    var key = 'resumen:' + k + ':' + prox; if (sent.indexOf(key) >= 0) return;
+    avisos.push({ key: key, persona: String(r.persona_id), tarjeta: String(r.tarjeta), prox: prox });
+  });
+  var enviados = 0;
+  avisos.forEach(function (a) {
+    var mensaje = 'Ya cerró el resumen de la ' + a.tarjeta + ' (' + a.prox + '). Subilo en Cuba así sumo lo compartido.';
+    var ok = topics[a.persona] ? ntfy_(topics[a.persona], '🐕 Cuba: falta un resumen', mensaje, 3) === true : false;
+    if (!ok) {
+      var mails = String(props.getProperty(AVISO.MAILS_PROP) || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      if (mails.length) { try { MailApp.sendEmail(mails.join(','), '🐕 Cuba: falta subir un resumen', mensaje + '\n' + CUBA.APP_URL, { name: 'Cuba 🐕' }); ok = true; } catch (e) { ok = false; } }
+    }
+    if (ok) { sent.push(a.key); enviados++; }
+  });
+  if (enviados) props.setProperty(AVISO.SENT_PROP, JSON.stringify(sent.slice(-80)));
+  return enviados;
 }

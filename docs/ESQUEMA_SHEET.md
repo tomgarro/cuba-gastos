@@ -35,6 +35,14 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 - Solo se agrega; la última etiqueta de cada movimiento gana. Así los movimientos nunca se reescriben.
 - `fuente`: `memoria`, `gemini` o `manual`. `estado`: `aplicada` (confianza ≥ 0,85 o manual) o `dudosa` (0,5–0,85, espera confirmación). Se crea sola al primer uso.
 
+## ReglasResumen (qué es compartido)
+`patron | comparte | categoria | veces | actualizado`
+- Una fila por comercio de tarjeta: `comparte` = `si` o `no`. Cada vez que se carga un resumen, lo que decidís se aprende; cambiar de opinión actualiza la fila. La ven las dos personas (la Sheet es una sola).
+
+## Resumenes (cuáles ya se subieron)
+`id | tarjeta | persona_id | cierre | vencimiento | proximo_cierre | consumos | compartidos | creado_por | creado_en`
+- Solo el registro de que se subió (sin consumos ni números de tarjeta ni nombres). Con `proximo_cierre` Cuba avisa si falta subir el siguiente. Los consumos compartidos son movimientos (`origen = resumen`, en un lote que se puede deshacer); los personales no se guardan.
+
 ## Categorias
 `id | nombre | emoji | presupuesto_mensual_centavos | moneda`
 

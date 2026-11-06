@@ -8,6 +8,7 @@ import base64, json
 imgs = {p.stem: "data:image/webp;base64," + base64.b64encode(p.read_bytes()).decode() for p in sorted((r / "assets/cuba").glob("*.webp"))}
 html = html.replace("/*CUBAIMG*/", "var CUBA_IMG=" + json.dumps(imgs) + ";")
 html = html.replace("/*CUBA*/", (r / "src/cuba.js").read_text())
+html = html.replace("/*RESUMEN*/", (r / "src/resumen.js").read_text())
 html = html.replace("/*SHEETS*/", (r / "src/sheets.js").read_text())
 (r / "index.html").write_text(html)
 print("index.html:", len(html), "bytes")

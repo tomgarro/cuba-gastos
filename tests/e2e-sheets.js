@@ -225,6 +225,44 @@ const J = x => JSON.parse(JSON.stringify(x));
     assert.ok(/Zorbaflix/.test(await A.txt()), 'el otro celular ve los gastos');
   }
 
+  // ---- Resumen de tarjeta (PDF inventado): lo compartido entra, lo personal no, y Cuba aprende ----
+  {
+    const pdf = path.resolve(__dirname, 'fixtures', 'resumen_demo.pdf');
+    const antes = J(sheet.grids.Movimientos).length;
+    await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
+    await B.p.setInputFiles('#rsfile', pdf);
+    await B.p.waitForSelector('.rsrow', { timeout: 10000 });
+    assert.strictEqual(await B.p.locator('.rsrow').count(), 7, 'siete consumos (el impuesto no cuenta)');
+    const fila = re => B.p.locator('.rsrow', { hasText: re });
+    assert.ok(/Compartido/.test(await fila(/LUZ/).innerText()), 'la luz parece del hogar');
+    assert.ok(/Personal/.test(await fila(/Subte/).innerText()), 'lo que Cuba no conoce arranca personal');
+    await fila(/Farmacia/).locator('.chip').click();                       // lo decido yo
+    await fila(/AGUA/).locator('.chip').click();                           // y el agua la saco
+    await B.p.click('[data-act=rsgo]');
+    await B.p.waitForFunction(() => /gastos compartidos cargados/.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+    const movs = J(sheet.grids.Movimientos).slice(antes - 1).filter(r => r[col('origen')] === 'resumen');
+    assert.strictEqual(movs.length, 3, 'luz, coto y farmacia: solo lo marcado compartido');
+    assert.ok(movs.every(r => !/subte|agua/i.test(r[col('descripcion')])), 'lo personal no se guarda');
+    assert.ok(movs.some(r => /^LUZ \| [A-Z]+$/.test(r[col('descripcion')])), 'servicio con formato Splitwise');
+    assert.ok(movs.every(r => r[col('lote_id')]), 'van en un lote que se puede deshacer');
+    const reglas = Object.fromEntries(J(sheet.grids.ReglasResumen).slice(1).map(r => [r[0], r[1]]));
+    assert.strictEqual(reglas['subte'], 'no'); assert.strictEqual(reglas['farmacia demo'], 'si'); assert.strictEqual(reglas.agua, 'no', 'cambiar de opinión también se aprende');
+    assert.strictEqual(J(sheet.grids.Resumenes).length, 2, 'queda registrado el resumen de octubre');
+    checkAppendOnly('resumen de tarjeta');
+    // el mismo PDF otra vez: lo ya cargado se reconoce y no se duplica
+    await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
+    await B.p.setInputFiles('#rsfile', pdf);
+    await B.p.waitForSelector('.rsrow', { timeout: 10000 });
+    assert.ok(/3 ya estaban cargados/.test(await B.txt()), 'reconoce lo que ya está');
+    assert.ok(await B.p.locator('[data-act=rsgo]').isDisabled(), 'nada nuevo que cargar');
+    await B.p.click('[data-act=rsclear]');
+    // la otra persona ve lo mismo y lo que Cuba aprendió
+    await refresh(A.p); await A.p.waitForTimeout(250); await A.p.click('.nav [data-v=ajustes]'); await openAll(A.p);
+    await A.p.setInputFiles('#rsfile', pdf); await A.p.waitForSelector('.rsrow', { timeout: 10000 });
+    assert.ok(/Ya sabía/i.test(await A.txt()) && /3 ya estaban cargados/.test(await A.txt()), 'Odi ve las mismas reglas y lo ya cargado');
+    await A.p.click('[data-act=rsclear]');
+  }
+
   // ---- Borrar desde A ----
   await refresh(A.p); await A.p.click('.nav [data-v=gastos]');
   await A.p.locator('.item', { hasText: 'Cena' }).click(); await A.p.click('[data-act=askdel]'); await A.p.click('[data-act=del]');

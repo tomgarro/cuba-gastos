@@ -480,4 +480,30 @@ t('resumen mensual: totales por moneda, etiquetas pisan categoría, sin anulados
   const r = b.ctx.resumenMensual('2026-11');
   assert.ok(r.enviado && sent.length === 1 && sent[0].to === 'a@x.com,b@x.com' && /resumen de/.test(sent[0].subject) && sent[0].htmlBody && sent[0].name === 'Cuba 🐕');
 });
+
+t('resúmenes de tarjeta: registrar es idempotente, las reglas se comparten y avisa si falta subir uno', () => {
+  const b = withPeople();
+  const base = { tarjeta: 'VISA', persona_id: 'm1', cierre: '2026-10-29', vencimiento: '2026-11-11', proximo_cierre: '2026-11-26', consumos: 30, compartidos: 6, creado_por: 'm1' };
+  assert.ok(b.call('registrarResumen', base).ok);
+  assert.ok(b.call('registrarResumen', base).duplicado, 'subir dos veces el mismo no lo repite');
+  err(() => b.call('registrarResumen', Object.assign({}, base, { cierre: 'x' })));
+  const r = b.call('aprenderResumen', { reglas: [{ descripcion: 'COTO Octubre', comparte: 'si', categoria: 'super' }, { descripcion: 'EMOVA SUBTE', comparte: 'no' }, { descripcion: 'x', comparte: 'tal vez' }] });
+  assert.strictEqual(r.nuevas, 2);
+  const r2 = b.call('aprenderResumen', { reglas: [{ descripcion: 'coto marzo', comparte: 'no' }] });
+  assert.strictEqual(r2.actualizadas, 1, 'cambiar de opinión actualiza, no duplica');
+  const rd = b.call('read');
+  assert.strictEqual(JSON.stringify(rd.reglas_resumen.map(x => [x.patron, x.comparte]).sort()), JSON.stringify([['coto', 'no'], ['emova subte', 'no']]));
+  assert.strictEqual(rd.resumenes.length, 1);
+  assert.ok(rd.comercios === undefined && b.ctx.patron_('COTO Octubre') === 'coto');
+  // avisos: sin gracia no avisa; pasada la gracia avisa una sola vez
+  const sent = []; b.ctx.UrlFetchApp = { fetch: (u, o) => { sent.push(JSON.parse(o.payload)); return { getResponseCode: () => 200 }; } };
+  b.log.props.CUBA_NTFY_TOPICS = JSON.stringify({ m1: 'cuba-t1', m2: 'cuba-t2' });
+  assert.strictEqual(b.ctx.avisarResumenes_('2026-11-27'), 0, '2 días de gracia');
+  assert.strictEqual(b.ctx.avisarResumenes_('2026-11-29'), 1);
+  assert.strictEqual(sent.length, 1); assert.strictEqual(sent[0].topic, 'cuba-t1', 'solo a quien sube el resumen');
+  assert.ok(/VISA/.test(sent[0].message) && !/\d{2}\.\d{3}/.test(sent[0].message), 'sin montos');
+  assert.strictEqual(b.ctx.avisarResumenes_('2026-12-02'), 0, 'una vez por cierre');
+  b.call('registrarResumen', Object.assign({}, base, { cierre: '2026-11-26', proximo_cierre: '2026-12-29' }));
+  assert.strictEqual(b.ctx.avisarResumenes_('2026-12-20'), 0, 'subido el siguiente, no avisa');
+});
 console.log(n + ' pruebas del backend');

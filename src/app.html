@@ -57,6 +57,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
 .item .s{font-size:13px;color:var(--mut)}
 .item .r{text-align:right;flex:none}
 .item .r .a{font-weight:700}
+.rsrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}.rsrow .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rsrow .s{font-size:12px;color:var(--mut)}.rsrow .r{text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px}.rsrow .a{font-weight:700;font-size:14px}.rsrow .chip{font-size:12px;padding:3px 10px}
 .item.pay{padding:8px 0;background:linear-gradient(90deg,transparent,var(--accsoft) 160%)}.item.pay .coin{width:28px;height:28px;border-radius:50%;background:var(--pos);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;flex:none;margin:0 7px}.item.pay .s{white-space:normal;line-height:1.35}.item.pay .s b{color:var(--ink);font-weight:600}.item.pay .a{font-size:15px}.item.pay .a.in{color:var(--pos)}.item.pay .a.out{color:var(--acc)}
 .item .r .b{font-size:12px}
 .nav{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
@@ -135,6 +136,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 <script>/*CUBAIMG*/</script>
 <script>/*CUBA*/</script>
 <script>/*SHEETS*/</script>
+<script>/*RESUMEN*/</script>
 <script>
 (function () {
 'use strict';
@@ -151,7 +153,7 @@ var COLORS = ['#c47a35', '#4f7c6d', '#7a5ea8', '#c0504d', '#3f6fa3', '#a68a2e'];
 var LS = 'cuba:v1', LSME = 'cuba:me', LSSH = 'cuba:sheets', LSSNAP = 'cuba:sheetsnap';
 
 // ---------------- estado ----------------
-var S = { catProg: null, fold: {}, group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], lotes: [], dudosas: [], catBusy: false, catMsg: '', impMap: {}, impCur: '', rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
+var S = { reglas: {}, resumenes: [], rs: null, catProg: null, fold: {}, group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], lotes: [], dudosas: [], catBusy: false, catMsg: '', impMap: {}, impCur: '', rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
   month: C.monthKey(today()), months: [C.monthKey(today())], perOpen: false, q: '', cat: '', ob: { step: 0, names: ['', ''] }, form: null, imp: null, closeMonth: C.monthKey(today()), confirmDel: null, exportText: null };
 var members = function () { return (S.group && S.group.members) || []; };
 var mem = function (id) { return members().filter(function (m) { return m.id === id; })[0] || { id: id, name: '?', color: '#999' }; };
@@ -202,7 +204,7 @@ var Store = {
         return d;
       }, function (e) { clearTimeout(to); throw e; });
   },
-  snap: function () { try { localStorage.setItem(LSSNAP, JSON.stringify({ u: this.cfg.u, group: S.group, ledger: S.ledger, sueldos: S.sueldos, recs: S.recs, lotes: S.lotes, dudosas: S.dudosas })); } catch (e) {} },
+  snap: function () { try { localStorage.setItem(LSSNAP, JSON.stringify({ u: this.cfg.u, group: S.group, ledger: S.ledger, sueldos: S.sueldos, recs: S.recs, lotes: S.lotes, dudosas: S.dudosas, reglas: S.reglas, resumenes: S.resumenes })); } catch (e) {} },
   refresh: function () {
     var self = this;
     var run = function () {
@@ -211,7 +213,7 @@ var Store = {
       return self.call('read').then(function (d) {
         if (gen !== self.gen) return; // hubo una escritura en el medio: este snapshot ya quedó viejo
         var st = CubaSheets.snapshotToState(d);
-        S.group = st.group; S.ledger = st.ledger; S.sueldos = st.sueldos || []; S.recs = st.recs || []; S.lotes = st.lotes || []; S.dudosas = st.dudosas || []; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); render();
+        S.group = st.group; S.ledger = st.ledger; S.sueldos = st.sueldos || []; S.recs = st.recs || []; S.lotes = st.lotes || []; S.dudosas = st.dudosas || []; S.reglas = st.reglas || {}; S.resumenes = st.resumenes || []; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); render();
         if (had && S.entries.some(function (x) { return !x.del && !seen[x.id] && x.by && x.by !== S.meId; })) { var a = $('#app'); a.classList.add('perk'); clearTimeout(self.pt); self.pt = setTimeout(function () { a.classList.remove('perk'); }, 2800); }
       }).catch(function (e) { S.loaded = true; S.offline = true; S.authErr = !!(e && (e.code === 'no_autorizado' || e.code === 'sin_token')); render(); });
     };
@@ -224,7 +226,7 @@ var Store = {
     try { S.meId = localStorage.getItem(LSME) || null; } catch (e) {}
     try {
       var sn = JSON.parse(localStorage.getItem(LSSNAP) || 'null');
-      if (sn && sn.u === cfg.u && sn.group) { S.group = sn.group; S.ledger = sn.ledger || {}; S.sueldos = sn.sueldos || []; S.recs = sn.recs || []; S.lotes = sn.lotes || []; S.dudosas = sn.dudosas || []; S.loaded = true; rebuild(); render(); }
+      if (sn && sn.u === cfg.u && sn.group) { S.group = sn.group; S.ledger = sn.ledger || {}; S.sueldos = sn.sueldos || []; S.recs = sn.recs || []; S.lotes = sn.lotes || []; S.dudosas = sn.dudosas || []; S.reglas = sn.reglas || {}; S.resumenes = sn.resumenes || []; S.loaded = true; rebuild(); render(); }
     } catch (e) {}
     document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') self.refresh(); });
     window.addEventListener('online', function () { self.refresh(); });
@@ -472,6 +474,7 @@ function viewInicio() {
   }
   var h = '<div class="hero"><div style="flex:none">' + cuba(mood, 150) + '</div><div class="bubble">' + msg + '</div></div>';
   h += '<div class="actions"><button class="btn acc" data-act="new">+ Anotar gasto</button><button class="btn ghost" data-act="tab" data-v="cierre">Saldar</button></div>';
+  if (S.mode === 'sheets') resumenFalta().forEach(function (r) { h += '<div class="card"><h3>Falta un resumen</h3><div class="stat"><span>Ya cerró la ' + esc(r.tarjeta) + ' (' + dLarga(r.proximo_cierre) + ')</span><button class="btn sm acc" data-act="rsir">Subirlo</button></div></div>'; });
   h += viewPorPagar();
   if (tr.length) {
     h += '<div class="card"><h3>Quién le debe a quién</h3>' + tr.map(function (t) { return '<div class="transfer">' + avatar(t.from) + '<div class="grow"><b>' + esc(firstName(t.from)) + '</b> <span class="mut">→</span> <b>' + esc(firstName(t.to)) + '</b></div><div class="amt">' + C.fmt(t.cents, t.cur) + '</div></div>'; }).join('') + '</div>';
@@ -553,7 +556,7 @@ function viewCierre() {
 }
 function foldCards(h) {
   return h.replace(/<div class="card"><h3>([^<]*)<\/h3>/g, function (m, t) {
-    var open = S.fold[t] || (/Splitwise/.test(t) && S.imp) || (/Categor/.test(t) && S.catBusy);
+    var open = S.fold[t] || (/Splitwise/.test(t) && S.imp) || (/Categor/.test(t) && S.catBusy) || (/tarjeta/i.test(t) && S.rs);
     var badge = /Categor/.test(t) && S.dudosas.length && !open ? ' <span class="mut">(' + dudososGrupos().length + ' para confirmar)</span>' : '';
     return '<div class="card fold' + (open ? ' open' : '') + '"><h3 data-act="fold" data-t="' + esc(t) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' + t + badge + '<i aria-hidden="true">▾</i></h3>';
   });
@@ -563,7 +566,7 @@ function viewAjustes() {
     return '<div class="row" style="margin-bottom:8px">' + avatar(m.id) + '<input data-in="rename" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '" maxlength="30"></div>';
   }).join('') + (members().length < 8 ? '<div class="row" style="margin-top:6px"><input data-in="newmember" placeholder="Agregar otra persona" maxlength="30"><button class="btn sm" data-act="addmember">Agregar</button></div>' : '') +
     '<label class="f">Yo soy</label><select data-in="me">' + members().map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === S.meId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div>';
-  h += viewSueldo() + viewRecs() + viewCategorias();
+  h += viewSueldo() + viewRecs() + viewResumen() + viewCategorias();
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
@@ -670,6 +673,62 @@ function viewCategorias() {
     if (gr.length > 12) h += '<p class="mut" style="font-size:13px">Y ' + (gr.length - 12) + ' más: confirmá estos y aparecen.</p>';
   }
   return h + '</div>';
+}
+
+// ---------------- resumen de tarjeta ----------------
+function dLarga(iso) { var m = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']; return +iso.slice(8, 10) + ' ' + m[+iso.slice(5, 7) - 1]; }
+function misResumenes() {
+  var by = {}; S.resumenes.forEach(function (r) { if (r.persona_id === S.meId && (!by[r.tarjeta] || r.cierre > by[r.tarjeta].cierre)) by[r.tarjeta] = r; });
+  return Object.keys(by).map(function (k) { return by[k]; });
+}
+function resumenFalta() { // resúmenes que ya cerraron y todavía no se subieron (2 días de gracia)
+  var lim = new Date(Date.parse(today() + 'T00:00:00Z') - 2 * 86400000).toISOString().slice(0, 10);
+  return misResumenes().filter(function (r) { return r.proximo_cierre && r.proximo_cierre <= lim; });
+}
+function viewResumen() {
+  if (S.mode !== 'sheets') return '';
+  var h = '<div class="card"><h3>Resumen de tarjeta</h3>';
+  var mis = misResumenes();
+  if (!S.rs) {
+    h += '<p class="mut" style="margin:0 0 10px;font-size:14px">Subí el PDF del resumen. Cuba te muestra los consumos y vos marcás cuáles son <b>compartidos</b>: solo esos entran. Lo demás no se guarda.</p>';
+    mis.forEach(function (r) { h += '<div class="stat"><span>' + esc(r.tarjeta) + ' · último cierre ' + dLarga(r.cierre) + '</span><b class="mut">' + (r.proximo_cierre ? 'próx. ' + dLarga(r.proximo_cierre) : '') + '</b></div>'; });
+    h += '<input type="file" id="rsfile" accept=".pdf,application/pdf,.txt,text/plain" style="margin:8px 0"><textarea id="rspaste" data-in="rspaste" placeholder="…o pegá acá el texto del resumen"></textarea>' +
+      '<button class="btn full" style="margin-top:8px" data-act="rsread"' + (S.readOnly ? ' disabled' : '') + '>Leer resumen</button>';
+    if (S.rsMsg) h += '<div class="preview neg" style="margin-top:8px">' + esc(S.rsMsg) + '</div>';
+    return h + '</div>';
+  }
+  var R = S.rs, its = R.items, nuevos = its.filter(function (x) { return x.estado === 'nuevo'; }), reglas = its.filter(function (x) { return x.estado === 'regla'; }), ya = its.filter(function (x) { return x.estado === 'ya'; });
+  var sel = its.filter(function (x) { return x.estado !== 'ya' && x.comparte; });
+  h += '<div class="stat"><span><b>' + esc(R.tarjeta) + '</b> · cierre ' + dLarga(R.cierre) + '</span><b class="mut">' + its.length + ' consumos</b></div>';
+  var row = function (x) {
+    var i = its.indexOf(x), c = C.catInfo(x.cat);
+    return '<div class="rsrow"><span class="grow"><div class="t">' + esc(x.nombre) + '</div><div class="s">' + dLarga(x.fecha) + ' · ' + c.e + ' ' + esc(c.n) + (x.why ? ' · ' + esc(x.why) : '') + '</div></span>' +
+      '<span class="r"><div class="a">' + C.fmt(x.cents, x.cur, { noDecimals: x.cur === 'ARS' }) + '</div><button class="chip' + (x.comparte ? ' on' : '') + '" data-act="rstog" data-i="' + i + '" aria-pressed="' + !!x.comparte + '">' + (x.comparte ? 'Compartido' : 'Personal') + '</button></span></div>';
+  };
+  if (S.rsBusy) h += '<p class="mut" style="font-size:14px">Cuba está pensando qué es cada cosa…</p>';
+  if (nuevos.length) h += '<h3 style="margin:14px 0 4px">Para decidir (' + nuevos.length + ')</h3>' + nuevos.map(row).join('');
+  if (reglas.length) h += '<h3 style="margin:14px 0 4px">Ya sabía (' + reglas.length + ')</h3>' + reglas.map(row).join('');
+  if (ya.length) h += '<p class="mut" style="font-size:13px;margin:10px 0 0">' + ya.length + ' ya estaban cargados en Cuba.</p>';
+  var tot = {}; sel.forEach(function (x) { tot[x.cur] = (tot[x.cur] || 0) + x.cents; });
+  h += '<div class="stat" style="margin-top:10px"><span>Compartidos que se cargan</span><b>' + sel.length + (sel.length ? ' · ' + Object.keys(tot).map(function (k) { return C.fmt(tot[k], k, { noDecimals: k === 'ARS' }); }).join(' + ') : '') + '</b></div>';
+  h += '<button class="btn acc full" style="margin-top:8px" data-act="rsgo"' + (S.readOnly || S.rsBusy || !sel.length ? ' disabled' : '') + '>Cargar ' + sel.length + (sel.length === 1 ? ' gasto compartido' : ' gastos compartidos') + '</button>' +
+    '<button class="btn ghost full" style="margin-top:6px" data-act="rsclear">Cancelar</button>';
+  return h + '</div>';
+}
+function rsDe(texto) {
+  var res = CubaResumen.parseResumen(texto);
+  if (res.error) { S.rsMsg = res.error; render(); return; }
+  var vivos = C.live(S.entries); // lo que ya está cargado
+  var items = CubaResumen.clasificar(res, S.reglas, vivos, S.recs);
+  S.rs = { tarjeta: res.tarjeta, cierre: res.cierre, vencimiento: res.vencimiento, proximoCierre: res.proximoCierre, items: items, cargos: res.cargos }; S.rsMsg = ''; S.rsBusy = false;
+  render();
+  var duda = items.filter(function (x) { return x.estado === 'nuevo' && x.cat === 'otros'; });
+  if (!duda.length) return;
+  S.rsBusy = true; render();
+  var uniq = {}; duda.forEach(function (x) { uniq[x.nombre] = x; });
+  Store.categorizar(Object.keys(uniq).map(function (k) { return { descripcion: k, monto_centavos: uniq[k].cents, moneda: uniq[k].cur }; })).then(function (r) {
+    (r.resultados || []).forEach(function (g) { if (g.categoria !== 'otros' && g.confianza >= 0.7) duda.forEach(function (x) { if (x.nombre === g.descripcion) { x.cat = g.categoria; } }); });
+  }).catch(function () {}).then(function () { S.rsBusy = false; render(); });
 }
 function catEtiquetas(ids, cat, fuente, estado, conf) {
   return ids.map(function (id) { return { id: 'et_' + rid(), movimiento_id: id, categoria: cat, confianza: conf == null ? 1 : conf, fuente: fuente, estado: estado }; });
@@ -939,6 +998,31 @@ var A = {
     if (S.readOnly || !confirm('¿Deshacer esta importación? Los movimientos quedan anulados (el historial se conserva en la Sheet).')) return;
     Store.undoLote(el.dataset.id).then(function () { toast('Importación deshecha'); }).catch(fail);
   },
+  rsread: function () {
+    var t = (($('#rspaste') || {}).value || '').trim(); if (!t) { toast('Elegí el PDF o pegá el texto del resumen.'); return; }
+    rsDe(t);
+  },
+  rsir: function () { S.tab = 'ajustes'; S.fold['Resumen de tarjeta'] = true; render(); },
+  rsclear: function () { S.rs = null; S.rsMsg = ''; render(); },
+  rstog: function (el) { var x = S.rs && S.rs.items[+el.dataset.i]; if (!x) return; x.comparte = !x.comparte; x.why = x.comparte ? 'lo marcaste compartido' : 'lo marcaste personal'; render(); },
+  rsgo: function () {
+    var R = S.rs; if (!R || S.readOnly || S.rsBusy) return;
+    var sel = R.items.filter(function (x) { return x.estado !== 'ya' && x.comparte; }); if (!sel.length) return;
+    var ids = members().map(function (m) { return m.id; }), loteId = 'L' + rid(), now = new Date().toISOString(), problema = '';
+    var entries = sel.map(function (x) {
+      var sr = C.salarySplit(x.cents, ids, S.sueldos, x.fecha), sp = sr.sp || C.splitEqual(x.cents, ids, x.cents);
+      return { id: x.id, type: 'expense', desc: x.nombre, cents: x.cents, cur: x.cur, date: x.fecha, paidBy: S.meId, sp: sp, cat: x.cat || 'otros',
+        note: R.tarjeta + ' · cierre ' + R.cierre, by: S.meId, at: now, src: 'resumen', lote: loteId };
+    });
+    var reglas = R.items.filter(function (x) { return x.estado !== 'ya'; }).map(function (x) { return { descripcion: CubaResumen.limpiar(x.bruto), comparte: x.comparte ? 'si' : 'no', categoria: x.comparte ? x.cat : '' }; });
+    S.rsBusy = true; render();
+    Store.putEntries(entries, { lote: { id: loteId, origen: 'resumen', archivo: '', fecha: today(), cantidad: entries.length, moneda_original: 'ARS' } }).then(function () {
+      return Store.call('aprenderResumen', { reglas: reglas });
+    }).then(function () {
+      return Store.call('registrarResumen', { tarjeta: R.tarjeta, persona_id: S.meId, cierre: R.cierre, vencimiento: R.vencimiento || '', proximo_cierre: R.proximoCierre || '', consumos: R.items.length, compartidos: entries.length, creado_por: S.meId });
+    }).then(function () { return Store.refresh(); }).then(function () { S.rsBusy = false; S.rs = null; toast(entries.length + ' gastos compartidos cargados' + (R.items.length >= 25 ? ' · Cuba olfateó ' + R.items.length + ' consumos y trajo solo lo compartido 🦴' : '')); render(); })
+      .catch(function (er) { S.rsBusy = false; render(); fail(er); });
+  },
   retry: function () { Store.refresh(); },
   disconnect: function () { if (confirm('¿Desconectar este celular de la Sheet? Los datos siguen en la Sheet.')) Store.disconnect(); },
   salsave: function () {
@@ -1038,6 +1122,17 @@ document.addEventListener('click', function (ev) {
 document.addEventListener('change', function (ev) {
   var el = ev.target;
   if (el.type === 'checkbox' && el.dataset.act === 'toggle') { A.toggle(el); return; }
+  if (el.type === 'file' && el.id === 'rsfile') {
+    var fr = el.files && el.files[0]; if (!fr) return;
+    var rr = new FileReader();
+    rr.onload = function () {
+      if (/\.pdf$/i.test(fr.name) || fr.type === 'application/pdf') {
+        CubaResumen.pdfTexto(rr.result).then(rsDe).catch(function () { S.rsMsg = 'No pude leer ese PDF. Abrilo, seleccioná todo el texto, copialo y pegalo acá abajo.'; render(); });
+      } else rsDe(String(rr.result || ''));
+    };
+    if (/\.pdf$/i.test(fr.name) || fr.type === 'application/pdf') rr.readAsArrayBuffer(fr); else rr.readAsText(fr);
+    return;
+  }
   if (el.type === 'file') {
     var fl = el.files && el.files[0]; if (!fl) return;
     var rd = new FileReader(); rd.onload = function () { $('#paste').value = String(rd.result || ''); A.impprev(); }; rd.readAsText(fl);

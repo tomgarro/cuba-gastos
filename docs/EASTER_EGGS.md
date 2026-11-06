@@ -17,3 +17,8 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 
 - **Se activa:** acariciar a Cuba (tocarlo) 10 veces seguidas, con menos de 3 segundos entre toque y toque: llueven huesos y aparece un aviso.
 - **Se apaga:** borrar la línea `if (PET.n === 10 && !calm) {…}` al final del bloque «acariciar a Cuba» en `src/app.html`. No aparece con «reducir movimiento».
+
+## v0.11 · Cuba olfatea el resumen
+
+- **Se activa:** al cargar un resumen de tarjeta con 25 consumos o más, el aviso de confirmación suma «Cuba olfateó N consumos y trajo solo lo compartido 🦴».
+- **Se apaga:** borrar el `(R.items.length >= 25 ? … : '')` del `toast` al final de `A.rsgo` en `src/app.html`.

@@ -59,3 +59,12 @@ Menú **🐕 Cuba → Guardar clave de Gemini**: la clave se escribe en un cuadr
 - Lleva total y cantidad de gastos por moneda, barras por categoría, comparación con el mes anterior y un tip sacado de los números. **No lleva sueldos ni saldos** (esos viven en el cierre de la app).
 - El remitente es la cuenta dueña del script, con el nombre «Cuba 🐕». Apps Script no permite un no-reply real salvo en Google Workspace. La imagen de Cuba se carga desde GitHub Pages (`assets/cuba/mail_feliz.png`).
 
+
+## Resúmenes de tarjeta (v0.11)
+
+| Acción | Qué hace |
+|---|---|
+| `aprenderResumen` | Guarda en `ReglasResumen` si un comercio es compartido o personal (y aprende su categoría si es compartido). |
+| `registrarResumen` | Anota en `Resumenes` que se subió un resumen (idempotente). |
+
+El PDF se lee en el celular (no sale de ahí); a Gemini solo va descripción y monto de lo que Cuba no reconoce. Si el resumen no se sube después del cierre más 2 días, el disparador diario avisa por ntfy a quien lo sube (si no hay ntfy, por mail).

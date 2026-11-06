@@ -27,7 +27,7 @@ Orden por dependencia. Marcar a medida que se completa.
 
 ## Fase 3 · Todo lo demás
 - [ ] Compartir comprobantes a Cuba (Android) y subir capturas
-- [ ] Importar resúmenes de tarjeta (PDF o CSV)
+- [x] Importar resúmenes de tarjeta (PDF o texto): solo lo compartido, con reglas que Cuba aprende y aviso si falta subir uno
 - [ ] Resumen semanal y mail mensual con tips basados en hábitos propios
 - [ ] Metas compartidas con aporte proporcional
 - [ ] Cierre con doble confirmación y PDF mensual a Drive
