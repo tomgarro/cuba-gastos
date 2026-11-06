@@ -4,7 +4,7 @@ App web (PWA) para llevar gastos compartidos entre dos personas, con seguimiento
 
 Reemplaza a Splitwise sin el límite diario de cargas.
 
-**App en vivo:** se completa al publicar en GitHub Pages.
+**App en vivo:** https://tomgarro.github.io/cuba-gastos/
 
 ## Estado actual (v0.1)
 
