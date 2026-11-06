@@ -51,22 +51,27 @@
     return out;
   }
 
-  /** Dólar tarjeta que sale del propio resumen: TC vendedor (base de la percepción IVA ÷ USD) y percepciones que se suman. null si no se puede. */
+  /** Dólar tarjeta que sale del propio resumen. TC vendedor = base de la percepción RG 5617 ÷ USD (esa base es todo el USD pesificado).
+   *  IVA + IIBB solo caen sobre algunos consumos: se busca qué consumos en USD suman esa base. null si no se puede leer. */
   function dolarTarjeta(t, lineas) {
-    var usd = lineas.filter(function (l) { return l.cur === 'USD'; }).reduce(function (a, l) { return a + l.cents; }, 0);
+    var usdL = lineas.filter(function (l) { return l.cur === 'USD'; }), usd = usdL.reduce(function (a, l) { return a + l.cents; }, 0);
     if (!usd) return null;
-    var pcts = [], tc = 0, re = /(IVA RG|IIBB PERCEP|DB\.RG)[^\n(]*?(\d+(?:,\d+)?)\s*%\s*\(\s*(\d[\d.]*,\d{2})\s*\)/gi, m;
+    var re = /(IVA RG|IIBB PERCEP|DB\.RG)[^\n(]*?(\d+(?:,\d+)?)\s*%\s*\(\s*(\d[\d.]*,\d{2})\s*\)/gi, m, rg = null, otros = [];
     while ((m = re.exec(t))) {
-      var pct = parseFloat(m[2].replace(',', '.')), base = importe(m[3]);
-      if (/IVA/i.test(m[1])) tc = base / usd;                                  // centavos de peso por centavo de USD = pesos por dólar
-      pcts.push({ nombre: m[1].toUpperCase().replace(/\.$/, ''), pct: pct, base: base });
+      var x = { pct: parseFloat(m[2].replace(',', '.')), base: importe(m[3]), nombre: m[1].toUpperCase() };
+      if (/DB\./i.test(x.nombre)) rg = x; else otros.push(x);
     }
-    if (!(tc > 0)) return null;
-    var usdPesos = usd * tc, suma = 0, usados = [];
-    pcts.forEach(function (x) {
-      if (/DB\./i.test(x.nombre) || Math.abs(x.base - usdPesos) <= usdPesos * 0.02) { suma += x.pct; usados.push(x.nombre + ' ' + x.pct + '%'); }
-    });
-    return { tc: Math.round(tc * 100) / 100, pct: suma, detalle: usados.join(' + ') };
+    if (!rg) return null;
+    var tc = rg.base / usd, extra = 0, ids = [], det = ['RG 5617 ' + rg.pct + '%'];
+    if (otros.length) {
+      var base = otros[0].base, n = usdL.length, hit = null;
+      for (var mask = 1; mask < (1 << Math.min(n, 16)) && !hit; mask++) {      // qué consumos suman la base del IVA
+        var sum = 0; for (var i = 0; i < n; i++) if (mask & (1 << i)) sum += usdL[i].cents;
+        if (Math.abs(sum * tc - base) <= Math.max(2, base * 0.0005)) hit = mask;
+      }
+      if (hit) { otros.forEach(function (o) { extra += o.pct; det.push(o.nombre.replace('IVA RG', 'IVA').replace('IIBB PERCEP', 'IIBB') + ' ' + o.pct + '%'); }); for (var j = 0; j < n; j++) if (hit & (1 << j)) ids.push(usdL[j].id); }
+    }
+    return { tc: Math.round(tc * 100) / 100, pct: rg.pct, extra: extra, ids: ids, detalle: det.join(' + ') };
   }
   /** USD en centavos → pesos en centavos, con tipo de cambio y % de impuestos. */
   function aPesos(usdCents, tc, pct) { return Math.round(usdCents * tc * (1 + (pct || 0) / 100)); }

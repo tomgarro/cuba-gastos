@@ -273,7 +273,7 @@ const J = x => JSON.parse(JSON.stringify(x));
     await B.p.fill('#rspaste', txt); await B.p.click('[data-act=rsread]');
     await B.p.waitForSelector('.rsrow', { timeout: 10000 });
     assert.strictEqual(await B.p.inputValue('#rstc'), '500', 'lee la cotización del propio resumen');
-    assert.strictEqual(await B.p.inputValue('#rspct'), '53', 'IVA + IIBB + RG 5617');
+    assert.strictEqual(await B.p.inputValue('#rspct'), '30', 'RG 5617 para todos; IVA e IIBB solo al que corresponde');
     await B.p.locator('.rsrow', { hasText: /Zorbaflix/i }).locator('.chip').click();
     await B.p.locator('.rsrow', { hasText: /Luz/i }).locator('.chip:not(.on)').click().catch(() => {});
     await B.p.click('[data-act=rsgo]');
