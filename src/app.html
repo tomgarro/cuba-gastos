@@ -417,7 +417,7 @@ function render() {
   else if (S.mode === 'sheets' && S.offline) banner = S.authErr ? '<div class="banner">La Sheet no reconoce este celular (¿cambiaron el token?). Pedí el link nuevo desde el menú Cuba de la Sheet.</div>' : '<div class="banner">Sin conexión con la Sheet: veo lo último que guardé y no puedo anotar hasta que vuelva.</div>';
   else if (S.slow) banner = '<div class="banner">No puedo conectar con los datos compartidos. Lo que ves puede estar desactualizado.</div>';
   else if (S.readOnly) banner = '<div class="banner">Tenés acceso de solo lectura: pedí permiso de <b>Contributor</b> para poder anotar gastos.</div>';
-  app.innerHTML = '<div class="top"><div class="brand">' + cuba('idle', 58) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
+  app.innerHTML = '<div class="top"><div class="brand">' + (S.tab === 'inicio' && S.group.members && S.group.members.length ? '' : cuba('idle', 58)) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
     '<button class="fab" data-act="new" aria-label="Anotar gasto">+</button>' +
     '<nav class="nav"><div>' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['ajustes', '⚙️', 'Ajustes']].map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
 }
