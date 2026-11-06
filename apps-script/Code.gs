@@ -34,6 +34,8 @@ var TABS = {
   Lotes: ['id', 'origen', 'archivo', 'fecha', 'cantidad', 'moneda_original', 'estado'],
   Recurrentes: ['id', 'descripcion', 'monto_estimado_centavos', 'moneda', 'dia_mes', 'categoria', 'pagador_id', 'proximo_vencimiento', 'activo'],
   Categorias: ['id', 'nombre', 'emoji', 'presupuesto_mensual_centavos', 'moneda'],
+  Comercios: ['patron', 'comercio', 'categoria', 'veces', 'actualizado'],
+  Etiquetas: ['id', 'movimiento_id', 'categoria', 'confianza', 'fuente', 'estado', 'creado_por', 'creado_en'],
   Config: ['clave', 'valor']
 };
 
@@ -79,6 +81,7 @@ function handle_(req) {
   var action = String(req.action || '');
   var fn = ACTIONS[action];
   if (!fn) fail_('accion_desconocida', 'Acción desconocida: ' + action);
+  if (SIN_CANDADO[action]) return fn(req);
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(CUBA.LOCK_MS);
@@ -100,8 +103,14 @@ var ACTIONS = {
   saveRecurrente: actionSaveRecurrente_,
   addMovimientos: actionAddMovimientos_,
   anularMovimientos: actionAnularMovimientos_,
-  undoLote: actionUndoLote_
+  undoLote: actionUndoLote_,
+  categorizar: actionCategorizar_,
+  aprender: actionAprender_,
+  etiquetar: actionEtiquetar_
 };
+
+/** Acciones que solo leen o llaman afuera: no toman el candado (Gemini tarda y no debe frenar las cargas). */
+var SIN_CANDADO = { categorizar: true };
 
 /* ------------------------------------------------------------------ */
 /* Acciones                                                            */
@@ -125,6 +134,7 @@ function actionRead_() {
     recurrentes: readTab_('Recurrentes').map(recOut_),
     movimientos: readTab_('Movimientos').map(movOut_),
     lotes: readTab_('Lotes'),
+    etiquetas: readTab_('Etiquetas').map(etiquetaOut_),
     categorias: readTab_('Categorias'),
     config: config
   };
@@ -407,7 +417,11 @@ function isDate_(s) {
 /* ------------------------------------------------------------------ */
 
 function sheet_(name) {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(name);
+  if (!sh && (name === 'Etiquetas' || name === 'Comercios')) {  // pestañas agregadas después de v0.2: se crean solas con sus encabezados
+    sh = ss.insertSheet(name); sh.getRange(1, 1, 1, TABS[name].length).setValues([TABS[name]]).setFontWeight('bold'); sh.setFrozenRows(1);
+    sh.getRange(2, 1, 1998, TABS[name].length).setNumberFormat('@');
+  }
   if (!sh) fail_('esquema', 'Falta la pestaña ' + name + '.');
   return sh;
 }
@@ -558,6 +572,7 @@ function cambiarUrl() {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('🐕 Cuba')
     .addItem('Link para emparejar celulares', 'mostrarEmparejado')
+    .addItem('Guardar clave de Gemini', 'guardarClaveGemini')
     .addItem('Activar avisos de vencimientos', 'activarAvisos')
     .addItem('Desactivar avisos', 'desactivarAvisos')
     .addItem('Cambiar URL de la app web', 'cambiarUrl')
@@ -587,6 +602,163 @@ function rotarToken() {
   mostrarEmparejado();
 }
 
+
+
+/* ------------------------------------------------------------------ */
+/* Categorías: memoria de comercios → Gemini → cola de dudosos          */
+/* A Gemini solo viaja la descripción y el monto. Nunca nombres ni sueldos.*/
+/* La clave vive en Propiedades del script (GEMINI_API_KEY).            */
+/* ------------------------------------------------------------------ */
+
+var IA = {
+  KEY_PROP: 'GEMINI_API_KEY', MODEL_PROP: 'GEMINI_MODEL', MODEL: 'gemini-3.5-flash-lite',
+  URL: 'https://generativelanguage.googleapis.com/v1beta/models/', CHUNK: 40, MAX_ITEMS: 150, AUTO: 0.85
+};
+var CATEGORIAS_IA = {
+  super: 'Supermercado, verdulería, carnicería, almacén, chino, panadería, fiambrería',
+  comida: 'Restaurantes, cafés, delivery, helado, salidas a comer',
+  alquiler: 'Alquiler (incluye ajustes del alquiler)', expensas: 'Expensas del consorcio', luz: 'Luz (Edenor, Edesur)',
+  agua: 'Agua (AySA)', gas: 'Gas (Metrogas, Naturgy)', internet: 'Internet y celular (Personal Flow, Fibertel, Telecentro)',
+  streaming: 'Streaming y suscripciones (HBO Max, Netflix, Spotify, Prime, Google One)', seguro: 'Seguros',
+  impuestos: 'Impuestos y tasas (ABL, ARBA, patente, monotributo)', casa: 'Casa y mantenimiento (ferretería, plomero, pintura, muebles, mudanza, limpieza)',
+  transporte: 'Transporte (Uber, nafta, SUBE, peajes)', salud: 'Salud (farmacia, médico, prepaga)', ocio: 'Ocio (cine, juegos, salidas)',
+  viaje: 'Viajes (hoteles, vuelos, traslados al aeropuerto)', mascota: 'Mascota (veterinaria, alimento)', regalo: 'Regalos',
+  ropa: 'Ropa y calzado', otros: 'Solo si no hay forma razonable de saber'
+};
+var MESES_ = { enero: 1, febrero: 1, marzo: 1, abril: 1, mayo: 1, junio: 1, julio: 1, agosto: 1, septiembre: 1, setiembre: 1, octubre: 1, noviembre: 1, diciembre: 1,
+  ene: 1, feb: 1, mar: 1, abr: 1, jun: 1, jul: 1, ago: 1, sep: 1, set: 1, oct: 1, nov: 1, dic: 1, y: 1, de: 1, del: 1, la: 1, el: 1, los: 1, las: 1 };
+
+/** «COTO Abril 3/12» y «Coto marzo» → «coto»: misma regla para el mismo comercio. */
+function patron_(desc) {
+  var t = String(desc || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/);
+  return t.filter(function (w) { return w.length > 1 && !MESES_[w]; }).slice(0, 5).join(' ');
+}
+
+function categoriaValida_(c) { return typeof c === 'string' && Object.prototype.hasOwnProperty.call(CATEGORIAS_IA, c); }
+
+function memoriaComercios_() {
+  var m = [];
+  readTab_('Comercios').forEach(function (r) { if (r.patron && categoriaValida_(String(r.categoria))) m.push({ patron: String(r.patron), categoria: String(r.categoria) }); });
+  return m;
+}
+
+function buscarMemoria_(mem, patron) {
+  var best = null, hay = ' ' + patron + ' ';
+  mem.forEach(function (x) {
+    if (x.patron === patron) { best = { categoria: x.categoria, confianza: 1 }; return; }
+    if ((!best || best.confianza < 1) && hay.indexOf(' ' + x.patron + ' ') >= 0 && (!best || x.patron.length > best.len)) best = { categoria: x.categoria, confianza: 0.95, len: x.patron.length };
+  });
+  return best;
+}
+
+function actionCategorizar_(req) {
+  var items = req.items;
+  if (!Array.isArray(items) || !items.length || items.length > IA.MAX_ITEMS) fail_('pedido_invalido', 'items: de 1 a ' + IA.MAX_ITEMS + '.');
+  var mem = memoriaComercios_(), out = {}, porPatron = {}, orden = [];
+  items.forEach(function (it) {
+    var d = text_(it && it.descripcion, 80), p = patron_(d);
+    if (!d || out[d]) return;
+    out[d] = { descripcion: d, categoria: 'otros', confianza: 0, fuente: 'ninguna' };
+    if (!p) return;
+    var h = buscarMemoria_(mem, p);
+    if (h) { out[d].categoria = h.categoria; out[d].confianza = h.confianza; out[d].fuente = 'memoria'; return; }
+    if (!porPatron[p]) { porPatron[p] = { patron: p, descripcion: d, monto: Math.round(Math.abs(Number(it.monto_centavos) || 0) / 100), moneda: it.moneda === 'USD' ? 'USD' : 'ARS', descs: [] }; orden.push(p); }
+    porPatron[p].descs.push(d);
+  });
+  var key = PropertiesService.getScriptProperties().getProperty(IA.KEY_PROP), error = '', usadas = 0;
+  if (orden.length && key) {
+    for (var i = 0; i < orden.length; i += IA.CHUNK) {
+      var grupo = orden.slice(i, i + IA.CHUNK).map(function (p) { return porPatron[p]; });
+      var res = gemini_(grupo, key);
+      if (res.error) { error = res.error; break; }
+      usadas++;
+      res.items.forEach(function (r) {
+        var g = grupo[r.n]; if (!g || !categoriaValida_(r.categoria)) return;
+        var conf = Math.max(0, Math.min(1, Number(r.confianza) || 0));
+        g.descs.forEach(function (d) { out[d].categoria = r.categoria; out[d].confianza = conf; out[d].fuente = 'gemini'; });
+      });
+    }
+  }
+  return { ok: true, resultados: Object.keys(out).map(function (k) { return out[k]; }), sin_clave: !key && orden.length > 0, gemini_llamadas: usadas, error: error };
+}
+
+function gemini_(grupo, key) {
+  var cats = Object.keys(CATEGORIAS_IA);
+  var prompt = 'Clasificá gastos de un hogar en Argentina (mayoría en pesos argentinos). Elegí UNA categoría por gasto.\n\nCategorías:\n' +
+    cats.map(function (c) { return '- ' + c + ': ' + CATEGORIAS_IA[c]; }).join('\n') +
+    '\n\nUsá "otros" solo si no hay forma razonable de saberlo. La confianza va de 0 a 1 (1 = seguro; menos de 0,6 = dudoso).\n\nGastos (n, descripción, monto):\n' +
+    grupo.map(function (g, n) { return n + ' | ' + g.descripcion + ' | ' + g.monto + ' ' + g.moneda; }).join('\n');
+  var model = PropertiesService.getScriptProperties().getProperty(IA.MODEL_PROP) || IA.MODEL;
+  var body = { contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json',
+      responseSchema: { type: 'ARRAY', items: { type: 'OBJECT', properties: { n: { type: 'INTEGER' }, categoria: { type: 'STRING', enum: cats }, confianza: { type: 'NUMBER' } }, required: ['n', 'categoria', 'confianza'] } } } };
+  try {
+    var resp = UrlFetchApp.fetch(IA.URL + encodeURIComponent(model) + ':generateContent', { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body) });
+    var code = resp.getResponseCode();
+    if (code !== 200) return { error: 'gemini_http_' + code + (code === 400 || code === 403 ? ' (¿clave o modelo?)' : '') };
+    var txt = JSON.parse(resp.getContentText()).candidates[0].content.parts[0].text;
+    var arr = JSON.parse(txt);
+    return Array.isArray(arr) ? { items: arr } : { error: 'gemini_respuesta' };
+  } catch (e) { return { error: 'gemini: ' + String(e.message).slice(0, 100).replace(key, '***') }; }
+}
+
+/** Una corrección del usuario se vuelve regla de comercio. */
+function aprenderComercio_(descripcion, categoria, now) {
+  var p = patron_(descripcion); if (!p || !categoriaValida_(categoria) || categoria === 'otros') return false;
+  var sh = sheet_('Comercios'), last = sh.getLastRow(), cols = TABS.Comercios;
+  if (last >= 2) {
+    var vals = sh.getRange(2, 1, last - 1, cols.length).getValues();
+    for (var i = 0; i < vals.length; i++) if (String(vals[i][0]) === p) {
+      sh.getRange(i + 2, 3, 1, 3).setValues([[categoria, (Number(vals[i][3]) || 0) + 1, now]]); return true;
+    }
+  }
+  appendRows_(sh, [[p, text_(descripcion, 60), categoria, 1, now]], cols.length);
+  return true;
+}
+
+function actionAprender_(req) {
+  checkSchema_();
+  var ok = aprenderComercio_(text_(req.descripcion, 80), String(req.categoria), new Date().toISOString());
+  return { ok: true, aprendida: ok };
+}
+
+function etiquetaOut_(r) {
+  return { id: String(r.id), movimiento_id: String(r.movimiento_id), categoria: String(r.categoria), confianza: Number(r.confianza) || 0, fuente: String(r.fuente), estado: String(r.estado) };
+}
+
+/** Las categorías de movimientos que ya existen no los tocan: se agregan como etiquetas (la última gana). */
+function actionEtiquetar_(req) {
+  checkSchema_();
+  var list = req.etiquetas;
+  if (!Array.isArray(list) || !list.length || list.length > CUBA.MAX_BATCH) fail_('pedido_invalido', 'etiquetas: de 1 a ' + CUBA.MAX_BATCH + '.');
+  var movs = {}; readTab_('Movimientos').forEach(function (m) { movs[String(m.id)] = String(m.descripcion); });
+  var vistas = {}; readTab_('Etiquetas').forEach(function (e) { vistas[String(e.id)] = true; });
+  var now = new Date().toISOString(), rows = [], aprendidas = {}, por = text_(req.creado_por, 40);
+  list.forEach(function (x) {
+    var id = text_(x && x.id, 40), mid = text_(x && x.movimiento_id, 40);
+    if (!id || vistas[id] || !movs.hasOwnProperty(mid) || !categoriaValida_(x.categoria)) return;
+    var fuente = ['memoria', 'gemini', 'manual'].indexOf(x.fuente) >= 0 ? x.fuente : 'manual';
+    var estado = x.estado === 'dudosa' ? 'dudosa' : 'aplicada';
+    var conf = Math.max(0, Math.min(1, Number(x.confianza) || 0));
+    vistas[id] = true;
+    rows.push([id, mid, x.categoria, conf, fuente, estado, por, now]);
+    if (fuente === 'manual' && estado === 'aplicada' && !aprendidas[patron_(movs[mid])]) { aprendidas[patron_(movs[mid])] = true; aprenderComercio_(movs[mid], x.categoria, now); }
+  });
+  if (rows.length) appendRows_(sheet_('Etiquetas'), rows, TABS.Etiquetas.length);
+  return { ok: true, agregadas: rows.length, omitidas: list.length - rows.length };
+}
+
+function guardarClaveGemini() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('Clave de Gemini', 'Pegá la clave de la API de Gemini (queda solo en las Propiedades del script, no en la Sheet):', ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var k = r.getResponseText().trim();
+  if (!/^[A-Za-z0-9_\-]{20,}$/.test(k)) { ui.alert('Esa clave no parece válida. No se guardó nada.'); return; }
+  PropertiesService.getScriptProperties().setProperty(IA.KEY_PROP, k);
+  var res = gemini_([{ descripcion: 'Coto', monto: 20000, moneda: 'ARS' }], k);
+  ui.alert(res.error ? 'Guardada, pero la prueba falló: ' + res.error : 'Listo: Gemini responde (' + (res.items[0] ? res.items[0].categoria : '?') + ' para «Coto»).');
+}
 
 /* ------------------------------------------------------------------ */
 /* Avisos de vencimientos: mail + notificación nativa en el celu        */

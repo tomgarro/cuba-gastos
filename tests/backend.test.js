@@ -382,4 +382,81 @@ t('aviso al otro al anotar un gasto: sin monto, no a uno mismo, no en importacio
   b.log.props.CUBA_NTFY_TOPICS = '';
   assert.strictEqual(b.call('addMovimientos', { movimientos: [mov({ id: 'a10' })] }).agregados, 1, 'sin avisos activados no hace nada');
 });
+
+function fakeGemini(b, answers, opts) {
+  opts = opts || {}; const calls = [];
+  b.ctx.UrlFetchApp = { fetch: (u, o) => {
+    calls.push({ u, o, body: JSON.parse(o.payload) });
+    if (opts.code && opts.code !== 200) return { getResponseCode: () => opts.code, getContentText: () => 'x' };
+    const prompt = JSON.parse(o.payload).contents[0].parts[0].text;
+    const items = prompt.split('\n').filter(l => /^\d+ \| /.test(l)).map(l => { const [n, d] = l.split(' | '); return { n: +n, d }; });
+    const out = items.map(i => Object.assign({ n: i.n }, answers(i.d)));
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(out) }] } }] }) };
+  } };
+  return calls;
+}
+
+t('categorías: memoria primero, Gemini solo para lo desconocido, una consulta por comercio y sin datos sensibles', () => {
+  const b = boot(); b.call('savePersonas', { personas: P });
+  b.log.props.GEMINI_API_KEY = 'KEY-secreta-1234567890abcd';
+  b.grids.Comercios.push(['don pepe', 'Don Pepe', 'super', 3, '2026-01-01']);
+  const locks0 = b.log.locks;
+  const calls = fakeGemini(b, d => /Netflix/i.test(d) ? { categoria: 'streaming', confianza: 0.97 } : { categoria: 'casa', confianza: 0.4 });
+  const r = b.call('categorizar', { items: [
+    { descripcion: 'DON PEPE Marzo', monto_centavos: 500000, moneda: 'ARS' },      // memoria (ignora mes/mayúsculas)
+    { descripcion: 'Netflix | Abril', monto_centavos: 1200000, moneda: 'ARS' },
+    { descripcion: 'Netflix | Mayo', monto_centavos: 1300000, moneda: 'ARS' },       // mismo comercio: una sola consulta
+    { descripcion: 'Cosa rara 7', monto_centavos: 99900, moneda: 'ARS' }] });
+  const by = Object.fromEntries(r.resultados.map(x => [x.descripcion, x]));
+  assert.deepStrictEqual([by['DON PEPE Marzo'].categoria, by['DON PEPE Marzo'].fuente, by['DON PEPE Marzo'].confianza], ['super', 'memoria', 1]);
+  assert.deepStrictEqual([by['Netflix | Abril'].categoria, by['Netflix | Mayo'].categoria, by['Netflix | Mayo'].fuente], ['streaming', 'streaming', 'gemini']);
+  assert.ok(by['Cosa rara 7'].confianza < 0.5);
+  assert.strictEqual(calls.length, 1);
+  const sent = calls[0].body.contents[0].parts[0].text;
+  assert.ok(!/DON PEPE/i.test(sent), 'lo que ya sabe la memoria no viaja');
+  assert.strictEqual(sent.split('\n').filter(l => /^\d+ \| Netflix/.test(l)).length, 1, 'un comercio, una línea');
+  assert.ok(!/Tomi|Pau|sueldo/i.test(sent), 'nada de nombres ni sueldos');
+  assert.ok(!JSON.stringify(r).includes('KEY-secreta'), 'la clave nunca vuelve al celu');
+  assert.strictEqual(calls[0].o.headers['x-goog-api-key'], 'KEY-secreta-1234567890abcd');
+  assert.ok(!/key=/.test(calls[0].u), 'la clave va en el header, no en la URL');
+  assert.strictEqual(b.log.locks, locks0, 'categorizar no toma el candado');
+});
+
+t('categorías: sin clave o con Gemini caído igual devuelve la memoria y avisa', () => {
+  const b = boot(); b.grids.Comercios.push(['coto', 'Coto', 'super', 1, '']);
+  const items = [{ descripcion: 'Coto', monto_centavos: 1 }, { descripcion: 'Desconocido', monto_centavos: 1 }];
+  let r = b.call('categorizar', { items });
+  assert.strictEqual(r.sin_clave, true); assert.strictEqual(r.resultados[0].categoria, 'super'); assert.strictEqual(r.resultados[1].fuente, 'ninguna');
+  b.log.props.GEMINI_API_KEY = 'K'.repeat(30); fakeGemini(b, () => ({}), { code: 403 });
+  r = b.call('categorizar', { items });
+  assert.ok(/gemini_http_403/.test(r.error) && r.resultados[0].categoria === 'super' && !JSON.stringify(r).includes('KKKK'));
+  assert.throws(() => b.call('categorizar', { items: [] }), /items/);
+});
+
+t('categorías: respuestas inventadas de Gemini se descartan', () => {
+  const b = boot(); b.log.props.GEMINI_API_KEY = 'K'.repeat(30);
+  fakeGemini(b, () => ({ categoria: 'criptomonedas', confianza: 9 }));
+  const r = b.call('categorizar', { items: [{ descripcion: 'Algo', monto_centavos: 1 }] });
+  assert.strictEqual(r.resultados[0].categoria, 'otros'); assert.strictEqual(r.resultados[0].fuente, 'ninguna');
+});
+
+t('categorías: etiquetar agrega sin tocar movimientos, es idempotente y una corrección manual se vuelve regla', () => {
+  const b = withPeople();
+  b.call('addMovimientos', { movimientos: [mov({ id: 'a1', descripcion: 'Lo de Don Pepe 12' }), mov({ id: 'a2', descripcion: 'Lo de Don Pepe 13' })] });
+  const antes = JSON.stringify(b.grids.Movimientos);
+  const et = [{ id: 'e1', movimiento_id: 'a1', categoria: 'super', confianza: 1, fuente: 'manual', estado: 'aplicada' },
+    { id: 'e2', movimiento_id: 'a2', categoria: 'casa', confianza: 0.6, fuente: 'gemini', estado: 'dudosa' },
+    { id: 'e3', movimiento_id: 'NOEXISTE', categoria: 'super' }, { id: 'e4', movimiento_id: 'a1', categoria: 'bitcoin' }];
+  let r = b.call('etiquetar', { etiquetas: et, creado_por: 'm1' });
+  assert.strictEqual(r.agregadas, 2); assert.strictEqual(r.omitidas, 2);
+  assert.strictEqual(JSON.stringify(b.grids.Movimientos), antes, 'los movimientos no se tocan');
+  assert.strictEqual(b.call('etiquetar', { etiquetas: et }).agregadas, 0, 'idempotente');
+  const rd = b.call('read'); assert.strictEqual(rd.etiquetas.length, 2); assert.strictEqual(rd.etiquetas[1].estado, 'dudosa');
+  assert.strictEqual(b.grids.Comercios.length, 2, 'la corrección manual quedó como regla de comercio');
+  const regla = b.grids.Comercios[1]; assert.strictEqual(regla[0], 'lo don pepe'); assert.strictEqual(regla[2], 'super');
+  // la próxima vez que aparezca ese comercio, lo reconoce sin Gemini
+  assert.strictEqual(b.call('categorizar', { items: [{ descripcion: 'Lo de Don Pepe 99', monto_centavos: 1 }] }).resultados[0].fuente, 'memoria');
+  b.call('aprender', { descripcion: 'Lo de Don Pepe', categoria: 'comida' });
+  assert.strictEqual(b.grids.Comercios.length, 2); assert.strictEqual(b.grids.Comercios[1][2], 'comida'); assert.strictEqual(b.grids.Comercios[1][3], 2, 'cuenta las veces');
+});
 console.log(n + ' pruebas del backend');

@@ -42,4 +42,14 @@ Menú **🐕 Cuba → Activar avisos de vencimientos**: pide los mails, crea un 
 
 Además, cada vez que alguien anota un gasto o pago (hasta 3 por pedido; no importaciones ni ediciones) el otro recibe «Tomi anotó Super» en su celu, sin monto. Si el aviso falla, el gasto se guarda igual.
 
-Pendiente: llamadas a Gemini y mail mensual con resumen.
+## Categorías con Gemini (v0.8)
+
+Menú **🐕 Cuba → Guardar clave de Gemini**: la clave se escribe en un cuadro y queda solo en *Propiedades del script* (`GEMINI_API_KEY`; modelo opcional en `GEMINI_MODEL`, por defecto `gemini-3.5-flash-lite`). Viaja en un encabezado, nunca en la URL ni en la Sheet.
+
+| Acción | Qué hace |
+|---|---|
+| `categorizar` | Hasta 150 descripciones: primero la memoria `Comercios`, después Gemini solo para lo desconocido (una consulta por comercio). Le llegan descripción y monto; nunca nombres ni sueldos. No toma el candado. |
+| `etiquetar` | Agrega filas a `Etiquetas` (idempotente por id). Una etiqueta manual aprendida actualiza `Comercios`. |
+| `aprender` | Guarda una regla de comercio cuando la persona corrige la categoría al anotar un gasto. |
+
+Pendiente: mail mensual con resumen.

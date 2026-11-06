@@ -178,6 +178,38 @@ const J = x => JSON.parse(JSON.stringify(x));
   assert.strictEqual(J(sheet.grids.Movimientos).slice(1).filter(r => r[col('origen')] === 'splitwise' && r[col('anulado')] === 'FALSE').length, 0, 'Deshacer desde la app anula el lote');
   checkAppendOnly('deshacer desde la app');
 
+  // ---- Categorías con Gemini (falso): memoria → Gemini → dudosos → corrección que se aprende ----
+  {
+    const pid = sheet.grids.Personas.slice(1).map(r => r[0]);
+    const m = (id, d, c) => ({ id, tipo: 'gasto', fecha: '2026-11-03', descripcion: d, monto_centavos: c, moneda: 'ARS', pagador_id: pid[0],
+      reparto_modo: 'igual', reparto: [[pid[0], Math.ceil(c / 2)], [pid[1], Math.floor(c / 2)]], categoria: 'otros', nota: '', origen: 'manual', creado_por: pid[0] });
+    sheet.call('addMovimientos', { movimientos: [m('cat1', 'Zorbaflix Noviembre', 150000), m('cat2', 'Zorbaflix Octubre', 150000), m('cat3', 'Local Raro Sur', 80000), m('cat4', 'Cosa Incierta', 50000)] });
+    sheet.log.props.GEMINI_API_KEY = 'K'.repeat(30);
+    const sent = [];
+    sheet.ctx.UrlFetchApp = { fetch: (u, o) => {
+      const prompt = JSON.parse(o.payload).contents[0].parts[0].text; sent.push(prompt);
+      const out = prompt.split('\n').filter(l => /^\d+ \| /.test(l)).map(l => { const [n, d] = l.split(' | ');
+        return /zorbaflix/i.test(d) ? { n: +n, categoria: 'streaming', confianza: 0.95 } : /local raro/i.test(d) ? { n: +n, categoria: 'casa', confianza: 0.6 } : { n: +n, categoria: 'otros', confianza: 0.2 }; });
+      return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(out) }] } }] }) };
+    } };
+    await refresh(B.p); await B.p.waitForTimeout(250); await B.p.click('.nav [data-v=ajustes]');
+    await B.p.click('[data-act=catrun]');
+    await B.p.waitForFunction(() => /Para confirmar/i.test(document.querySelector('#app').innerText), null, { timeout: 8000 });
+    assert.strictEqual(sent.length, 1, 'una sola consulta a Gemini para todo el lote');
+    assert.ok(!/Tomi|Pau|sueldo/i.test(sent[0]), 'a Gemini no viajan nombres ni sueldos');
+    const eti = () => J(sheet.grids.Etiquetas).slice(1);
+    assert.strictEqual(eti().filter(r => r[2] === 'streaming' && r[5] === 'aplicada').length, 2, 'lo seguro se aplica solo');
+    assert.strictEqual(eti().filter(r => r[5] === 'dudosa').length, 1, 'lo dudoso queda para confirmar');
+    assert.ok(/Local Raro Sur/.test(await B.txt()), 'el dudoso se muestra');
+    await B.p.selectOption('[data-in=catfix]', 'super');
+    await B.p.waitForFunction(() => !/Local Raro Sur/i.test(document.querySelector('#app').innerText), null, { timeout: 5000 });
+    assert.ok(eti().some(r => r[1] === 'cat3' && r[2] === 'super' && r[4] === 'manual' && r[5] === 'aplicada'), 'la corrección queda como etiqueta manual');
+    assert.ok(J(sheet.grids.Comercios).slice(1).some(r => /local raro/.test(r[0]) && r[2] === 'super'), 'la corrección se vuelve regla');
+    checkAppendOnly('categorías');
+    await refresh(A.p); await A.p.waitForTimeout(250); await A.p.click('.nav [data-v=gastos]');
+    assert.ok(/Zorbaflix/.test(await A.txt()), 'el otro celular ve los gastos');
+  }
+
   // ---- Borrar desde A ----
   await refresh(A.p); await A.p.click('.nav [data-v=gastos]');
   await A.p.locator('.item', { hasText: 'Cena' }).click(); await A.p.click('[data-act=askdel]'); await A.p.click('[data-act=del]');

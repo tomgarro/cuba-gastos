@@ -135,15 +135,21 @@
 
   function snapshotToState(d) {
     var members = personasToMembers(d.personas);
-    var ledger = {};
+    var ledger = {}, etq = {}, dudosas = [];
+    (d.etiquetas || []).forEach(function (t) { etq[t.movimiento_id] = t; });  // la última etiqueta de cada movimiento gana
     (d.movimientos || []).forEach(function (r) {
-      var e = rowToEntry(r), mk = C.monthKey(e.date);
+      var e = rowToEntry(r), mk = C.monthKey(e.date), t = etq[e.id];
+      if (t && !e.del) {
+        if (t.estado === 'aplicada') { e.cat = t.categoria; e.catSrc = t.fuente; }
+        else dudosas.push({ id: e.id, desc: e.desc, cur: e.cur, cents: e.cents, cat: t.categoria, conf: t.confianza });
+      }
       (ledger[mk] = ledger[mk] || {})[e.id] = e;
     });
     var cfg = d.config || {};
     return {
       sueldos: (d.sueldos || []).map(function (r) { return { id: r.id, persona: r.persona_id, desde: r.desde, cents: r.monto_centavos, cur: r.moneda, note: r.nota || '', by: r.creado_por || null }; }),
       recs: (d.recurrentes || []).map(rowToRec),
+      dudosas: dudosas,
       lotes: (d.lotes || []).filter(function (l) { return String(l.estado) === 'activo'; }).map(function (l) { return { id: String(l.id), origen: String(l.origen), fecha: String(l.fecha), cantidad: Number(l.cantidad) || 0 }; }),
       group: members.length ? { name: cfg.nombre_grupo || 'Casa', cur: cfg.moneda_base || 'ARS', members: members } : null,
       ledger: ledger

@@ -28,6 +28,12 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 
 ## Comercios (memoria de categorías)
 `patron | comercio | categoria | veces | actualizado`
+- `patron`: descripción normalizada (minúsculas, sin tildes, sin números/meses/palabras vacías, primeros 5 términos). Cada corrección manual crea o actualiza una regla (`veces` cuenta los usos).
+
+## Etiquetas (categorías de movimientos existentes)
+`id | movimiento_id | categoria | confianza | fuente | estado | creado_por | creado_en`
+- Solo se agrega; la última etiqueta de cada movimiento gana. Así los movimientos nunca se reescriben.
+- `fuente`: `memoria`, `gemini` o `manual`. `estado`: `aplicada` (confianza ≥ 0,85 o manual) o `dudosa` (0,5–0,85, espera confirmación). Se crea sola al primer uso.
 
 ## Categorias
 `id | nombre | emoji | presupuesto_mensual_centavos | moneda`

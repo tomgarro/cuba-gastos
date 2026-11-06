@@ -113,6 +113,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 @keyframes zfloat{0%{opacity:0;transform:translate(0,10px) scale(.7)}25%{opacity:.85}100%{opacity:0;transform:translate(10px,-22px) scale(1.15)}}
 @media (prefers-reduced-motion:reduce){.cuba svg,.cuba img,.zz{animation:none}.zz{opacity:.7}}
 @media (prefers-reduced-motion:no-preference){.perk .cuba svg{animation-duration:.5s}.perk .cuba img{animation-duration:.45s}}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 12px;font-size:14px;font-family:inherit;cursor:pointer}.chip.on{background:var(--acc);color:#1b1208;border-color:var(--acc)}
 /* Acariciar a Cuba: al tocarlo alterna dos poses mimado y salen corazones */
 .petting img{animation:petlean .76s ease-in-out infinite !important}
 @keyframes petlean{0%,100%{transform:rotate(-2.5deg) translateY(0)}50%{transform:rotate(2.5deg) translateY(1.5%)}}
@@ -779,15 +780,21 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 
   function snapshotToState(d) {
     var members = personasToMembers(d.personas);
-    var ledger = {};
+    var ledger = {}, etq = {}, dudosas = [];
+    (d.etiquetas || []).forEach(function (t) { etq[t.movimiento_id] = t; });  // la última etiqueta de cada movimiento gana
     (d.movimientos || []).forEach(function (r) {
-      var e = rowToEntry(r), mk = C.monthKey(e.date);
+      var e = rowToEntry(r), mk = C.monthKey(e.date), t = etq[e.id];
+      if (t && !e.del) {
+        if (t.estado === 'aplicada') { e.cat = t.categoria; e.catSrc = t.fuente; }
+        else dudosas.push({ id: e.id, desc: e.desc, cur: e.cur, cents: e.cents, cat: t.categoria, conf: t.confianza });
+      }
       (ledger[mk] = ledger[mk] || {})[e.id] = e;
     });
     var cfg = d.config || {};
     return {
       sueldos: (d.sueldos || []).map(function (r) { return { id: r.id, persona: r.persona_id, desde: r.desde, cents: r.monto_centavos, cur: r.moneda, note: r.nota || '', by: r.creado_por || null }; }),
       recs: (d.recurrentes || []).map(rowToRec),
+      dudosas: dudosas,
       lotes: (d.lotes || []).filter(function (l) { return String(l.estado) === 'activo'; }).map(function (l) { return { id: String(l.id), origen: String(l.origen), fecha: String(l.fecha), cantidad: Number(l.cantidad) || 0 }; }),
       group: members.length ? { name: cfg.nombre_grupo || 'Casa', cur: cfg.moneda_base || 'ARS', members: members } : null,
       ledger: ledger
@@ -829,8 +836,8 @@ var COLORS = ['#c47a35', '#4f7c6d', '#7a5ea8', '#c0504d', '#3f6fa3', '#a68a2e'];
 var LS = 'cuba:v1', LSME = 'cuba:me', LSSH = 'cuba:sheets', LSSNAP = 'cuba:sheetsnap';
 
 // ---------------- estado ----------------
-var S = { group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], lotes: [], impMap: {}, impCur: '', rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
-  month: C.monthKey(today()), q: '', cat: '', ob: { step: 0, names: ['', ''] }, form: null, imp: null, closeMonth: C.monthKey(today()), confirmDel: null, exportText: null };
+var S = { group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], lotes: [], dudosas: [], catBusy: false, catMsg: '', impMap: {}, impCur: '', rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
+  month: C.monthKey(today()), months: [C.monthKey(today())], perOpen: false, q: '', cat: '', ob: { step: 0, names: ['', ''] }, form: null, imp: null, closeMonth: C.monthKey(today()), confirmDel: null, exportText: null };
 var members = function () { return (S.group && S.group.members) || []; };
 var mem = function (id) { return members().filter(function (m) { return m.id === id; })[0] || { id: id, name: '?', color: '#999' }; };
 var memIdx = function (id) { return members().map(function (m) { return m.id; }).indexOf(id); };
@@ -873,7 +880,7 @@ var Store = {
         return d;
       }, function (e) { clearTimeout(to); throw e; });
   },
-  snap: function () { try { localStorage.setItem(LSSNAP, JSON.stringify({ u: this.cfg.u, group: S.group, ledger: S.ledger, sueldos: S.sueldos, recs: S.recs, lotes: S.lotes })); } catch (e) {} },
+  snap: function () { try { localStorage.setItem(LSSNAP, JSON.stringify({ u: this.cfg.u, group: S.group, ledger: S.ledger, sueldos: S.sueldos, recs: S.recs, lotes: S.lotes, dudosas: S.dudosas })); } catch (e) {} },
   refresh: function () {
     var self = this;
     var run = function () {
@@ -882,7 +889,7 @@ var Store = {
       return self.call('read').then(function (d) {
         if (gen !== self.gen) return; // hubo una escritura en el medio: este snapshot ya quedó viejo
         var st = CubaSheets.snapshotToState(d);
-        S.group = st.group; S.ledger = st.ledger; S.sueldos = st.sueldos || []; S.recs = st.recs || []; S.lotes = st.lotes || []; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); render();
+        S.group = st.group; S.ledger = st.ledger; S.sueldos = st.sueldos || []; S.recs = st.recs || []; S.lotes = st.lotes || []; S.dudosas = st.dudosas || []; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); render();
         if (had && S.entries.some(function (x) { return !x.del && !seen[x.id] && x.by && x.by !== S.meId; })) { var a = $('#app'); a.classList.add('perk'); clearTimeout(self.pt); self.pt = setTimeout(function () { a.classList.remove('perk'); }, 2800); }
       }).catch(function (e) { S.loaded = true; S.offline = true; S.authErr = !!(e && (e.code === 'no_autorizado' || e.code === 'sin_token')); render(); });
     };
@@ -895,7 +902,7 @@ var Store = {
     try { S.meId = localStorage.getItem(LSME) || null; } catch (e) {}
     try {
       var sn = JSON.parse(localStorage.getItem(LSSNAP) || 'null');
-      if (sn && sn.u === cfg.u && sn.group) { S.group = sn.group; S.ledger = sn.ledger || {}; S.sueldos = sn.sueldos || []; S.recs = sn.recs || []; S.lotes = sn.lotes || []; S.loaded = true; rebuild(); render(); }
+      if (sn && sn.u === cfg.u && sn.group) { S.group = sn.group; S.ledger = sn.ledger || {}; S.sueldos = sn.sueldos || []; S.recs = sn.recs || []; S.lotes = sn.lotes || []; S.dudosas = sn.dudosas || []; S.loaded = true; rebuild(); render(); }
     } catch (e) {}
     document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') self.refresh(); });
     window.addEventListener('online', function () { self.refresh(); });
@@ -1004,6 +1011,12 @@ var Store = {
       S.ledger = CubaSheets.applyPlan(S.ledger, plan.applied); rebuild(); self.snap(); render(); self.refresh();
     }, function (e) { self.refresh(); throw e; });
   },
+  categorizar: function (items) { return this.call('categorizar', { items: items }); },
+  etiquetar: function (list) {
+    var self = this, p = Promise.resolve(); this.gen++;
+    for (var i = 0; i < list.length; i += 400) (function (chunk) { p = p.then(function () { return self.call('etiquetar', { etiquetas: chunk, creado_por: S.meId }); }); })(list.slice(i, i + 400));
+    return p.then(function () { return self.refresh(); }, function (e) { self.refresh(); throw e; });
+  },
   undoLote: function (id) {
     var self = this; this.gen++;
     return this.call('undoLote', { lote_id: id }).then(function () { return self.refresh(); }, function (e) { self.refresh(); throw e; });
@@ -1092,7 +1105,7 @@ function render() {
   else if (S.mode === 'sheets' && S.offline) banner = S.authErr ? '<div class="banner">La Sheet no reconoce este celular (¿cambiaron el token?). Pedí el link nuevo desde el menú Cuba de la Sheet.</div>' : '<div class="banner">Sin conexión con la Sheet: veo lo último que guardé y no puedo anotar hasta que vuelva.</div>';
   else if (S.slow) banner = '<div class="banner">No puedo conectar con los datos compartidos. Lo que ves puede estar desactualizado.</div>';
   else if (S.readOnly) banner = '<div class="banner">Tenés acceso de solo lectura: pedí permiso de <b>Contributor</b> para poder anotar gastos.</div>';
-  app.innerHTML = '<div class="top"><div class="brand">' + cuba('idle', 34) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
+  app.innerHTML = '<div class="top"><div class="brand">' + cuba('idle', 58) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
     '<button class="fab" data-act="new" aria-label="Anotar gasto">+</button>' +
     '<nav class="nav"><div>' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['ajustes', '⚙️', 'Ajustes']].map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
 }
@@ -1127,7 +1140,7 @@ function viewInicio() {
     msg = '<b>' + esc(firstName(t.from)) + '</b> le debe ' + amt + ' a <b>' + esc(firstName(t.to)) + '</b>.' + (tr.length > 1 ? ' (y ' + (tr.length - 1) + ' más)' : '');
     if (nearClose) { mood = 'alert'; msg += ' Se viene el cierre del mes.'; }
   }
-  var h = '<div class="hero"><div style="flex:none">' + cuba(mood, 96) + '</div><div class="bubble">' + msg + '</div></div>';
+  var h = '<div class="hero"><div style="flex:none">' + cuba(mood, 150) + '</div><div class="bubble">' + msg + '</div></div>';
   h += '<div class="actions"><button class="btn acc" data-act="new">+ Anotar gasto</button><button class="btn ghost" data-act="tab" data-v="cierre">Saldar</button></div>';
   h += viewPorPagar();
   if (tr.length) {
@@ -1137,29 +1150,54 @@ function viewInicio() {
   if (cursM.length) {
     h += '<div class="card"><h3>Este mes · ' + mLabel(mk) + '</h3>' + cursM.map(function (c) { var s = C.monthStats(S.entries, mk, c); return '<div class="big">' + C.fmt(s.total, c, { noDecimals: true }) + '</div><div class="mut" style="font-size:14px;margin-bottom:6px">' + s.count + (s.count === 1 ? ' gasto' : ' gastos') + '</div>' + catBars(s.cats, s.total, c); }).join('') + '</div>';
   }
-  var last = live.slice(0, 5);
-  if (last.length) h += '<div class="card"><h3>Últimos movimientos</h3>' + last.map(entryRow).join('') + '<button class="btn ghost sm full" style="margin-top:8px" data-act="tab" data-v="gastos">Ver todos</button></div>';
+  var td = today(), qStart = td.slice(0, 8) + (+td.slice(8, 10) >= 16 ? '16' : '01');   // la quincena en curso: del 1 al 15 o del 16 en adelante
+  var sorted = live.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  var quin = sorted.filter(function (e) { return e.date >= qStart; }), isQ = quin.length >= 5;
+  var last = (isQ ? quin : sorted.slice(0, 5)).slice(0, 30);
+  if (last.length) h += '<div class="card"><h3>' + (isQ ? 'Esta quincena · ' + quin.length + ' movimientos' : 'Últimos movimientos') + '</h3>' + last.map(entryRow).join('') + (isQ && quin.length > last.length ? '<div class="mut" style="font-size:13px;margin-top:6px">Mostrando los últimos ' + last.length + '.</div>' : '') + '<button class="btn ghost sm full" style="margin-top:8px" data-act="tab" data-v="gastos">Ver todos</button></div>';
   return h;
 }
 function listHtml() {
   var q = S.q.trim().toLowerCase();
   var rows = C.live(S.entries).filter(function (e) {
-    return C.monthKey(e.date) === S.month && (!S.cat || (S.cat === 'pago' ? e.type === 'payment' : e.cat === S.cat)) && (!q || e.desc.toLowerCase().indexOf(q) >= 0);
+    return S.months.indexOf(C.monthKey(e.date)) >= 0 && (!S.cat || (S.cat === 'pago' ? e.type === 'payment' : e.cat === S.cat)) && (!q || e.desc.toLowerCase().indexOf(q) >= 0);
   }).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
-  return rows.length ? rows.map(entryRow).join('') : '<div class="empty">' + cuba('sleepy', 70) + '<br>No hay movimientos con ese filtro.</div>';
+  var sum = {}; rows.forEach(function (e) { if (e.type !== 'payment') sum[e.cur] = (sum[e.cur] || 0) + e.cents; });
+  var head = rows.length ? '<div class="mut" style="font-size:14px;margin:4px 0 8px">' + rows.length + ' movimientos' + Object.keys(sum).map(function (c) { return ' · ' + C.fmt(sum[c], c, { noDecimals: true }); }).join('') + '</div>' : '';
+  var CAP = 300, more = rows.length > CAP ? '<div class="mut" style="font-size:13px;margin-top:8px">Mostrando los primeros ' + CAP + ' de ' + rows.length + '. Afiná el período o buscá.</div>' : '';
+  return rows.length ? head + rows.slice(0, CAP).map(entryRow).join('') + more : '<div class="empty">' + cuba('sleepy', 120) + '<br>No hay movimientos con ese filtro.</div>';
+}
+var MCORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function periodLabel() {
+  var all = monthsAvailable(), m = S.months.slice().sort();
+  if (!m.length) return 'Elegí períodos';
+  if (m.length === 1) return mLabel(m[0]);
+  if (m.length === all.length && all.length > 2) return 'Todo el historial';
+  var lo = m[0], hi = m[m.length - 1], contiguous = m.length === (+hi.slice(0, 4) * 12 + +hi.slice(5)) - (+lo.slice(0, 4) * 12 + +lo.slice(5)) + 1;
+  return contiguous ? MCORTO[+lo.slice(5) - 1] + ' ' + lo.slice(0, 4) + ' → ' + MCORTO[+hi.slice(5) - 1] + ' ' + hi.slice(0, 4) : m.length + ' meses elegidos';
+}
+function periodHtml() {
+  var ms = monthsAvailable(), sel = {}; S.months.forEach(function (m) { sel[m] = 1; });
+  var h = '<button class="btn ghost full" data-act="perOpen" style="justify-content:space-between;display:flex;margin-bottom:8px"><span>📅 ' + esc(periodLabel()) + '</span><span>' + (S.perOpen ? '▴' : '▾') + '</span></button>';
+  if (!S.perOpen) return h;
+  h += '<div class="chips" style="margin-bottom:8px">' + [['mes', 'Este mes'], ['3m', 'Últimos 3 meses'], ['anio', 'Este año'], ['todo', 'Todo']].map(function (x) { return '<button class="chip" data-act="perPreset" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>';
+  var years = {}; ms.forEach(function (m) { (years[m.slice(0, 4)] = years[m.slice(0, 4)] || []).push(m); });
+  Object.keys(years).sort().reverse().forEach(function (y) {
+    var allOn = years[y].every(function (m) { return sel[m]; });
+    h += '<div style="margin:8px 0 4px"><button class="chip' + (allOn ? ' on' : '') + '" data-act="perYear" data-v="' + y + '"><b>' + y + '</b></button></div><div class="chips">' +
+      years[y].slice().sort().map(function (m) { return '<button class="chip' + (sel[m] ? ' on' : '') + '" data-act="perToggle" data-v="' + m + '">' + MCORTO[+m.slice(5) - 1] + '</button>'; }).join('') + '</div>';
+  });
+  return h + '<div class="mut" style="font-size:13px;margin:8px 0">Tocá varios meses para verlos juntos.</div>';
 }
 function viewGastos() {
-  var ms = monthsAvailable();
-  if (ms.indexOf(S.month) < 0) ms.unshift(S.month);
-  return '<div class="card"><div class="two" style="margin-bottom:10px"><select data-in="month">' + ms.map(function (m) { return '<option value="' + m + '"' + (m === S.month ? ' selected' : '') + '>' + mLabel(m) + '</option>'; }).join('') + '</select>' +
-    '<select data-in="catf"><option value="">Todas</option>' + C.CATS.map(function (c) { return '<option value="' + c.k + '"' + (S.cat === c.k ? ' selected' : '') + '>' + c.e + ' ' + esc(c.n) + '</option>'; }).join('') + '</select></div>' +
+  return '<div class="card">' + periodHtml() + '<div style="margin-bottom:10px"><select data-in="catf"><option value="">Todas las categorías</option>' + C.CATS.map(function (c) { return '<option value="' + c.k + '"' + (S.cat === c.k ? ' selected' : '') + '>' + c.e + ' ' + esc(c.n) + '</option>'; }).join('') + '</select></div>' +
     '<input data-in="search" placeholder="Buscar…" value="' + esc(S.q) + '" style="margin-bottom:6px"><div id="list">' + listHtml() + '</div></div>';
 }
 function viewCierre() {
   var mk = S.closeMonth, ms = monthsAvailable();
   var r = allTransfers(), h = '';
   h += '<div class="card"><h3>Para saldar ahora</h3>';
-  if (!r.transfers.length) h += '<div class="empty">' + cuba('happy', 90) + '<br>Están a mano. Nada para saldar.</div>';
+  if (!r.transfers.length) h += '<div class="empty">' + cuba('happy', 130) + '<br>Están a mano. Nada para saldar.</div>';
   else {
     h += r.transfers.map(function (t, i) {
       return '<div class="transfer">' + avatar(t.from) + '<div class="grow"><b>' + esc(firstName(t.from)) + '</b> <span class="mut">le paga a</span> <b>' + esc(firstName(t.to)) + '</b><div class="amt" style="font-size:18px">' + C.fmt(t.cents, t.cur) + '</div></div><button class="btn sm acc" data-act="pay" data-i="' + i + '">Pagado ✓</button></div>';
@@ -1188,7 +1226,7 @@ function viewAjustes() {
     return '<div class="row" style="margin-bottom:8px">' + avatar(m.id) + '<input data-in="rename" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '" maxlength="30"></div>';
   }).join('') + (members().length < 8 ? '<div class="row" style="margin-top:6px"><input data-in="newmember" placeholder="Agregar otra persona" maxlength="30"><button class="btn sm" data-act="addmember">Agregar</button></div>' : '') +
     '<label class="f">Yo soy</label><select data-in="me">' + members().map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === S.meId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div>';
-  h += viewSueldo() + viewRecs();
+  h += viewSueldo() + viewRecs() + viewCategorias();
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
@@ -1268,6 +1306,41 @@ function impHtml() {
   return h + '<div class="preview" style="margin-top:8px"><b>' + i.entries.length + ' movimientos</b> listos (' + i.skipped + ' filas omitidas).<br>Saldo resultante: ' + lines.join('<br>') + (i.warnings.length ? '<br><span class="mut">' + i.warnings.length + ' avisos: ' + esc(i.warnings.slice(0, 3).join(' | ')) + (i.warnings.length > 3 ? '…' : '') + '</span>' : '') + '</div>' +
     '<button class="btn acc full" style="margin-top:8px" data-act="impgo">Agregar al historial</button>';
 }
+
+// ---------------- categorías con Cuba (memoria → Gemini → dudosos) ----------------
+var CAT_LIST = function () { return C.CATS.filter(function (c) { return c.k !== 'pago'; }); };
+function sinCategoria() { return C.live(S.entries).filter(function (e) { return e.type !== 'payment' && (e.cat || 'otros') === 'otros'; }); }
+function dudososGrupos() {
+  var g = {}; S.dudosas.forEach(function (d) { var k = d.desc; (g[k] = g[k] || { desc: k, cat: d.cat, conf: d.conf, ids: [] }).ids.push(d.id); });
+  return Object.keys(g).map(function (k) { return g[k]; }).sort(function (a, b) { return b.ids.length - a.ids.length; });
+}
+function viewCategorias() {
+  if (S.mode !== 'sheets') return '';
+  var n = sinCategoria().length, gr = dudososGrupos();
+  var h = '<div class="card"><h3>Categorías con Cuba</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Cuba reconoce los comercios que ya conoce y le pregunta a Gemini por los demás (solo le mando la descripción y el monto). Lo dudoso te lo muestro para que lo confirmes.</p>';
+  h += '<div class="stat"><span>Sin categoría («Otros»)</span><b>' + n + '</b></div>';
+  h += '<button class="btn acc full" style="margin-top:8px" data-act="catrun"' + (S.readOnly || S.catBusy || !n ? ' disabled' : '') + '>' + (S.catBusy ? 'Pensando…' : 'Que Cuba los categorice') + '</button>';
+  if (S.catMsg) h += '<p class="mut" style="font-size:14px;margin:8px 0 0">' + esc(S.catMsg) + '</p>';
+  if (gr.length) {
+    h += '<h3 style="margin:14px 0 6px">Para confirmar (' + gr.length + ')</h3>';
+    h += gr.slice(0, 12).map(function (x, i) {
+      var c = C.catInfo(x.cat);
+      return '<div class="stat" style="align-items:center;gap:8px"><span style="min-width:0"><b>' + esc(x.desc) + '</b>' + (x.ids.length > 1 ? ' <span class="mut">×' + x.ids.length + '</span>' : '') + '<br><span class="mut" style="font-size:13px">¿' + c.e + ' ' + esc(c.n) + '?</span></span>' +
+        '<span style="display:flex;gap:6px;flex:none"><button class="btn sm acc" data-act="catok" data-i="' + i + '" aria-label="Aceptar">✓</button>' +
+        '<select data-in="catfix" data-i="' + i + '" style="width:92px"><option value="">Otra…</option>' + CAT_LIST().map(function (k) { return '<option value="' + k.k + '">' + k.e + ' ' + esc(k.n) + '</option>'; }).join('') + '</select></span></div>';
+    }).join('');
+    if (gr.length > 12) h += '<p class="mut" style="font-size:13px">Y ' + (gr.length - 12) + ' más: confirmá estos y aparecen.</p>';
+  }
+  return h + '</div>';
+}
+function catEtiquetas(ids, cat, fuente, estado, conf) {
+  return ids.map(function (id) { return { id: 'et_' + rid(), movimiento_id: id, categoria: cat, confianza: conf == null ? 1 : conf, fuente: fuente, estado: estado }; });
+}
+function confirmarGrupo(i, cat) {
+  var x = dudososGrupos()[i]; if (!x || S.readOnly) return;
+  Store.etiquetar(catEtiquetas(x.ids, cat, 'manual', 'aplicada', 1)).then(function () { toast('Listo: «' + x.desc + '» → ' + C.catInfo(cat).n + '. Cuba lo aprendió.'); render(); }).catch(fail);
+}
+
 function lotesHtml() {
   if (S.mode !== 'sheets' || !S.lotes.length) return '';
   return '<h3 style="margin:14px 0 6px">Importaciones hechas</h3>' + S.lotes.map(function (l) {
@@ -1403,6 +1476,48 @@ var A = {
   kind: function (el) { var F = S.form; F.kind = el.dataset.v; renderForm(); },
   mode: function (el) { S.form.mode = el.dataset.v; if (S.form.mode === 'shares') members().forEach(function (m) { if (S.form.vals[m.id] == null) S.form.vals[m.id] = '1'; }); renderForm(); },
   toggle: function (el) { S.form.who[el.dataset.id] = el.checked; renderForm(); },
+  catrun: function () {
+    if (S.catBusy || S.readOnly) return;
+    var movs = sinCategoria(), byDesc = {};
+    movs.forEach(function (e) { var d = String(e.desc).trim().slice(0, 80); (byDesc[d] = byDesc[d] || { descripcion: d, monto_centavos: e.cents, moneda: e.cur, ids: [] }).ids.push(e.id); });
+    var descs = Object.keys(byDesc); if (!descs.length) return;
+    S.catBusy = true; S.catMsg = ''; render();
+    var res = {}, chunks = [], sinClave = false, err = '';
+    for (var i = 0; i < descs.length; i += 100) chunks.push(descs.slice(i, i + 100));
+    var p = Promise.resolve();
+    chunks.forEach(function (ch) {
+      p = p.then(function () {
+        return Store.categorizar(ch.map(function (d) { return { descripcion: d, monto_centavos: byDesc[d].monto_centavos, moneda: byDesc[d].moneda }; })).then(function (r) {
+          if (r.sin_clave) sinClave = true; if (r.error) err = r.error;
+          r.resultados.forEach(function (x) { res[x.descripcion] = x; });
+        });
+      });
+    });
+    p.then(function () {
+      var list = [], auto = 0, dud = 0, nada = 0;
+      descs.forEach(function (d) {
+        var x = res[d]; if (!x || x.categoria === 'otros' || x.confianza < 0.5) { nada += byDesc[d].ids.length; return; }
+        var estado = x.confianza >= 0.85 ? 'aplicada' : 'dudosa';
+        if (estado === 'aplicada') auto += byDesc[d].ids.length; else dud += byDesc[d].ids.length;
+        catEtiquetas(byDesc[d].ids, x.categoria, x.fuente === 'memoria' ? 'memoria' : 'gemini', estado, x.confianza).forEach(function (t) { list.push(t); });
+      });
+      S.catMsg = sinClave ? 'Falta la clave de Gemini en el Apps Script (menú 🐕 Cuba → Guardar clave de Gemini).' : (err ? 'Gemini no respondió (' + err + '). Se usó solo lo que Cuba ya conoce. ' : '') + (list.length ? 'Categoricé ' + auto + ' movimientos y ' + dud + ' quedaron para confirmar' + (nada ? '; ' + nada + ' siguen en «Otros».' : '.') : 'No pude categorizar ninguno todavía.');
+      return list.length ? Store.etiquetar(list) : null;
+    }).then(function () { S.catBusy = false; render(); }).catch(function (e) { S.catBusy = false; S.catMsg = ''; render(); fail(e); });
+  },
+  catok: function (el) { var x = dudososGrupos()[+el.dataset.i]; if (x) confirmarGrupo(+el.dataset.i, x.cat); },
+  perOpen: function () { S.perOpen = !S.perOpen; render(); },
+  perToggle: function (el) { var m = el.dataset.v, i = S.months.indexOf(m); if (i >= 0) { if (S.months.length > 1) S.months.splice(i, 1); } else S.months.push(m); render(); },
+  perYear: function (el) { var ms = monthsAvailable().filter(function (m) { return m.slice(0, 4) === el.dataset.v; }), on = ms.every(function (m) { return S.months.indexOf(m) >= 0; });
+    S.months = on ? S.months.filter(function (m) { return ms.indexOf(m) < 0; }) : S.months.concat(ms.filter(function (m) { return S.months.indexOf(m) < 0; })); if (!S.months.length) S.months = [C.monthKey(today())]; render(); },
+  perPreset: function (el) {
+    var v = el.dataset.v, now = C.monthKey(today()), y = +now.slice(0, 4), mo = +now.slice(5), out = [];
+    if (v === 'mes') out = [now];
+    else if (v === '3m') for (var k = 0; k < 3; k++) { var t = y * 12 + mo - 1 - k; out.push(Math.floor(t / 12) + '-' + ('0' + (t % 12 + 1)).slice(-2)); }
+    else if (v === 'anio') out = monthsAvailable().filter(function (m) { return m.slice(0, 4) === String(y); });
+    else out = monthsAvailable();
+    S.months = out.length ? out : [now]; render();
+  },
   cat: function (el) { S.form.cat = el.dataset.v; S.form.catAuto = false; renderForm(); },
   quick: function () {
     var F = S.form, q = C.quickParse(F.quick);
@@ -1426,6 +1541,8 @@ var A = {
     var btn = document.querySelector('[data-act="save"]'); if (btn) btn.disabled = true;
     var rec = F.rec ? S.recs.filter(function (x) { return x.id === F.rec; })[0] : null, recMsg = '';
     if (rec && rec.cents && r.total !== rec.cents && rec.cur === F.cur) { var pc = Math.round((r.total / rec.cents - 1) * 100); recMsg = pc ? ' ' + (pc > 0 ? 'Subió ' : 'Bajó ') + Math.abs(pc) + ' % respecto de lo anterior.' : ''; }
+    // Una categoría elegida a mano distinta de lo que Cuba habría adivinado se vuelve regla de comercio.
+    if (S.mode === 'sheets' && !isPay && e.cat !== 'otros' && e.cat !== C.guessCategory(desc)) Store.call('aprender', { descripcion: desc, categoria: e.cat }).catch(function () {});
     Store.putEntries(list).then(function () {
       if (!rec) return;
       var nx = CubaSheets.addMonth(rec.next, rec.day); while (nx <= (F.date || today())) nx = CubaSheets.addMonth(nx, rec.day);
@@ -1530,6 +1647,17 @@ var A = {
   copyexp: function () { copyText(S.exportText, 'CSV copiado'); }
 };
 
+// Si Cuba no reconoce el comercio, al salir de la descripción le consulta a la memoria y a Gemini.
+document.addEventListener('focusout', function (ev) {
+  var el = ev.target; if (!el || !el.dataset || el.dataset.in !== 'desc' || S.mode !== 'sheets' || !S.form || S.form.kind !== 'expense' || !S.form.catAuto || S.readOnly) return;
+  var d = (el.value || '').trim(); if (d.length < 3 || C.guessCategory(d) !== 'otros') return;
+  Store.categorizar([{ descripcion: d, monto_centavos: 0, moneda: S.form.cur || 'ARS' }]).then(function (r) {
+    var x = r.resultados && r.resultados[0];
+    if (!x || x.categoria === 'otros' || x.confianza < 0.7 || !S.form || !S.form.catAuto || (S.form.desc || '').trim() !== d) return;
+    S.form.cat = x.categoria; document.querySelectorAll('.cats button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === x.categoria); });
+  }).catch(function () {});
+});
+
 // ---------------- acariciar a Cuba ----------------
 var PET = { n: 0, last: 0 };
 function petHeart(box) {
@@ -1568,7 +1696,7 @@ document.addEventListener('change', function (ev) {
     return;
   }
   var k = el.dataset && el.dataset.in; if (!k) return;
-  if (k === 'month') { S.month = el.value; render(); }
+  else if (k === 'catfix') { if (el.value) confirmarGrupo(+el.dataset.i, el.value); }
   else if (k === 'catf') { S.cat = el.value; render(); }
   else if (k === 'closemonth') { S.closeMonth = el.value; render(); }
   else if (k === 'me') { Store.setMe(el.value).then(render); }

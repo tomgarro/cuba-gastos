@@ -134,4 +134,13 @@ t('snapshot trae sueldos y recurrentes', () => {
   assert.deepStrictEqual(st.recs, []);
   assert.deepStrictEqual(S.snapshotToState({ personas: [], movimientos: [] }).sueldos, [], 'backend viejo sin sueldos: no rompe');
 });
+t('etiquetas: la última gana, aplicada cambia la categoría, dudosa no y queda en la cola', () => {
+  const mv = (id, d) => ({ id, tipo: 'gasto', fecha: '2026-11-03', descripcion: d, monto_centavos: 1000, moneda: 'ARS', pagador_id: 'm1', reparto_modo: 'igual', reparto_json: '[["m1",500],["m2",500]]', categoria: 'otros', anulado: false });
+  const st = S.snapshotToState({ personas: [{ id: 'm1', nombre: 'Tomi' }, { id: 'm2', nombre: 'Pau' }], movimientos: [mv('a', 'Uno'), mv('b', 'Dos'), mv('c', 'Tres')],
+    etiquetas: [{ movimiento_id: 'a', categoria: 'casa', confianza: 0.6, estado: 'dudosa' }, { movimiento_id: 'a', categoria: 'super', confianza: 1, estado: 'aplicada', fuente: 'manual' },
+      { movimiento_id: 'b', categoria: 'luz', confianza: 0.6, estado: 'dudosa' }] });
+  const all = Object.values(st.ledger).reduce((x, m) => x.concat(Object.values(m)), []), by = Object.fromEntries(all.map(e => [e.id, e]));
+  assert.strictEqual(by.a.cat, 'super'); assert.strictEqual(by.c.cat, 'otros'); assert.notStrictEqual(by.b.cat, 'luz');
+  assert.deepStrictEqual(st.dudosas.map(d => d.id), ['b']);
+});
 console.log(n + ' pruebas de traducción');

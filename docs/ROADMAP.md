@@ -18,7 +18,7 @@ Orden por dependencia. Marcar a medida que se completa.
 - [ ] Notificaciones por Telegram al subir o saldar un gasto
 
 ## Fase 2 · Inteligencia
-- [ ] Categorización: memoria de comercios, Gemini Flash-Lite, cola de dudosos
+- [x] Categorización: memoria de comercios, Gemini Flash-Lite, cola de dudosos
 - [ ] Presupuestos por categoría con semáforo
 - [x] Gastos recurrentes y vencimientos («Por pagar» en Inicio, monto que se actualiza y aviso de suba)
 - [ ] Calendario `.ics` de vencimientos y aviso por Telegram
