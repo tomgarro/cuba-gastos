@@ -58,7 +58,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   assert.ok(!A.p.url().includes('cfg='), 'el token no se queda en la barra de direcciones');
   await A.p.click('[data-act=ob][data-v="1"]');
   await A.p.fill('[data-i="0"]', 'Tomi'); await A.p.fill('[data-i="1"]', 'Pau');
-  await A.p.click('[data-act=ob][data-v="2"]'); await A.p.click('[data-act=obfinish][data-i="0"]');
+  await A.p.click('[data-act=ob][data-v="2"]'); await A.p.dblclick('[data-act=obfinish][data-i="0"]'); await A.p.evaluate(() => { var b = document.querySelector('[data-act=obfinish]'); if (b) { b.disabled = false; b.click(); b.click(); } }); // toques repetidos: no deben duplicar personas
   await A.p.waitForSelector('text=Todavía no hay gastos');
   assert.deepStrictEqual(J(sheet.grids.Personas.slice(1).map(r => [r[1], r[4]])), [['Tomi', 'activa'], ['Pau', 'activa']]);
   const [idTomi, idPau] = sheet.grids.Personas.slice(1).map(r => r[0]);

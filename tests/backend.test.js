@@ -277,4 +277,16 @@ t('URL de la app web: solo se acepta …/macros/s/<id>/exec (no /dev ni otras)',
   assert.strictEqual(b.ctx.isExecUrl_('https://script.google.com/macros/s/ABC_d-1/exec'), true);
 });
 
+t('no se crean dos veces las mismas personas (doble toque / reintento con ids nuevos)', () => {
+  const b = withPeople();
+  const e = err(() => b.call('savePersonas', { personas: [{ id: 'z1', nombre: 'tomi' }, { id: 'z2', nombre: 'Otra' }] }));
+  assert.strictEqual(e.code, 'persona_duplicada');
+  assert.strictEqual(b.grids.Personas.length, 3, 'no escribió nada (ni siquiera la que no repetía)');
+  assert.strictEqual(err(() => boot().call('savePersonas', { personas: [{ id: 'a', nombre: 'Ana' }, { id: 'b', nombre: 'ANA' }] })).code, 'persona_duplicada');
+  // archivada libera el nombre; renombrar/actualizar la misma id sigue andando
+  b.call('savePersonas', { personas: [{ id: 'm1', nombre: 'Tomi', estado: 'archivada' }] });
+  assert.strictEqual(b.call('savePersonas', { personas: [{ id: 'm9', nombre: 'Tomi' }] }).creadas, 1);
+  assert.strictEqual(b.call('savePersonas', { personas: [{ id: 'm9', nombre: 'Tomi', color: '#112233' }] }).actualizadas, 1);
+});
+
 console.log(n + ' pruebas del backend');

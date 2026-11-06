@@ -576,6 +576,8 @@ var A = {
   },
   obadd: function () { S.ob.names.push(''); render(); },
   obfinish: function (el) {
+    if (S.obBusy) return; // el guardado tarda un par de segundos: un segundo toque no debe crear a todos de nuevo
+    S.obBusy = true; el.disabled = true; el.textContent = 'Guardando…';
     var ns = S.ob.names.map(function (n) { return n.trim(); }).filter(Boolean), i = +el.dataset.i;
     var ms = ns.map(function (n, k) { return { id: 'm' + rid(), name: n, color: COLORS[k % COLORS.length] }; });
     var g = { name: 'Casa', cur: 'ARS', members: ms, created: new Date().toISOString() };
@@ -583,7 +585,7 @@ var A = {
       var cur = S.group && S.group.members && S.group.members.length ? S.group.members : ms;
       var pick = cur.filter(function (m) { return m.name === ns[i]; })[0] || cur[i] || cur[0];
       return Store.setMe(pick.id);
-    }).then(function () { S.tab = 'inicio'; render(); }).catch(fail);
+    }).then(function () { S.obBusy = false; S.tab = 'inicio'; render(); }).catch(function (e) { S.obBusy = false; render(); fail(e); });
   },
   who: function (el) { Store.setMe(el.dataset.id).then(function () { render(); }); render(); },
   new: function () { if (S.readOnly) { toast('Solo lectura.'); return; } S.form = newForm('expense'); renderForm(); },

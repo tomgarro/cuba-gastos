@@ -147,6 +147,15 @@ function actionSavePersonas_(req) {
     var alias = p.alias == null ? null : text_(Array.isArray(p.alias) ? p.alias.join(', ') : p.alias, 120);
     return { id: id, nombre: nombre, color: color, estado: estado, alias: alias };
   });
+  // Una persona nueva no puede repetir el nombre de una activa (doble toque, reintento, otro celular).
+  var activos = {};
+  existing.forEach(function (p) { if (String(p.estado) !== 'archivada') activos[String(p.nombre).toLowerCase()] = true; });
+  clean.forEach(function (p) {
+    if (rowById[p.id]) return;
+    var k = p.nombre.toLowerCase();
+    if (activos[k]) fail_('persona_duplicada', 'Ya hay una persona activa que se llama ' + p.nombre + '. Si es otra, usá otro nombre o un alias.');
+    activos[k] = true;
+  });
   var cols = TABS.Personas;
   var updates = [], news = [];
   clean.forEach(function (p) {
