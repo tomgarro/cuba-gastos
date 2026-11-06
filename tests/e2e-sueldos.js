@@ -1,6 +1,7 @@
 // Sueldos (reparto por defecto proporcional, excepciones marcadas) y recurrentes, de punta a punta con Code.gs real.
 const { chromium } = require('playwright');
 const assert = require('assert');
+const openAll = async p => { for (let i = 0; i < 12; i++) { const more = await p.evaluate(() => { const h = document.querySelector('.fold:not(.open)>h3'); if (h) h.click(); return !!h; }); if (!more) break; } };
 const path = require('path');
 const { boot } = require('./fake-sheet.js');
 
@@ -51,7 +52,7 @@ const J = x => JSON.parse(JSON.stringify(x));
 
   // --- Cada uno carga el suyo (A: 2.000.000, B: 1.000.000) ---
   const cargar = async (P, monto) => {
-    await P.p.click('.nav [data-v=ajustes]');
+    await P.p.click('.nav [data-v=ajustes]'); await openAll(P.p);
     await P.p.fill('[data-in=sueldoamt]', monto); await P.p.click('[data-act=salsave]');
     assert.ok(/Sueldo guardado/.test(await toastText(P.p)));
   };
@@ -92,7 +93,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   await B.p.click('[data-act=close]');
 
   // --- Aumento: el sueldo de A sube desde el 1/1/2027; el gasto de 2026 no cambia, uno de 2027 sí ---
-  await A.p.click('.nav [data-v=ajustes]');
+  await A.p.click('.nav [data-v=ajustes]'); await openAll(A.p);
   await A.p.fill('[data-in=sueldoamt]', '4.000.000'); await A.p.fill('[data-in=sueldodesde]', '2027-01-01'); await A.p.click('[data-act=salsave]');
   await A.p.waitForFunction(() => /Sueldo guardado/.test((document.querySelector('#toast') || {}).innerText || ''));
   await A.p.waitForTimeout(2800);
@@ -105,7 +106,7 @@ const J = x => JSON.parse(JSON.stringify(x));
 
   // --- Recurrentes: alta, aparece en «Por pagar», se anota con monto real y avisa la suba ---
   const hoy = new Date(); const dia = hoy.getDate();
-  await A.p.click('.nav [data-v=ajustes]'); await A.p.click('[data-act=recnew]');
+  await A.p.click('.nav [data-v=ajustes]'); await openAll(A.p); await A.p.click('[data-act=recnew]');
   await A.p.fill('[data-in=rdesc]', 'Aysa'); await A.p.fill('[data-in=ramount]', '4.500'); await A.p.fill('[data-in=rday]', String(dia));
   assert.strictEqual(await A.p.locator('[data-in=rcat]').inputValue(), 'agua', 'Aysa → Agua');
   await A.p.click('[data-act=recsave]'); await A.p.waitForSelector('text=día ' + dia);
@@ -123,7 +124,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   const aysa = sheet.grids.Movimientos[sheet.grids.Movimientos.length - 1];
   assert.deepStrictEqual([aysa[col('descripcion')], aysa[col('monto_centavos')], aysa[col('categoria')], aysa[col('origen')], aysa[col('reparto_modo')]], ['Aysa', 486000, 'agua', 'recurrente', 'sueldo']);
   // pausar
-  await A.p.click('.nav [data-v=ajustes]'); await A.p.click('[data-act=recedit]'); await A.p.click('[data-act=rectoggle]'); await A.p.waitForFunction(() => /En pausa/.test((document.querySelector('#toast') || {}).innerText || ''));
+  await A.p.click('.nav [data-v=ajustes]'); await openAll(A.p); await A.p.click('[data-act=recedit]'); await A.p.click('[data-act=rectoggle]'); await A.p.waitForFunction(() => /En pausa/.test((document.querySelector('#toast') || {}).innerText || ''));
   assert.strictEqual(sheet.grids.Recurrentes[1][8], 'FALSE');
 
   // --- Invariantes: todo reparto suma exacto y los gastos anteriores no se tocaron ---

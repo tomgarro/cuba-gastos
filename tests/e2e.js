@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
 const assert = require('assert');
+const openAll = async p => { for (let i = 0; i < 12; i++) { const more = await p.evaluate(() => { const h = document.querySelector('.fold:not(.open)>h3'); if (h) h.click(); return !!h; }); if (!more) break; } };
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
@@ -76,7 +77,7 @@ const assert = require('assert');
   await p.click('[data-act=askdel]'); await p.click('[data-act=del]'); await p.waitForTimeout(300);
   assert.ok(!(await txt()).includes('Cena en lo de Juan'));
   // importar splitwise
-  await p.click('.nav [data-v=ajustes]');
+  await p.click('.nav [data-v=ajustes]'); await openAll(p);
   const csv = 'Date,Description,Category,Cost,Currency,Tomi,Pau\n2026-09-01,Alquiler,Rent,300000.00,ARS,150000.00,-150000.00\n2026-09-05,Payment,Payment,5000.00,ARS,5000.00,-5000.00\n\n2026-09-30,Total balance,,,ARS,155000.00,-155000.00\n';
   await p.fill('#paste', csv);
   await p.click('[data-act=impprev]');
@@ -89,7 +90,7 @@ const assert = require('assert');
   assert.ok(/Pau\s+le debe\s+\$162\.000,00\s+a\s+Tomi/.test(t), 'tras importar: ' + t.slice(0, 250));
   await p.screenshot({ path: 'shots/05-inicio.png', fullPage: true });
   // exportar
-  await p.click('.nav [data-v=ajustes]'); await p.click('[data-act=export]');
+  await p.click('.nav [data-v=ajustes]'); await openAll(p); await p.click('[data-act=export]');
   const exp = await p.inputValue('#exp');
   assert.ok(exp.startsWith('Date,Description,Category,Cost,Currency,Tomi,Pau'));
   // persistencia local

@@ -30,6 +30,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
 .brand small{font-family:'DM Sans';font-weight:500;font-size:13px;color:var(--mut)}
 .chip{border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:500}
 .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card.fold>h3{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:0;user-select:none}.fold>h3 i{font-style:normal;transition:transform .2s}.card.fold.open>h3{margin-bottom:10px}.fold.open>h3 i{transform:rotate(180deg)}.fold:not(.open)>:not(h3){display:none}
+.prog{height:8px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:10px}.prog i{display:block;height:100%;background:var(--acc,#d89b55);border-radius:99px;transition:width .3s}
 .card h3{font-size:15px;color:var(--mut);font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em}
 .hero{display:flex;gap:12px;align-items:flex-end;margin-bottom:14px}
 .bubble{position:relative;background:var(--card);border:1px solid var(--line);border-radius:20px 20px 20px 6px;padding:14px 16px;flex:1;box-shadow:var(--shadow);font-size:17px;font-weight:500}
@@ -836,7 +838,7 @@ var COLORS = ['#c47a35', '#4f7c6d', '#7a5ea8', '#c0504d', '#3f6fa3', '#a68a2e'];
 var LS = 'cuba:v1', LSME = 'cuba:me', LSSH = 'cuba:sheets', LSSNAP = 'cuba:sheetsnap';
 
 // ---------------- estado ----------------
-var S = { group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], lotes: [], dudosas: [], catBusy: false, catMsg: '', impMap: {}, impCur: '', rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
+var S = { catProg: null, fold: {}, group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], lotes: [], dudosas: [], catBusy: false, catMsg: '', impMap: {}, impCur: '', rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
   month: C.monthKey(today()), months: [C.monthKey(today())], perOpen: false, q: '', cat: '', ob: { step: 0, names: ['', ''] }, form: null, imp: null, closeMonth: C.monthKey(today()), confirmDel: null, exportText: null };
 var members = function () { return (S.group && S.group.members) || []; };
 var mem = function (id) { return members().filter(function (m) { return m.id === id; })[0] || { id: id, name: '?', color: '#999' }; };
@@ -865,9 +867,16 @@ var Store = {
     }
     try { var c = JSON.parse(localStorage.getItem(LSSH) || 'null'); return c && c.u && c.t ? c : null; } catch (e) { return null; }
   },
-  call: function (action, body) {
+  call: function (action, body, intento) {
+    var self = this; intento = intento || 0;
+    return this.call1(action, body).catch(function (e) {
+      if (e && e.code === 'ocupado' && intento < 4) return new Promise(function (ok) { setTimeout(ok, 1500 * (intento + 1)); }).then(function () { return self.call(action, body, intento + 1); });
+      throw e;
+    });
+  },
+  call1: function (action, body) {
     var cfg = this.cfg, ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    var to = setTimeout(function () { if (ctl) ctl.abort(); }, 30000);
+    var to = setTimeout(function () { if (ctl) ctl.abort(); }, action === 'categorizar' ? 90000 : 30000);
     var netErr = function () { var er = new Error('red'); er.code = 'red'; er.userMessage = 'No hay conexión con la Sheet. Probá de nuevo.'; return er; };
     return fetch(cfg.u, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', signal: ctl ? ctl.signal : undefined,
       body: JSON.stringify(Object.assign({ token: cfg.t, action: action }, body || {})) })
@@ -1014,7 +1023,7 @@ var Store = {
   categorizar: function (items) { return this.call('categorizar', { items: items }); },
   etiquetar: function (list) {
     var self = this, p = Promise.resolve(); this.gen++;
-    for (var i = 0; i < list.length; i += 400) (function (chunk) { p = p.then(function () { return self.call('etiquetar', { etiquetas: chunk, creado_por: S.meId }); }); })(list.slice(i, i + 400));
+    for (var i = 0; i < list.length; i += 150) (function (chunk) { p = p.then(function () { return self.call('etiquetar', { etiquetas: chunk, creado_por: S.meId }); }); })(list.slice(i, i + 150));
     return p.then(function () { return self.refresh(); }, function (e) { self.refresh(); throw e; });
   },
   undoLote: function (id) {
@@ -1221,6 +1230,13 @@ function viewCierre() {
   }
   return h;
 }
+function foldCards(h) {
+  return h.replace(/<div class="card"><h3>([^<]*)<\/h3>/g, function (m, t) {
+    var open = S.fold[t] || (/Splitwise/.test(t) && S.imp) || (/Categor/.test(t) && S.catBusy);
+    var badge = /Categor/.test(t) && S.dudosas.length && !open ? ' <span class="mut">(' + dudososGrupos().length + ' para confirmar)</span>' : '';
+    return '<div class="card fold' + (open ? ' open' : '') + '"><h3 data-act="fold" data-t="' + esc(t) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' + t + badge + '<i aria-hidden="true">▾</i></h3>';
+  });
+}
 function viewAjustes() {
   var h = '<div class="card"><h3>Personas</h3>' + members().map(function (m) {
     return '<div class="row" style="margin-bottom:8px">' + avatar(m.id) + '<input data-in="rename" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '" maxlength="30"></div>';
@@ -1231,7 +1247,7 @@ function viewAjustes() {
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
   h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '<p class="mut" style="font-size:13px;margin:8px 0 0">Próximamente: bot de Telegram con audio y fotos, Gemini para categorizar, importar resúmenes de tarjeta y vencimientos.</p></div>';
-  return h;
+  return foldCards(h);
 }
 function pctLine(date) {
   var ids = activeMembers().map(function (m) { return m.id; }), w = C.salaryWeights(S.sueldos, ids, date);
@@ -1320,6 +1336,7 @@ function viewCategorias() {
   var h = '<div class="card"><h3>Categorías con Cuba</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Cuba reconoce los comercios que ya conoce y le pregunta a Gemini por los demás (solo le mando la descripción y el monto). Lo dudoso te lo muestro para que lo confirmes.</p>';
   h += '<div class="stat"><span>Sin categoría («Otros»)</span><b>' + n + '</b></div>';
   h += '<button class="btn acc full" style="margin-top:8px" data-act="catrun"' + (S.readOnly || S.catBusy || !n ? ' disabled' : '') + '>' + (S.catBusy ? 'Pensando…' : 'Que Cuba los categorice') + '</button>';
+  if (S.catBusy && S.catProg) { var pc = Math.round(100 * S.catProg.done / S.catProg.total); h += '<div class="prog" role="progressbar" aria-valuenow="' + pc + '"><i style="width:' + pc + '%"></i></div><p class="mut" style="font-size:13px;margin:4px 0 0">Gemini revisó ' + S.catProg.done + ' de ' + S.catProg.total + ' comercios · ' + pc + '%</p>'; }
   if (S.catMsg) h += '<p class="mut" style="font-size:14px;margin:8px 0 0">' + esc(S.catMsg) + '</p>';
   if (gr.length) {
     h += '<h3 style="margin:14px 0 6px">Para confirmar (' + gr.length + ')</h3>';
@@ -1483,13 +1500,15 @@ var A = {
     var descs = Object.keys(byDesc); if (!descs.length) return;
     S.catBusy = true; S.catMsg = ''; render();
     var res = {}, chunks = [], sinClave = false, err = '';
-    for (var i = 0; i < descs.length; i += 100) chunks.push(descs.slice(i, i + 100));
+    for (var i = 0; i < descs.length; i += 40) chunks.push(descs.slice(i, i + 40));
+    S.catProg = { done: 0, total: descs.length }; render();
     var p = Promise.resolve();
     chunks.forEach(function (ch) {
       p = p.then(function () {
         return Store.categorizar(ch.map(function (d) { return { descripcion: d, monto_centavos: byDesc[d].monto_centavos, moneda: byDesc[d].moneda }; })).then(function (r) {
           if (r.sin_clave) sinClave = true; if (r.error) err = r.error;
           r.resultados.forEach(function (x) { res[x.descripcion] = x; });
+          S.catProg.done += ch.length; render();
         });
       });
     });
@@ -1503,9 +1522,10 @@ var A = {
       });
       S.catMsg = sinClave ? 'Falta la clave de Gemini en el Apps Script (menú 🐕 Cuba → Guardar clave de Gemini).' : (err ? 'Gemini no respondió (' + err + '). Se usó solo lo que Cuba ya conoce. ' : '') + (list.length ? 'Categoricé ' + auto + ' movimientos y ' + dud + ' quedaron para confirmar' + (nada ? '; ' + nada + ' siguen en «Otros».' : '.') : 'No pude categorizar ninguno todavía.');
       return list.length ? Store.etiquetar(list) : null;
-    }).then(function () { S.catBusy = false; render(); }).catch(function (e) { S.catBusy = false; S.catMsg = ''; render(); fail(e); });
+    }).then(function () { S.catBusy = false; S.catProg = null; render(); }).catch(function (e) { S.catBusy = false; S.catProg = null; S.catMsg = ''; render(); fail(e); });
   },
   catok: function (el) { var x = dudososGrupos()[+el.dataset.i]; if (x) confirmarGrupo(+el.dataset.i, x.cat); },
+  fold: function (el) { var t = el.dataset.t; S.fold[t] = !S.fold[t]; render(); },
   perOpen: function () { S.perOpen = !S.perOpen; render(); },
   perToggle: function (el) { var m = el.dataset.v, i = S.months.indexOf(m); if (i >= 0) { if (S.months.length > 1) S.months.splice(i, 1); } else S.months.push(m); render(); },
   perYear: function (el) { var ms = monthsAvailable().filter(function (m) { return m.slice(0, 4) === el.dataset.v; }), on = ms.every(function (m) { return S.months.indexOf(m) >= 0; });

@@ -21,7 +21,7 @@ var CUBA = {
   VERSION: 1,
   APP_URL: 'https://tomgarro.github.io/cuba-gastos/',
   MAX_BATCH: 500,
-  LOCK_MS: 20000,
+  LOCK_MS: 30000,
   TOKEN_PROP: 'CUBA_TOKEN',
   URL_PROP: 'CUBA_URL'
 };

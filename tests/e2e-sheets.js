@@ -2,6 +2,7 @@
 // No hay red real: el Web App de Apps Script se intercepta y lo atiende el mismo Code.gs que se publica.
 const { chromium } = require('playwright');
 const assert = require('assert');
+const openAll = async p => { for (let i = 0; i < 12; i++) { const more = await p.evaluate(() => { const h = document.querySelector('.fold:not(.open)>h3'); if (h) h.click(); return !!h; }); if (!more) break; } };
 const path = require('path');
 const { boot } = require('./fake-sheet.js');
 
@@ -14,7 +15,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   const sheet = boot();
   const col = n => sheet.TABS.Movimientos.indexOf(n);
   const wire = { posts: 0, options: 0, badType: 0, bodies: [] };
-  const state = { down: false };
+  const state = { down: false, busy: 0 };
   const errs = [];
   const browser = await chromium.launch();
 
@@ -25,6 +26,7 @@ const J = x => JSON.parse(JSON.stringify(x));
       const req = route.request();
       if (state.down) return route.abort('failed');
       if (req.method() === 'OPTIONS') { wire.options++; return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } }); }
+      if (state.busy > 0) { state.busy--; return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ ok: false, error: 'ocupado', message: 'El backend está ocupado. Probá de nuevo en unos segundos.' }) }); }
       wire.posts++;
       if (!/^text\/plain/.test(req.headers()['content-type'] || '')) wire.badType++;
       wire.bodies.push(req.postData());
@@ -135,7 +137,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   await B.p.waitForSelector('.banner', { state: 'detached', timeout: 5000 });
 
   // ---- Importar Splitwise = un lote que se puede deshacer en el backend ----
-  await B.p.click('.nav [data-v=ajustes]');
+  await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
   const csv = 'Date,Description,Category,Cost,Currency,Tomi,Pau\n2026-09-01,Alquiler,Rent,300000.00,ARS,150000.00,-150000.00\n2026-09-05,Payment,Payment,5000.00,ARS,5000.00,-5000.00\n';
   await B.p.fill('#paste', csv); await B.p.click('[data-act=impprev]'); await B.p.click('[data-act=impgo]');
   await B.p.waitForFunction(() => /2 movimientos importados|importados/.test(document.querySelector('#toast').textContent), null, { timeout: 5000 });
@@ -151,7 +153,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   assert.ok(!/Alquiler/.test(await B.txt()), 'el lote deshecho desaparece de la app');
 
   // ---- Importación real: nombres distintos a los de la app y moneda mal puesta (Splitwise dice USD) ----
-  await B.p.click('.nav [data-v=ajustes]');
+  await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
   const csv2 = 'Date,Description,Category,Cost,Currency,Oda Peralta,Tomás Garro\n2021-12-02,Verdulería,General,630.00,USD,315.00,-315.00\n2021-12-03,Coto,Groceries,8128.00,USD,-4064.00,4064.00\n2021-12-07,Oda P. paid Tomás G.,Payment,1000.00,USD,1000.00,-1000.00\n\n2026-11-06,Total balance, , ,USD,0,0\n';
   await B.p.fill('#paste', csv2); await B.p.click('[data-act=impprev]');
   assert.ok(/Elegí quién es «Oda Peralta»/.test(await B.p.locator('.preview.neg').first().innerText()), 'sin elegir no se puede importar');
@@ -171,7 +173,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   const imp2 = J(sheet.grids.Movimientos).slice(1).filter(r => r[col('origen')] === 'splitwise' && r[col('anulado')] === 'FALSE');
   assert.strictEqual(imp2.length, 3); imp2.forEach(r => assert.strictEqual(r[col('moneda')], 'ARS'));
   checkAppendOnly('importación real');
-  await B.p.click('.nav [data-v=ajustes]');
+  await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
   B.p.once('dialog', d => d.accept());
   await B.p.locator('[data-act=undolote]').first().click();
   await B.p.waitForFunction(() => /Importación deshecha/.test(document.querySelector('#toast').textContent), null, { timeout: 5000 });
@@ -192,7 +194,7 @@ const J = x => JSON.parse(JSON.stringify(x));
         return /zorbaflix/i.test(d) ? { n: +n, categoria: 'streaming', confianza: 0.95 } : /local raro/i.test(d) ? { n: +n, categoria: 'casa', confianza: 0.6 } : { n: +n, categoria: 'otros', confianza: 0.2 }; });
       return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(out) }] } }] }) };
     } };
-    await refresh(B.p); await B.p.waitForTimeout(250); await B.p.click('.nav [data-v=ajustes]');
+    await refresh(B.p); await B.p.waitForTimeout(250); await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
     await B.p.click('[data-act=catrun]');
     await B.p.waitForFunction(() => /Para confirmar/i.test(document.querySelector('#app').innerText), null, { timeout: 8000 });
     assert.strictEqual(sent.length, 1, 'una sola consulta a Gemini para todo el lote');
@@ -206,6 +208,12 @@ const J = x => JSON.parse(JSON.stringify(x));
     assert.ok(eti().some(r => r[1] === 'cat3' && r[2] === 'super' && r[4] === 'manual' && r[5] === 'aplicada'), 'la corrección queda como etiqueta manual');
     assert.ok(J(sheet.grids.Comercios).slice(1).some(r => /local raro/.test(r[0]) && r[2] === 'super'), 'la corrección se vuelve regla');
     checkAppendOnly('categorías');
+    // si el backend está ocupado, la app reintenta sola en vez de mostrar el error
+    state.busy = 2; const antes = sent.length;
+    await B.p.click('[data-act=catrun]');
+    await B.p.waitForFunction(() => /No pude categorizar|Categoricé/i.test(document.querySelector('#app').innerText), null, { timeout: 15000 });
+    assert.ok(sent.length > antes && state.busy === 0, 'reintentó y llegó a Gemini');
+    assert.ok(!/ocupado/i.test(await B.p.locator('#toast').innerText()), 'sin error de ocupado');
     await refresh(A.p); await A.p.waitForTimeout(250); await A.p.click('.nav [data-v=gastos]');
     assert.ok(/Zorbaflix/.test(await A.txt()), 'el otro celular ve los gastos');
   }
