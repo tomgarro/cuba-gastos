@@ -260,7 +260,7 @@ function actionAddMovimientos_(req) {
   var lote = null;
   if (req.lote != null) lote = normLote_(req.lote);
 
-  var batchIds = {}, rows = [], omitidos = [], reemplazados = [];
+  var batchIds = {}, rows = [], omitidos = [], reemplazados = [], nuevos = [];
   var now = new Date().toISOString();
   list.forEach(function (m, i) {
     var n = normMov_(m, i, personas);
@@ -278,6 +278,7 @@ function actionAddMovimientos_(req) {
       reemplazados.push(n.reemplaza_id);
     }
     rows.push(TABS.Movimientos.map(function (c) { return rowValue_(n, c, now); }));
+    if (!n.reemplaza_id) nuevos.push(n);
   });
 
   if (lote && !lotes[lote.id]) {
@@ -286,6 +287,8 @@ function actionAddMovimientos_(req) {
   if (rows.length) appendRows_(sheet, rows, TABS.Movimientos.length);
   // Editar = agregar el nuevo y anular el viejo, en el mismo pedido y bajo el mismo lock.
   if (reemplazados.length) anular_(function (row) { return reemplazados.indexOf(row.id) >= 0; });
+  // Aviso al otro celular. Nunca puede romper la carga: si falla, se ignora.
+  if (!lote && nuevos.length && nuevos.length <= 3) { try { avisarMovimientos_(nuevos); } catch (e) { console.error('aviso: ' + e.message); } }
   return { ok: true, agregados: rows.length, omitidos: omitidos, reemplazados: reemplazados.length };
 }
 
@@ -593,7 +596,7 @@ function rotarToken() {
 /* ------------------------------------------------------------------ */
 
 var AVISO = { DIAS: 3, TZ: 'America/Argentina/Buenos_Aires', HORA: 9, NTFY: 'https://ntfy.sh/',
-  TOPIC_PROP: 'CUBA_NTFY_TOPIC', MAILS_PROP: 'CUBA_MAILS', SENT_PROP: 'CUBA_AVISADOS', FN: 'avisarVencimientos' };
+  TOPIC_PROP: 'CUBA_NTFY_TOPICS', MAILS_PROP: 'CUBA_MAILS', SENT_PROP: 'CUBA_AVISADOS', FN: 'avisarVencimientos' };
 
 function dayNum_(iso) {
   var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
@@ -632,18 +635,16 @@ function avisarVencimientos(hoy) {
   var sent = []; try { sent = JSON.parse(props.getProperty(AVISO.SENT_PROP) || '[]'); } catch (e) { sent = []; }
   var list = avisosPendientes_(readTab_('Recurrentes'), hoy, sent);
   if (!list.length) return { avisos: 0 };
-  var topic = props.getProperty(AVISO.TOPIC_PROP);
   var mails = String(props.getProperty(AVISO.MAILS_PROP) || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
   var ok = { push: false, mail: false }, errores = [];
   var corto = list.map(function (a) { return a.descripcion + ' ' + cuandoTxt_(a.dias); }).join(' · ');
-  if (topic) {
-    try {
-      var resp = UrlFetchApp.fetch(AVISO.NTFY, { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-        payload: JSON.stringify({ topic: topic, title: '🐕 Cuba: ' + (list.length === 1 ? 'un vencimiento' : list.length + ' vencimientos'),
-          message: corto, tags: ['dog'], click: CUBA.APP_URL, priority: list.some(function (a) { return a.dias <= 0; }) ? 4 : 3 }) });
-      if (resp.getResponseCode() === 200) ok.push = true; else errores.push('ntfy ' + resp.getResponseCode());
-    } catch (e) { errores.push('ntfy: ' + e.message); }
-  }
+  var titulo = '🐕 Cuba: ' + (list.length === 1 ? 'un vencimiento' : list.length + ' vencimientos');
+  var prio = list.some(function (a) { return a.dias <= 0; }) ? 4 : 3;
+  var topics = topicsOf_(); 
+  Object.keys(topics).forEach(function (pid) {
+    var r = ntfy_(topics[pid], titulo, corto, prio);
+    if (r === true) ok.push = true; else errores.push(r);
+  });
   if (mails.length) {
     try {
       var cuerpo = '¡Guau! Esto se viene:\n\n' + list.map(function (a) {
@@ -661,6 +662,35 @@ function avisarVencimientos(hoy) {
   return { avisos: list.length, push: ok.push, mail: ok.mail, errores: errores };
 }
 
+function topicsOf_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(AVISO.TOPIC_PROP) || '{}') || {}; } catch (e) { return {}; }
+}
+
+/** Manda una notificación nativa por ntfy (JSON: soporta acentos y emojis). Devuelve true o el motivo del fallo. */
+function ntfy_(topic, title, message, priority) {
+  try {
+    var resp = UrlFetchApp.fetch(AVISO.NTFY, { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ topic: topic, title: title, message: message, tags: ['dog'], click: CUBA.APP_URL, priority: priority || 3 }) });
+    return resp.getResponseCode() === 200 ? true : 'ntfy ' + resp.getResponseCode();
+  } catch (e) { return 'ntfy: ' + e.message; }
+}
+
+/** «Tomi anotó Super» al celu del otro. Sin montos. Solo cargas chicas (no importaciones). */
+function avisarMovimientos_(nuevos) {
+  var topics = topicsOf_();
+  if (!Object.keys(topics).length) return;
+  var personas = {}; readTab_('Personas').forEach(function (p) { personas[p.id] = p; });
+  var quien = personas[nuevos[0].creado_por];
+  if (!quien) return;
+  var que = nuevos.length === 1
+    ? (nuevos[0].tipo === 'pago' ? 'anotó un pago: ' : 'anotó ') + String(nuevos[0].descripcion).slice(0, 60)
+    : 'anotó ' + nuevos.length + ' movimientos';
+  Object.keys(topics).forEach(function (pid) {
+    if (pid === String(quien.id) || !personas[pid] || String(personas[pid].estado) === 'archivada') return;
+    ntfy_(topics[pid], '🐕 ' + quien.nombre, quien.nombre + ' ' + que, 3);
+  });
+}
+
 function activarAvisos() {
   var ui = SpreadsheetApp.getUi(), props = PropertiesService.getScriptProperties();
   var yo = ''; try { yo = Session.getEffectiveUser().getEmail(); } catch (e) { yo = ''; }
@@ -669,25 +699,26 @@ function activarAvisos() {
   var mails = r.getResponseText().split(',').map(function (x) { return x.trim(); }).filter(function (x) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); });
   if (!mails.length && yo) mails = [yo];
   props.setProperty(AVISO.MAILS_PROP, mails.join(','));
-  var topic = props.getProperty(AVISO.TOPIC_PROP);
-  if (!topic) { topic = 'cuba-' + newToken_().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24); props.setProperty(AVISO.TOPIC_PROP, topic); }
+  var topics = topicsOf_(), lineas = [];
+  readTab_('Personas').forEach(function (p) {
+    if (String(p.estado) === 'archivada') return;
+    if (!topics[p.id]) topics[p.id] = 'cuba-' + newToken_().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
+    lineas.push(p.nombre + ': ' + topics[p.id]);
+  });
+  props.setProperty(AVISO.TOPIC_PROP, JSON.stringify(topics));
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === AVISO.FN) ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger(AVISO.FN).timeBased().everyDays(1).atHour(AVISO.HORA).inTimezone(AVISO.TZ).create();
-  var res = enviarPrueba_(topic, mails);
+  var res = enviarPrueba_(topics, mails);
   ui.alert('Avisos activados',
     'Todos los días a las ' + AVISO.HORA + ' revisa los vencimientos.\n\nMail a: ' + mails.join(', ') + (res.mail ? ' ✓ (te mandé uno de prueba)' : ' ✗ ' + res.err) +
-    '\n\nNotificación en el celu (opcional): instalá la app gratuita «ntfy», tocá "+" y suscribite al tema:\n\n' + topic +
-    '\n\n(Es tu tema privado: no lo compartas. Al celu nunca van montos.)', ui.ButtonSet.OK);
+    '\n\nNotificación en el celu: cada uno instala la app gratuita «ntfy», toca "+" y se suscribe a SU tema:\n\n' + lineas.join('\n') +
+    '\n\n(Son temas privados: no los compartas. Al celu nunca van montos.)', ui.ButtonSet.OK);
 }
 
-function enviarPrueba_(topic, mails) {
+function enviarPrueba_(topics, mails) {
   var res = { mail: false, push: false, err: '' };
   try { MailApp.sendEmail(mails.join(','), '🐕 Cuba: avisos activados', 'Listo, a partir de ahora te aviso cuando se acerque un vencimiento.\n' + CUBA.APP_URL); res.mail = true; } catch (e) { res.err = e.message; }
-  try {
-    var resp = UrlFetchApp.fetch(AVISO.NTFY, { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ topic: topic, title: '🐕 Cuba', message: 'Avisos activados. ¡Guau!', tags: ['dog'], click: CUBA.APP_URL }) });
-    res.push = resp.getResponseCode() === 200;
-  } catch (e) { /* ntfy es opcional */ }
+  Object.keys(topics).forEach(function (pid) { if (ntfy_(topics[pid], '🐕 Cuba', 'Avisos activados. ¡Guau!') === true) res.push = true; });
   return res;
 }
 

@@ -38,6 +38,8 @@ El token vive solo en *Propiedades del script* (`CUBA_TOKEN`). Nunca en la Sheet
 
 ## Avisos de vencimientos (v0.6)
 
-Menú **🐕 Cuba → Activar avisos de vencimientos**: pide los mails, crea un disparador diario (9 h, Buenos Aires), manda un mail de prueba y muestra el tema privado de **ntfy** (app gratuita, notificación nativa en iPhone y Android, sin servidor). Avisa una vez por etapa de cada vencimiento (faltan ≤3 días / vence hoy / vencido). Al celu no van montos; el mail sí lleva el monto aproximado. Si ningún canal sale, reintenta al día siguiente. Los mails y el tema viven en Propiedades del script (`CUBA_MAILS`, `CUBA_NTFY_TOPIC`), nunca en el repo.
+Menú **🐕 Cuba → Activar avisos de vencimientos**: pide los mails, crea un disparador diario (9 h, Buenos Aires), manda un mail de prueba y muestra un tema privado de **ntfy por persona** (app gratuita, notificación nativa en iPhone y Android, sin servidor). Avisa una vez por etapa de cada vencimiento (faltan ≤3 días / vence hoy / vencido). Al celu no van montos; el mail sí lleva el monto aproximado. Si ningún canal sale, reintenta al día siguiente. Los mails y el tema viven en Propiedades del script (`CUBA_MAILS`, `CUBA_NTFY_TOPIC`), nunca en el repo.
+
+Además, cada vez que alguien anota un gasto o pago (hasta 3 por pedido; no importaciones ni ediciones) el otro recibe «Tomi anotó Super» en su celu, sin monto. Si el aviso falla, el gasto se guarda igual.
 
 Pendiente: llamadas a Gemini y mail mensual con resumen.

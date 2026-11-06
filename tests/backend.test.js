@@ -336,13 +336,13 @@ t('avisos: vence pronto / hoy / vencido, una sola vez por etapa, sin montos al c
   b.ctx.MailApp = { sendEmail: (to, subj, body) => sent.mails.push({ to, subj, body }) };
   let code = 200;
   b.ctx.UrlFetchApp = { fetch: (u, o) => { sent.push.push({ u, o: JSON.parse(o.payload) }); return { getResponseCode: () => code }; } };
-  b.log.props.CUBA_NTFY_TOPIC = 'cuba-secreto123'; b.log.props.CUBA_MAILS = 'a@x.com, b@x.com';
+  b.log.props.CUBA_NTFY_TOPICS = JSON.stringify({ m1: 'cuba-tomi', m2: 'cuba-pau' }); b.log.props.CUBA_MAILS = 'a@x.com, b@x.com';
   const run = day => vm.runInContext('avisarVencimientos("' + day + '")', b.ctx);
   const r = run('2026-11-06');
   assert.strictEqual(r.avisos, 3, 'gas vencido, agua hoy, luz pronto; ni el lejano ni el pausado');
   assert.ok(r.push && r.mail);
+  assert.deepStrictEqual(sent.push.map(x => x.o.topic).sort(), ['cuba-pau', 'cuba-tomi'], 'cada uno en su tema');
   const m = sent.push[0].o;
-  assert.strictEqual(m.topic, 'cuba-secreto123');
   assert.ok(/Gas venció hace 3 días/.test(m.message) && /Agua vence hoy/.test(m.message) && /Luz vence en 2 días/.test(m.message));
   assert.ok(!/\d{3}/.test(m.message.replace(/\s/g, '')) && !/\$/.test(m.message), 'al celu no van montos');
   assert.ok(sent.mails[0].to === 'a@x.com,b@x.com' && /12\.345,00/.test(sent.mails[0].body), 'el mail sí lleva monto aprox.');
@@ -355,11 +355,31 @@ t('avisos: si ningún canal sale, no se da por avisado y reintenta', () => {
   b.call('saveRecurrente', { recurrente: { id: 'r1', descripcion: 'Luz', monto_estimado_centavos: 100, moneda: 'ARS', dia_mes: 6, categoria: 'luz', pagador_id: 'm1', proximo_vencimiento: '2026-11-06', activo: true } });
   b.ctx.MailApp = { sendEmail() { throw new Error('cuota'); } };
   b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 500 }) };
-  b.log.props.CUBA_NTFY_TOPIC = 'cuba-x'; b.log.props.CUBA_MAILS = 'a@x.com';
+  b.log.props.CUBA_NTFY_TOPICS = JSON.stringify({ m1: 'cuba-x' }); b.log.props.CUBA_MAILS = 'a@x.com';
   const r = vm.runInContext('avisarVencimientos("2026-11-06")', b.ctx);
   assert.strictEqual(r.avisos, 1); assert.ok(!r.push && !r.mail && r.errores.length === 2);
   b.ctx.MailApp = { sendEmail() {} };
   assert.strictEqual(vm.runInContext('avisarVencimientos("2026-11-06")', b.ctx).mail, true, 'reintenta y sale');
   assert.strictEqual(vm.runInContext('avisarVencimientos("2026-11-06")', b.ctx).avisos, 0);
+});
+
+t('aviso al otro al anotar un gasto: sin monto, no a uno mismo, no en importaciones ni ediciones, y nunca rompe la carga', () => {
+  const b = withPeople(); const push = [];
+  b.ctx.UrlFetchApp = { fetch: (u, o) => { push.push(JSON.parse(o.payload)); return { getResponseCode: () => 200 }; } };
+  b.log.props.CUBA_NTFY_TOPICS = JSON.stringify({ m1: 'cuba-tomi', m2: 'cuba-pau' });
+  b.call('addMovimientos', { movimientos: [mov({ id: 'a1', descripcion: 'Super Coto', monto_centavos: 123456, reparto: [['m1', 61728], ['m2', 61728]] })] });
+  assert.strictEqual(push.length, 1); assert.strictEqual(push[0].topic, 'cuba-pau', 'le llega a Pau, no a quien cargó');
+  assert.ok(/Tomi anotó Super Coto/.test(push[0].message) && !/\d{3}/.test(push[0].message), 'sin montos');
+  b.call('addMovimientos', { movimientos: [mov({ id: 'a2', reemplaza_id: 'a1', descripcion: 'Super Coto' })] });
+  assert.strictEqual(push.length, 1, 'editar no avisa');
+  const muchos = [1, 2, 3, 4].map(i => mov({ id: 'z' + i }));
+  b.call('addMovimientos', { movimientos: muchos });
+  assert.strictEqual(push.length, 1, 'más de 3 de golpe (importación) no avisa');
+  b.call('addMovimientos', { movimientos: [mov({ id: 'l1' })], lote: { id: 'lt1', origen: 'splitwise', archivo: 'x.csv', fecha: '2026-11-06', moneda_original: 'ARS' } });
+  assert.strictEqual(push.length, 1, 'lotes no avisan');
+  b.ctx.UrlFetchApp = { fetch() { throw new Error('sin red'); } };
+  assert.strictEqual(b.call('addMovimientos', { movimientos: [mov({ id: 'a9' })] }).agregados, 1, 'si el aviso falla, el gasto se guarda igual');
+  b.log.props.CUBA_NTFY_TOPICS = '';
+  assert.strictEqual(b.call('addMovimientos', { movimientos: [mov({ id: 'a10' })] }).agregados, 1, 'sin avisos activados no hace nada');
 });
 console.log(n + ' pruebas del backend');
