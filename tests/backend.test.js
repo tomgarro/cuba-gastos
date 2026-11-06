@@ -459,4 +459,25 @@ t('categorías: etiquetar agrega sin tocar movimientos, es idempotente y una cor
   b.call('aprender', { descripcion: 'Lo de Don Pepe', categoria: 'comida' });
   assert.strictEqual(b.grids.Comercios.length, 2); assert.strictEqual(b.grids.Comercios[1][2], 'comida'); assert.strictEqual(b.grids.Comercios[1][3], 2, 'cuenta las veces');
 });
+
+t('resumen mensual: totales por moneda, etiquetas pisan categoría, sin anulados ni pagos, sin saldos ni sueldos', () => {
+  const b = withPeople();
+  const mk = (id, f, d, c, cat, o) => Object.assign(mov({ id, fecha: f, descripcion: d, monto_centavos: c, categoria: cat, reparto: [['m1', Math.ceil(c / 2)], ['m2', Math.floor(c / 2)]] }), o || {});
+  b.call('addMovimientos', { movimientos: [mk('r1', '2026-10-03', 'ALQUILER | SEPTIEMBRE', 70000000, 'alquiler'), mk('r2', '2026-10-05', 'LUZ | SEPTIEMBRE', 12500000, 'luz'), mk('r3', '2026-10-20', 'Cosa rara', 3000000, 'otros'),
+    mk('r4', '2026-09-10', 'LUZ | AGOSTO', 10000000, 'luz'), mk('r5', '2026-10-21', 'Netflix', 500000, 'otros', { moneda: 'USD' }), mk('r6', '2026-10-22', 'Pago', 9999999, 'pago', { tipo: 'pago', reparto: [['m2', 9999999]] })] });
+  b.call('anularMovimientos', { ids: ['r3'] });
+  b.call('etiquetar', { etiquetas: [{ id: 'e1', movimiento_id: 'r5', categoria: 'streaming', confianza: 1, fuente: 'manual', estado: 'aplicada' }] });
+  const d = b.ctx.datosResumen_(JSON.parse(JSON.stringify(b.call('read').movimientos)), JSON.parse(JSON.stringify(b.call('read').etiquetas)), [{ id: 'luz', nombre: 'Luz', emoji: '💡' }, { id: 'streaming', nombre: 'Streaming', emoji: '📺' }, { id: 'alquiler', nombre: 'Alquiler', emoji: '🔑' }], '2026-10');
+  const ars = d.monedas.find(x => x.moneda === 'ARS'), usd = d.monedas.find(x => x.moneda === 'USD');
+  assert.strictEqual(ars.total, 82500000, 'sin el anulado ni el pago'); assert.strictEqual(ars.prev, 10000000); assert.strictEqual(ars.variacion, 725);
+  assert.strictEqual(ars.lista[0].id, 'alquiler'); assert.strictEqual(usd.lista[0].id, 'streaming', 'la etiqueta pisa la categoría');
+  const html = b.ctx.htmlResumen_(d, true);
+  assert.ok(/Resumen de octubre 2026/.test(html) && /\$825\.000/.test(html) && /US\$ 5\.000/.test(html) && /Tip de Cuba/.test(html) && /<img[^>]+mail_feliz\.png/.test(html));
+  assert.ok(!/sueldo.*\d|debe a/i.test(html.replace('Este resumen no incluye sueldos ni saldos. Los saldos están en el cierre de mes de la app.', '')), 'sin saldos ni sueldos');
+  require('fs').writeFileSync('/tmp/resumen.html', html);
+  const sent = []; b.ctx.MailApp = { sendEmail: o => sent.push(o) };
+  b.log.props.CUBA_MAILS = 'a@x.com,b@x.com';
+  const r = b.ctx.resumenMensual('2026-11');
+  assert.ok(r.enviado && sent.length === 1 && sent[0].to === 'a@x.com,b@x.com' && /resumen de/.test(sent[0].subject) && sent[0].htmlBody && sent[0].name === 'Cuba 🐕');
+});
 console.log(n + ' pruebas del backend');

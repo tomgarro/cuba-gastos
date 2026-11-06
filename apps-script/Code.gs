@@ -574,6 +574,8 @@ function onOpen() {
     .addItem('Link para emparejar celulares', 'mostrarEmparejado')
     .addItem('Guardar clave de Gemini', 'guardarClaveGemini')
     .addItem('Activar avisos de vencimientos', 'activarAvisos')
+    .addItem('Mandarme un resumen de ejemplo', 'resumenDeEjemplo')
+    .addItem('Activar resumen mensual', 'activarResumenMensual')
     .addItem('Desactivar avisos', 'desactivarAvisos')
     .addItem('Cambiar URL de la app web', 'cambiarUrl')
     .addItem('Cambiar token (desconecta los celulares)', 'rotarToken')
@@ -822,7 +824,7 @@ function avisarVencimientos(hoy) {
       var cuerpo = '¡Guau! Esto se viene:\n\n' + list.map(function (a) {
         return '• ' + a.descripcion + ' (' + plata_(a.monto, a.moneda) + ' aprox.): ' + cuandoTxt_(a.dias);
       }).join('\n') + '\n\nCuando lo pagues, anotalo en Cuba y el próximo vencimiento se corre solo:\n' + CUBA.APP_URL + '\n\n— Cuba';
-      MailApp.sendEmail(mails.join(','), '🐕 Cuba: ' + corto, cuerpo);
+      MailApp.sendEmail(mails.join(','), '🐕 Cuba: ' + corto, cuerpo, { name: 'Cuba 🐕' });
       ok.mail = true;
     } catch (e) { errores.push('mail: ' + e.message); }
   }
@@ -878,7 +880,7 @@ function activarAvisos() {
     lineas.push(p.nombre + ': ' + topics[p.id]);
   });
   props.setProperty(AVISO.TOPIC_PROP, JSON.stringify(topics));
-  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === AVISO.FN) ScriptApp.deleteTrigger(t); });
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === AVISO.FN || t.getHandlerFunction() === 'resumenMensual') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger(AVISO.FN).timeBased().everyDays(1).atHour(AVISO.HORA).inTimezone(AVISO.TZ).create();
   var res = enviarPrueba_(topics, mails);
   ui.alert('Avisos activados',
@@ -889,7 +891,7 @@ function activarAvisos() {
 
 function enviarPrueba_(topics, mails) {
   var res = { mail: false, push: false, err: '' };
-  try { MailApp.sendEmail(mails.join(','), '🐕 Cuba: avisos activados', 'Listo, a partir de ahora te aviso cuando se acerque un vencimiento.\n' + CUBA.APP_URL); res.mail = true; } catch (e) { res.err = e.message; }
+  try { MailApp.sendEmail(mails.join(','), '🐕 Cuba: avisos activados', 'Listo, a partir de ahora te aviso cuando se acerque un vencimiento.\n' + CUBA.APP_URL, { name: 'Cuba 🐕' }); res.mail = true; } catch (e) { res.err = e.message; }
   Object.keys(topics).forEach(function (pid) { if (ntfy_(topics[pid], '🐕 Cuba', 'Avisos activados. ¡Guau!') === true) res.push = true; });
   return res;
 }
@@ -910,4 +912,127 @@ function fail_(code, message) {
   err.cuba = true;
   err.code = code;
   throw err;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Resumen mensual por mail (sin saldos ni sueldos)                    */
+/* ------------------------------------------------------------------ */
+
+var MESES_MAIL = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+var MAIL_IMG = CUBA.APP_URL + 'assets/cuba/mail_feliz.png';
+
+function mesAnterior_(mk) { var y = +mk.slice(0, 4), m = +mk.slice(5, 7) - 1; m--; if (m < 0) { m = 11; y--; } return y + '-' + ('0' + (m + 1)).slice(-2); }
+function mesLabel_(mk) { return MESES_MAIL[+mk.slice(5, 7) - 1] + ' ' + mk.slice(0, 4); }
+
+/** Números del mes por moneda. Puro: lo prueban los tests. Las etiquetas aplicadas pisan la categoría del movimiento. */
+function datosResumen_(movs, etiquetas, categorias, mk) {
+  var etq = {}; (etiquetas || []).forEach(function (t) { if (t.estado === 'aplicada') etq[t.movimiento_id] = t.categoria; });
+  var nombres = {}; (categorias || []).forEach(function (c) { nombres[c.id] = { n: c.nombre, e: c.emoji }; });
+  var prev = mesAnterior_(mk), por = {};
+  movs.forEach(function (m) {
+    if (m.anulado || m.tipo === 'pago') return;
+    var k = String(m.fecha).slice(0, 7); if (k !== mk && k !== prev) return;
+    var cur = m.moneda, d = por[cur] = por[cur] || { moneda: cur, total: 0, prev: 0, cuenta: 0, cats: {}, catsPrev: {}, mayor: null };
+    var cat = etq[m.id] || m.categoria || 'otros';
+    if (k === prev) { d.prev += m.monto_centavos; d.catsPrev[cat] = (d.catsPrev[cat] || 0) + m.monto_centavos; return; }
+    d.total += m.monto_centavos; d.cuenta++; d.cats[cat] = (d.cats[cat] || 0) + m.monto_centavos;
+    if (!d.mayor || m.monto_centavos > d.mayor.monto) d.mayor = { descripcion: m.descripcion, monto: m.monto_centavos };
+  });
+  var out = Object.keys(por).map(function (c) { return por[c]; }).filter(function (d) { return d.cuenta > 0; });
+  out.forEach(function (d) {
+    d.lista = Object.keys(d.cats).map(function (k) {
+      var info = nombres[k] || { n: k, e: '📦' };
+      return { id: k, nombre: info.n, emoji: info.e, monto: d.cats[k], pct: d.total ? Math.round(d.cats[k] * 100 / d.total) : 0, antes: d.catsPrev[k] || 0 };
+    }).sort(function (a, b) { return b.monto - a.monto; });
+    d.variacion = d.prev ? Math.round((d.total - d.prev) * 100 / d.prev) : null;
+  });
+  out.sort(function (a, b) { return b.total - a.total; });
+  return { mes: mk, monedas: out };
+}
+
+/** Un tip simple a partir de los números (sin IA). */
+function tipResumen_(d) {
+  if (!d) return 'Todavía no hay gastos este mes. ¡Anotá el primero y yo me encargo del resto!';
+  var top = d.lista[0], sube = d.lista.filter(function (c) { return c.antes > 0 && c.monto > c.antes * 1.25 && c.monto - c.antes > d.total * 0.03; })[0];
+  if (sube) return 'Ojo con ' + sube.emoji + ' ' + sube.nombre + ': subió ' + Math.round((sube.monto - sube.antes) * 100 / sube.antes) + '% contra el mes anterior. Vale la pena mirarlo.';
+  if (d.variacion !== null && d.variacion <= -5) return '¡Buen mes! Gastaron ' + Math.abs(d.variacion) + '% menos que el anterior. Cuba mueve la cola.';
+  if (top && top.pct >= 50) return top.emoji + ' ' + top.nombre + ' se lleva más de la mitad del mes. Si algo se puede ajustar, empezaría por ahí.';
+  return 'Revisá los gastos en «Otros»: si los categorizás, el resumen del mes que viene es más preciso.';
+}
+
+function fmtMail_(c, mon) { var n = Math.round(Math.abs(c) / 100); return (mon === 'USD' ? 'US$ ' : '$') + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+function escMail_(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+/** HTML de mail: tablas e estilos en línea, que es lo único que respetan Gmail y Outlook. Colores de la app. */
+function htmlResumen_(datos, ejemplo) {
+  var INK = '#1b1a1f', MUT = '#7b7468', ACC = '#c47a35', LINE = '#e7dccb', CARD = '#fffaf2', BG = '#f7f1e8', POS = '#2f7d5b', NEG = '#b3402f';
+  var h = '<!DOCTYPE html><html lang="es"><body style="margin:0;padding:0;background:' + BG + ';">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + BG + ';"><tr><td align="center" style="padding:24px 12px;">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:' + INK + ';">' +
+    '<tr><td align="center" style="padding:4px 0 6px;"><img src="' + MAIL_IMG + '" width="132" alt="Cuba" style="display:block;border:0;height:auto;"></td></tr>' +
+    '<tr><td align="center" style="padding:0 0 4px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:' + MUT + ';">' + (ejemplo ? 'Ejemplo · ' : '') + 'Resumen de ' + escMail_(mesLabel_(datos.mes)) + '</td></tr>' +
+    '<tr><td align="center" style="padding:0 0 18px;font-size:22px;font-weight:700;">¡Guau! Así les fue este mes</td></tr>';
+  if (!datos.monedas.length) {
+    h += '<tr><td style="background:' + CARD + ';border:1px solid ' + LINE + ';border-radius:20px;padding:22px;text-align:center;color:' + MUT + ';">No hubo gastos anotados en ' + escMail_(mesLabel_(datos.mes)) + '.</td></tr>';
+  }
+  datos.monedas.forEach(function (d, i) {
+    var v = d.variacion === null ? '' : '<div style="font-size:14px;color:' + (d.variacion > 0 ? NEG : POS) + ';margin-top:4px;">' + (d.variacion > 0 ? '▲ ' : '▼ ') + Math.abs(d.variacion) + '% vs. mes anterior (' + fmtMail_(d.prev, d.moneda) + ')</div>';
+    h += '<tr><td style="padding:0 0 14px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + CARD + ';border:1px solid ' + LINE + ';border-radius:20px;"><tr><td style="padding:20px 20px 8px;">' +
+      '<div style="font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:' + MUT + ';">Total del mes' + (datos.monedas.length > 1 ? ' · ' + escMail_(d.moneda) : '') + '</div>' +
+      '<div style="font-size:36px;font-weight:800;line-height:1.15;margin-top:4px;">' + fmtMail_(d.total, d.moneda) + '</div>' +
+      '<div style="font-size:14px;color:' + MUT + ';margin-top:2px;">' + d.cuenta + (d.cuenta === 1 ? ' gasto' : ' gastos') + (d.mayor ? ' · el más grande: ' + escMail_(d.mayor.descripcion) + ' (' + fmtMail_(d.mayor.monto, d.moneda) + ')' : '') + '</div>' + v +
+      '</td></tr><tr><td style="padding:8px 20px 18px;">';
+    d.lista.slice(0, 6).forEach(function (c) {
+      h += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:10px 0 0;"><tr><td style="font-size:15px;">' + c.emoji + ' ' + escMail_(c.nombre) + '</td>' +
+        '<td align="right" style="font-size:15px;font-weight:700;">' + fmtMail_(c.monto, d.moneda) + ' <span style="font-weight:400;color:' + MUT + ';font-size:13px;">&nbsp;' + c.pct + '%</span></td></tr>' +
+        '<tr><td colspan="2" style="padding-top:5px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + LINE + ';border-radius:99px;"><tr><td width="' + Math.max(c.pct, 2) + '%" style="background:' + ACC + ';border-radius:99px;font-size:1px;line-height:7px;height:7px;">&nbsp;</td><td style="font-size:1px;line-height:7px;">&nbsp;</td></tr></table></td></tr></table>';
+    });
+    h += '</td></tr></table></td></tr>';
+    if (i === 0) h += '<tr><td style="padding:0 0 14px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3e2cc;border-radius:16px;"><tr><td style="padding:14px 18px;font-size:15px;line-height:1.45;">🐕 <b>Tip de Cuba:</b> ' + escMail_(tipResumen_(d)) + '</td></tr></table></td></tr>';
+  });
+  h += '<tr><td align="center" style="padding:6px 0 4px;"><a href="' + CUBA.APP_URL + '" style="display:inline-block;background:' + ACC + ';color:#ffffff;text-decoration:none;font-weight:700;border-radius:14px;padding:13px 26px;font-size:16px;">Abrir Cuba</a></td></tr>' +
+    '<tr><td align="center" style="padding:14px 0 0;font-size:12px;color:' + MUT + ';">Este resumen no incluye sueldos ni saldos. Los saldos están en el cierre de mes de la app.</td></tr>' +
+    '</table></td></tr></table></body></html>';
+  return h;
+}
+
+function textoResumen_(datos) {
+  var t = '🐕 Cuba · resumen de ' + mesLabel_(datos.mes) + '\n\n';
+  if (!datos.monedas.length) return t + 'No hubo gastos anotados.\n' + CUBA.APP_URL;
+  datos.monedas.forEach(function (d) {
+    t += 'Total ' + d.moneda + ': ' + fmtMail_(d.total, d.moneda) + ' (' + d.cuenta + ' gastos)\n' + d.lista.slice(0, 6).map(function (c) { return ' · ' + c.nombre + ': ' + fmtMail_(c.monto, d.moneda) + ' (' + c.pct + '%)'; }).join('\n') + '\n\n';
+  });
+  return t + tipResumen_(datos.monedas[0]) + '\n' + CUBA.APP_URL;
+}
+
+function armarResumen_(mk, ejemplo) {
+  var datos = datosResumen_(readTab_('Movimientos').map(movOut_), readTab_('Etiquetas').map(etiquetaOut_), readTab_('Categorias'), mk);
+  return { asunto: '🐕 Cuba · ' + (ejemplo ? 'ejemplo de resumen de ' : 'resumen de ') + mesLabel_(mk), html: htmlResumen_(datos, ejemplo), texto: textoResumen_(datos), datos: datos };
+}
+
+/** Disparador mensual (día 1): resume el mes que terminó. */
+function resumenMensual(hoy) {
+  hoy = typeof hoy === 'string' ? hoy : Utilities.formatDate(new Date(), AVISO.TZ, 'yyyy-MM');
+  var r = armarResumen_(mesAnterior_(hoy), false);
+  var mails = String(PropertiesService.getScriptProperties().getProperty(AVISO.MAILS_PROP) || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!mails.length) return { enviado: false, motivo: 'sin_mails' };
+  MailApp.sendEmail({ to: mails.join(','), subject: r.asunto, htmlBody: r.html, body: r.texto, name: 'Cuba 🐕' });
+  return { enviado: true, a: mails.length };
+}
+
+/** Menú: se lo manda solo a quien lo pide, con el último mes que tenga gastos. */
+function resumenDeEjemplo() {
+  var ui = SpreadsheetApp.getUi(), yo = Session.getEffectiveUser().getEmail();
+  var hoy = Utilities.formatDate(new Date(), AVISO.TZ, 'yyyy-MM'), mk = hoy, r = armarResumen_(hoy, true);
+  if (!r.datos.monedas.length) { mk = mesAnterior_(hoy); r = armarResumen_(mk, true); }
+  MailApp.sendEmail({ to: yo, subject: r.asunto, htmlBody: r.html, body: r.texto, name: 'Cuba 🐕' });
+  ui.alert('Te mandé un resumen de ejemplo (' + mesLabel_(mk) + ') a ' + yo + '. Si no lo ves, mirá spam.');
+}
+
+function activarResumenMensual() {
+  var ui = SpreadsheetApp.getUi();
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'resumenMensual') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('resumenMensual').timeBased().onMonthDay(1).atHour(9).inTimezone(AVISO.TZ).create();
+  ui.alert('Listo: el día 1 de cada mes (9 h) les llega el resumen del mes anterior a los mails de los avisos. Para ver cómo queda, usá «Mandarme un resumen de ejemplo».');
 }

@@ -52,4 +52,10 @@ Menú **🐕 Cuba → Guardar clave de Gemini**: la clave se escribe en un cuadr
 | `etiquetar` | Agrega filas a `Etiquetas` (idempotente por id). Una etiqueta manual aprendida actualiza `Comercios`. |
 | `aprender` | Guarda una regla de comercio cuando la persona corrige la categoría al anotar un gasto. |
 
-Pendiente: mail mensual con resumen.
+## Resumen mensual por mail (v0.10)
+
+- **🐕 Cuba → Mandarme un resumen de ejemplo**: te manda solo a vos el resumen del mes en curso (o del anterior si todavía no hay gastos), para ver cómo queda.
+- **🐕 Cuba → Activar resumen mensual**: crea un disparador el día 1 de cada mes (9 h, Buenos Aires) que manda el resumen del mes que terminó a los mails de los avisos (`CUBA_MAILS`).
+- Lleva total y cantidad de gastos por moneda, barras por categoría, comparación con el mes anterior y un tip sacado de los números. **No lleva sueldos ni saldos** (esos viven en el cierre de la app).
+- El remitente es la cuenta dueña del script, con el nombre «Cuba 🐕». Apps Script no permite un no-reply real salvo en Google Workspace. La imagen de Cuba se carga desde GitHub Pages (`assets/cuba/mail_feliz.png`).
+
