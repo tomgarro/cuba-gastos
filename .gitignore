@@ -1,0 +1,12 @@
+node_modules/
+shots/
+__pycache__/
+.DS_Store
+.env
+.env.*
+*.key
+*.pem
+secrets*
+# datos reales nunca al repo
+*.csv
+*.xlsx

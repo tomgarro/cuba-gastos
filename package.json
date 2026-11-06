@@ -1,0 +1,15 @@
+{
+  "name": "cuba-gastos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cuba: gastos de a dos (PWA)",
+  "scripts": {
+    "build": "python3 build.py",
+    "test": "node tests/core.test.js",
+    "test:e2e": "node tests/e2e.js && node tests/e2e-db.js && node tests/pwa.js",
+    "icons": "node tools/make_icons.js"
+  },
+  "devDependencies": {
+    "playwright": "^1"
+  }
+}
