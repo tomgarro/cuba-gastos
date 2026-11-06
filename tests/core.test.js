@@ -202,4 +202,27 @@ t('sueldos: reparto proporcional a la fecha del gasto, suma exacto', () => {
   // un solo participante paga todo
   assert.deepStrictEqual(C.salarySplit(777, ['a'], sue, '2026-03-01').sp, [['a', 777]]);
 });
+
+t('importar Splitwise: mapeo a personas existentes, moneda del lote y sin duplicar', () => {
+  const csv = 'Date,Description,Category,Cost,Currency,Oda Peralta,Tomás Garro\n\n2026-01-05,Super,Groceries,1000.01,USD,-500.01,500.01\n2026-01-06,Oda P. paid Tomás G.,Payment,300.00,USD,300.00,-300.00\n\n2026-11-06,Total balance, , ,USD,-200.01,200.01\n';
+  let n = 0; const imp = C.parseSplitwise(csv, [], () => 'c' + (n++));
+  const existing = [{ id: 'm1', name: 'Tom' }, { id: 'm2', name: 'Odi' }];
+  const map = C.guessImportMap(imp, existing);
+  assert.deepStrictEqual(map, { c0: 'm2', c1: 'm1' }, 'Oda→Odi, Tomás→Tom');
+  const r = C.resolveImport(imp, map, 'ARS', existing);
+  assert.ok(r.ok); assert.strictEqual(r.members.length, 2, 'no crea personas nuevas');
+  assert.ok(r.entries.every(e => e.cur === 'ARS'), 'la moneda del lote pisa la del CSV');
+  r.entries.forEach(e => assert.strictEqual(e.sp.reduce((a, x) => a + x[1], 0), e.cents, 'suma exacta'));
+  const bal = C.balances(r.entries, ['m1', 'm2']);
+  assert.strictEqual(bal.ARS.m1, 20001, 'Tom: +500,01 − 300,00 = +200,01'); assert.strictEqual(bal.ARS.m2, -20001);
+  assert.strictEqual(imp.entries[0].cur, 'USD', 'lo parseado no se toca');
+  // sin elegir / duplicado / crear nueva
+  assert.ok(!C.resolveImport(imp, { c0: '', c1: 'm1' }, 'ARS', existing).ok);
+  assert.ok(!C.resolveImport(imp, { c0: 'm1', c1: 'm1' }, 'ARS', existing).ok);
+  const nueva = C.resolveImport(imp, { c0: '+', c1: 'm1' }, 'ARS', existing);
+  assert.ok(nueva.ok && nueva.members.length === 3 && nueva.members[2].name === 'Oda Peralta');
+  // nombres ambiguos: no adivina
+  const amb = C.guessImportMap(imp, [{ id: 'a', name: 'Tomi' }, { id: 'b', name: 'Tomás' }]);
+  assert.strictEqual(amb.c1, '', 'dos candidatos para Tomás: que elija la persona');
+});
 console.log('\n' + n + ' tests ok');

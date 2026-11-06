@@ -144,6 +144,7 @@
     return {
       sueldos: (d.sueldos || []).map(function (r) { return { id: r.id, persona: r.persona_id, desde: r.desde, cents: r.monto_centavos, cur: r.moneda, note: r.nota || '', by: r.creado_por || null }; }),
       recs: (d.recurrentes || []).map(rowToRec),
+      lotes: (d.lotes || []).filter(function (l) { return String(l.estado) === 'activo'; }).map(function (l) { return { id: String(l.id), origen: String(l.origen), fecha: String(l.fecha), cantidad: Number(l.cantidad) || 0 }; }),
       group: members.length ? { name: cfg.nombre_grupo || 'Casa', cur: cfg.moneda_base || 'ARS', members: members } : null,
       ledger: ledger
     };

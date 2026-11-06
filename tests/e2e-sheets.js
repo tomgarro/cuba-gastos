@@ -150,6 +150,34 @@ const J = x => JSON.parse(JSON.stringify(x));
   await refresh(B.p); await B.p.waitForTimeout(250); await B.p.click('.nav [data-v=inicio]');
   assert.ok(!/Alquiler/.test(await B.txt()), 'el lote deshecho desaparece de la app');
 
+  // ---- Importación real: nombres distintos a los de la app y moneda mal puesta (Splitwise dice USD) ----
+  await B.p.click('.nav [data-v=ajustes]');
+  const csv2 = 'Date,Description,Category,Cost,Currency,Oda Peralta,Tomás Garro\n2021-12-02,Verdulería,General,630.00,USD,315.00,-315.00\n2021-12-03,Coto,Groceries,8128.00,USD,-4064.00,4064.00\n2021-12-07,Oda P. paid Tomás G.,Payment,1000.00,USD,1000.00,-1000.00\n\n2026-11-06,Total balance, , ,USD,0,0\n';
+  await B.p.fill('#paste', csv2); await B.p.click('[data-act=impprev]');
+  assert.ok(/Elegí quién es «Oda Peralta»/.test(await B.p.locator('.preview.neg').first().innerText()), 'sin elegir no se puede importar');
+  assert.strictEqual(await B.p.locator('[data-act=impgo]').count(), 0, 'sin botón hasta mapear');
+  const nPers = sheet.grids.Personas.length;
+  await B.p.selectOption('[data-in=impmap][data-id]:nth-of-type(1) >> nth=0', { label: 'Pau' }).catch(() => {});
+  const sel = B.p.locator('select[data-in=impmap]');
+  const firstVal = await sel.nth(0).inputValue(); if (!firstVal) await sel.nth(0).selectOption({ label: 'Pau' });
+  assert.ok(/USD/.test(await B.p.locator('.card:has-text("Moneda de este lote")').first().innerText()));
+  await B.p.selectOption('select[data-in=impcur]', 'ARS');
+  const prev2 = await B.p.locator('.preview:not(.neg)', { hasText: 'movimientos' }).first().innerText();
+  assert.ok(/3 movimientos/.test(prev2) && !/US\$/.test(prev2) && /\$/.test(prev2), prev2);
+  await B.p.click('[data-act=impgo]');
+  await B.p.waitForFunction(() => /3 movimientos importados/.test(document.querySelector('#toast').textContent), null, { timeout: 5000 });
+  await B.p.waitForTimeout(200);
+  assert.strictEqual(sheet.grids.Personas.length, nPers, 'no se crearon personas duplicadas');
+  const imp2 = J(sheet.grids.Movimientos).slice(1).filter(r => r[col('origen')] === 'splitwise' && r[col('anulado')] === 'FALSE');
+  assert.strictEqual(imp2.length, 3); imp2.forEach(r => assert.strictEqual(r[col('moneda')], 'ARS'));
+  checkAppendOnly('importación real');
+  await B.p.click('.nav [data-v=ajustes]');
+  B.p.once('dialog', d => d.accept());
+  await B.p.locator('[data-act=undolote]').first().click();
+  await B.p.waitForFunction(() => /Importación deshecha/.test(document.querySelector('#toast').textContent), null, { timeout: 5000 });
+  assert.strictEqual(J(sheet.grids.Movimientos).slice(1).filter(r => r[col('origen')] === 'splitwise' && r[col('anulado')] === 'FALSE').length, 0, 'Deshacer desde la app anula el lote');
+  checkAppendOnly('deshacer desde la app');
+
   // ---- Borrar desde A ----
   await refresh(A.p); await A.p.click('.nav [data-v=gastos]');
   await A.p.locator('.item', { hasText: 'Cena' }).click(); await A.p.click('[data-act=askdel]'); await A.p.click('[data-act=del]');

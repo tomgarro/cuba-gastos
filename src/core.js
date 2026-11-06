@@ -366,6 +366,40 @@
     return { members: members, entries: entries, warnings: warnings, skipped: skipped };
   }
 
+  // Mapeo de nombres de un CSV de Splitwise a las personas que ya existen.
+  // Adivina por el principio del primer nombre (Tomás→Tom, Oda→Odi) solo si no hay dudas; si no, queda sin elegir.
+  function fold(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
+  function guessImportMap(imp, existing) {
+    var map = {}, taken = {};
+    imp.members.forEach(function (m) {
+      var key = fold(m.name).split(/\s+/)[0] || '';
+      var hit = (existing || []).filter(function (x) {
+        var n = fold(x.name).split(/\s+/)[0] || '', k = 0; while (k < n.length && k < key.length && n[k] === key[k]) k++;
+        return n === key || k >= Math.min(2, n.length, key.length) && k >= 2;
+      });
+      if (hit.length === 1 && !taken[hit[0].id]) { map[m.id] = hit[0].id; taken[hit[0].id] = true; } else map[m.id] = '';
+    });
+    return map;
+  }
+  // Aplica el mapeo (y la moneda del lote) sin tocar lo parseado. map[idDelCSV] = idExistente | '+' (crear) | ''.
+  // Devuelve { ok, problem, members, entries }.
+  function resolveImport(imp, map, cur, existing) {
+    var out = (existing || []).slice(), idMap = {}, used = {}, problem = '';
+    imp.members.forEach(function (m) {
+      var t = (map || {})[m.id];
+      if (!t) { problem = problem || 'Elegí quién es «' + m.name + '».'; return; }
+      if (t === '+') { idMap[m.id] = m.id; out.push({ id: m.id, name: m.name }); return; }
+      if (used[t]) problem = problem || 'Dos personas del CSV apuntan a la misma.';
+      used[t] = true; idMap[m.id] = t;
+    });
+    if (problem) return { ok: false, problem: problem, members: out, entries: [] };
+    var entries = imp.entries.map(function (e) {
+      var sp = {}; e.sp.forEach(function (x) { var id = idMap[x[0]]; sp[id] = (sp[id] || 0) + x[1]; });
+      return Object.assign({}, e, { paidBy: idMap[e.paidBy], cur: cur || e.cur, sp: Object.keys(sp).map(function (k) { return [k, sp[k]]; }) });
+    });
+    return { ok: true, problem: '', members: out, entries: entries };
+  }
+
   // Exporta en el mismo formato que Splitwise (se puede volver a importar).
   function exportCSV(entries, members) {
     var head = ['Date', 'Description', 'Category', 'Cost', 'Currency'].concat(members.map(function (m) { return m.name; }));
@@ -385,7 +419,7 @@
     CATS: CATS, catInfo: catInfo, guessCategory: guessCategory, parseAmount: parseAmount, fmt: fmt,
     splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit,
     live: live, validate: validate, balances: balances, simplify: simplify, monthKey: monthKey,
-    monthStats: monthStats, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise,
+    monthStats: monthStats, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
     exportCSV: exportCSV, centsDot: centsDot
   };
 });

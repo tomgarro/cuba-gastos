@@ -139,7 +139,7 @@ var COLORS = ['#c47a35', '#4f7c6d', '#7a5ea8', '#c0504d', '#3f6fa3', '#a68a2e'];
 var LS = 'cuba:v1', LSME = 'cuba:me', LSSH = 'cuba:sheets', LSSNAP = 'cuba:sheetsnap';
 
 // ---------------- estado ----------------
-var S = { group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
+var S = { group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], lotes: [], impMap: {}, impCur: '', rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
   month: C.monthKey(today()), q: '', cat: '', ob: { step: 0, names: ['', ''] }, form: null, imp: null, closeMonth: C.monthKey(today()), confirmDel: null, exportText: null };
 var members = function () { return (S.group && S.group.members) || []; };
 var mem = function (id) { return members().filter(function (m) { return m.id === id; })[0] || { id: id, name: '?', color: '#999' }; };
@@ -183,7 +183,7 @@ var Store = {
         return d;
       }, function (e) { clearTimeout(to); throw e; });
   },
-  snap: function () { try { localStorage.setItem(LSSNAP, JSON.stringify({ u: this.cfg.u, group: S.group, ledger: S.ledger, sueldos: S.sueldos, recs: S.recs })); } catch (e) {} },
+  snap: function () { try { localStorage.setItem(LSSNAP, JSON.stringify({ u: this.cfg.u, group: S.group, ledger: S.ledger, sueldos: S.sueldos, recs: S.recs, lotes: S.lotes })); } catch (e) {} },
   refresh: function () {
     var self = this;
     var run = function () {
@@ -192,7 +192,7 @@ var Store = {
       return self.call('read').then(function (d) {
         if (gen !== self.gen) return; // hubo una escritura en el medio: este snapshot ya quedó viejo
         var st = CubaSheets.snapshotToState(d);
-        S.group = st.group; S.ledger = st.ledger; S.sueldos = st.sueldos || []; S.recs = st.recs || []; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); render();
+        S.group = st.group; S.ledger = st.ledger; S.sueldos = st.sueldos || []; S.recs = st.recs || []; S.lotes = st.lotes || []; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); render();
         if (had && S.entries.some(function (x) { return !x.del && !seen[x.id] && x.by && x.by !== S.meId; })) { var a = $('#app'); a.classList.add('perk'); clearTimeout(self.pt); self.pt = setTimeout(function () { a.classList.remove('perk'); }, 2800); }
       }).catch(function (e) { S.loaded = true; S.offline = true; S.authErr = !!(e && (e.code === 'no_autorizado' || e.code === 'sin_token')); render(); });
     };
@@ -205,7 +205,7 @@ var Store = {
     try { S.meId = localStorage.getItem(LSME) || null; } catch (e) {}
     try {
       var sn = JSON.parse(localStorage.getItem(LSSNAP) || 'null');
-      if (sn && sn.u === cfg.u && sn.group) { S.group = sn.group; S.ledger = sn.ledger || {}; S.sueldos = sn.sueldos || []; S.recs = sn.recs || []; S.loaded = true; rebuild(); render(); }
+      if (sn && sn.u === cfg.u && sn.group) { S.group = sn.group; S.ledger = sn.ledger || {}; S.sueldos = sn.sueldos || []; S.recs = sn.recs || []; S.lotes = sn.lotes || []; S.loaded = true; rebuild(); render(); }
     } catch (e) {}
     document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') self.refresh(); });
     window.addEventListener('online', function () { self.refresh(); });
@@ -313,6 +313,10 @@ var Store = {
     return p.then(function () {
       S.ledger = CubaSheets.applyPlan(S.ledger, plan.applied); rebuild(); self.snap(); render(); self.refresh();
     }, function (e) { self.refresh(); throw e; });
+  },
+  undoLote: function (id) {
+    var self = this; this.gen++;
+    return this.call('undoLote', { lote_id: id }).then(function () { return self.refresh(); }, function (e) { self.refresh(); throw e; });
   },
   saveSueldo: function (x) {
     var self = this; this.gen++;
@@ -496,7 +500,7 @@ function viewAjustes() {
     '<label class="f">Yo soy</label><select data-in="me">' + members().map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === S.meId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div>';
   h += viewSueldo() + viewRecs();
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
-    '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + '</div>';
+    '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
   h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '<p class="mut" style="font-size:13px;margin:8px 0 0">Próximamente: bot de Telegram con audio y fotos, Gemini para categorizar, importar resúmenes de tarjeta y vencimientos.</p></div>';
   return h;
@@ -556,10 +560,29 @@ function viewPorPagar() {
 function impHtml() {
   var i = S.imp;
   if (i.error) return '<div class="preview neg">' + esc(i.error) + '</div>';
-  var ids = i.members.map(function (m) { return m.id; }), bal = C.balances(i.entries, ids);
-  var lines = curs(bal).map(function (c) { return i.members.map(function (m) { return esc(m.name) + ' ' + C.fmt(bal[c][m.id] || 0, c); }).join(' · '); });
-  return '<div class="preview"><b>' + i.entries.length + ' movimientos</b> listos (' + i.skipped + ' filas omitidas).<br>Saldo resultante: ' + lines.join('<br>') + (i.warnings.length ? '<br><span class="mut">' + i.warnings.length + ' avisos: ' + esc(i.warnings.slice(0, 3).join(' | ')) + (i.warnings.length > 3 ? '…' : '') + '</span>' : '') + '</div>' +
+  var csvCur = (i.entries[0] && i.entries[0].cur) || 'ARS', cur = S.impCur || csvCur;
+  var r = C.resolveImport(i, S.impMap, cur, members());
+  var h = '<h3 style="margin:14px 0 6px">¿Quién es quién?</h3>' + i.members.map(function (m) {
+    var v = S.impMap[m.id] || '';
+    return '<div class="stat" style="align-items:center"><span>«' + esc(m.name) + '» es</span><select data-in="impmap" data-id="' + esc(m.id) + '" style="max-width:55%">' +
+      '<option value=""' + (v === '' ? ' selected' : '') + '>— elegir —</option>' +
+      members().map(function (x) { return '<option value="' + esc(x.id) + '"' + (v === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') +
+      '<option value="+"' + (v === '+' ? ' selected' : '') + '>Persona nueva</option></select></div>';
+  }).join('');
+  h += '<div class="stat" style="align-items:center"><span>Moneda de este lote</span><select data-in="impcur"><option' + (cur === 'ARS' ? ' selected' : '') + '>ARS</option><option' + (cur === 'USD' ? ' selected' : '') + '>USD</option></select></div>';
+  if (csvCur !== cur) h += '<p class="mut" style="font-size:13px;margin:4px 0">El CSV dice ' + esc(csvCur) + ' pero lo voy a guardar como ' + esc(cur) + '.</p>';
+  else if (csvCur === 'USD') h += '<p class="mut" style="font-size:13px;margin:4px 0">El CSV dice USD. Si en realidad son pesos, cambiá la moneda a ARS.</p>';
+  if (!r.ok) return h + '<div class="preview neg" style="margin-top:8px">' + esc(r.problem) + '</div>';
+  var ids = r.members.map(function (m) { return m.id; }), bal = C.balances(r.entries, ids);
+  var lines = curs(bal).map(function (c) { return r.members.map(function (m) { return esc(m.name) + ' ' + C.fmt(bal[c][m.id] || 0, c); }).join(' · '); });
+  return h + '<div class="preview" style="margin-top:8px"><b>' + i.entries.length + ' movimientos</b> listos (' + i.skipped + ' filas omitidas).<br>Saldo resultante: ' + lines.join('<br>') + (i.warnings.length ? '<br><span class="mut">' + i.warnings.length + ' avisos: ' + esc(i.warnings.slice(0, 3).join(' | ')) + (i.warnings.length > 3 ? '…' : '') + '</span>' : '') + '</div>' +
     '<button class="btn acc full" style="margin-top:8px" data-act="impgo">Agregar al historial</button>';
+}
+function lotesHtml() {
+  if (S.mode !== 'sheets' || !S.lotes.length) return '';
+  return '<h3 style="margin:14px 0 6px">Importaciones hechas</h3>' + S.lotes.map(function (l) {
+    return '<div class="stat" style="align-items:center"><span>' + esc(l.origen) + ' · ' + esc(l.fecha) + '<br><span class="mut" style="font-size:13px">' + l.cantidad + ' movimientos</span></span><button class="btn ghost sm" data-act="undolote" data-id="' + esc(l.id) + '"' + (S.readOnly ? ' disabled' : '') + '>Deshacer</button></div>';
+  }).join('');
 }
 
 // ---------------- formulario ----------------
@@ -747,17 +770,26 @@ var A = {
   impprev: function () {
     var txt = ($('#paste') || {}).value || '';
     if (!txt.trim()) { toast('Subí un archivo o pegá el CSV.'); return; }
-    S.imp = C.parseSplitwise(txt, members(), function () { return rid(); }); render();
+    S.imp = C.parseSplitwise(txt, [], function () { return rid(); }); S.impCur = '';
+    S.impMap = S.imp.error ? {} : C.guessImportMap(S.imp, members()); render();
   },
   impgo: function () {
-    var i = S.imp; if (!i || i.error || S.readOnly) return;
-    var g = clean(S.group), hasNew = i.members.length !== g.members.length;
-    var loteId = 'L' + rid(), cur0 = (i.entries[0] && i.entries[0].cur) || 'ARS';
-    var go = function () { return Store.putEntries(i.entries.map(function (e) { e.by = S.meId; e.at = new Date().toISOString(); e.lote = loteId; return e; }),
-      { lote: { id: loteId, origen: 'splitwise', fecha: today(), cantidad: i.entries.length, moneda_original: cur0 } }); };
+    var i = S.imp; if (!i || i.error || S.readOnly || S.impBusy) return;
+    var csvCur = (i.entries[0] && i.entries[0].cur) || 'ARS';
+    var r = C.resolveImport(i, S.impMap, S.impCur || csvCur, members());
+    if (!r.ok) { toast(r.problem); return; }
+    var g = clean(S.group), hasNew = r.members.length !== g.members.length;
+    var loteId = 'L' + rid();
+    var go = function () { return Store.putEntries(r.entries.map(function (e) { e.by = S.meId; e.at = new Date().toISOString(); e.lote = loteId; return e; }),
+      { lote: { id: loteId, origen: 'splitwise', archivo: '', fecha: today(), cantidad: r.entries.length, moneda_original: csvCur } }); };
     var p = Promise.resolve();
-    if (hasNew) { g.members = i.members.map(function (m, k) { return Object.assign({ color: COLORS[k % COLORS.length] }, m); }); g._force = true; p = Store.saveGroup(g); }
-    p.then(go).then(function () { S.imp = null; toast(i.entries.length + ' movimientos importados'); render(); }).catch(fail);
+    if (hasNew) { g.members = r.members.map(function (m, k) { return Object.assign({ color: COLORS[k % COLORS.length] }, m); }); g._force = true; p = Store.saveGroup(g); }
+    S.impBusy = true; var btn = document.querySelector('[data-act="impgo"]'); if (btn) { btn.disabled = true; btn.textContent = 'Importando…'; }
+    p.then(go).then(function () { S.impBusy = false; S.imp = null; toast(r.entries.length + ' movimientos importados'); render(); }).catch(function (er) { S.impBusy = false; render(); fail(er); });
+  },
+  undolote: function (el) {
+    if (S.readOnly || !confirm('¿Deshacer esta importación? Los movimientos quedan anulados (el historial se conserva en la Sheet).')) return;
+    Store.undoLote(el.dataset.id).then(function () { toast('Importación deshecha'); }).catch(fail);
   },
   retry: function () { Store.refresh(); },
   disconnect: function () { if (confirm('¿Desconectar este celular de la Sheet? Los datos siguen en la Sheet.')) Store.disconnect(); },
@@ -826,6 +858,8 @@ document.addEventListener('change', function (ev) {
   else if (k === 'catf') { S.cat = el.value; render(); }
   else if (k === 'closemonth') { S.closeMonth = el.value; render(); }
   else if (k === 'me') { Store.setMe(el.value).then(render); }
+  else if (k === 'impmap') { S.impMap[el.dataset.id] = el.value; render(); }
+  else if (k === 'impcur') { S.impCur = el.value; render(); }
   else if (k === 'rename') {
     var g = clean(S.group); g.members.forEach(function (m) { if (m.id === el.dataset.id && el.value.trim()) m.name = el.value.trim(); }); g._force = true;
     Store.saveGroup(g).then(function () { toast('Guardado'); }).catch(fail);
