@@ -259,6 +259,25 @@
     return r;
   }
 
+  // ---------- descripción prolija ----------
+  var CHICAS = { lo: 1, de: 1, del: 1, la: 1, las: 1, el: 1, los: 1, y: 1, e: 1, o: 1, en: 1, a: 1, con: 1, por: 1, para: 1, un: 1, una: 1, al: 1 };
+  var SIGLAS = { iva: 1, abl: 1, afip: 1, arba: 1, hbo: 1, usd: 1, ars: 1, tv: 1, dni: 1, cbu: 1, caba: 1, gba: 1, dj: 1, bbva: 1, icbc: 1, ypf: 1, mp: 1, pc: 1 };
+  function tidyDesc(text) {
+    var t = String(text || '').replace(/\s+/g, ' ').replace(/^[\s:;,.\-–—|]+|[\s:;,.\-–—|]+$/g, '');
+    if (!t) return '';
+    var n = 0;
+    return t.split(' ').map(function (w) {
+      var parts = w.split(/([\/\-])/);
+      return parts.map(function (x) {
+        if (x === '/' || x === '-' || !x) return x;
+        var l = x.toLowerCase(), first = n === 0; n++;
+        if (SIGLAS[l.replace(/[.,;:]+$/, '')]) return x.toUpperCase();
+        if (!first && CHICAS[l]) return l;
+        return l.charAt(0).toUpperCase() + l.slice(1);
+      }).join('');
+    }).join(' ');
+  }
+
   // ---------- entrada rápida ----------
   function quickParse(text) {
     var t = String(text || '').trim();
@@ -275,7 +294,7 @@
     if (!(cents > 0)) return null;
     var desc = (t.slice(0, last.index) + ' ' + t.slice(last.index + last[0].length)).replace(/\s+/g, ' ').replace(/^[\s:,-]+|[\s:,-]+$/g, '');
     if (!desc) desc = 'Gasto';
-    desc = desc.charAt(0).toUpperCase() + desc.slice(1);
+    desc = tidyDesc(desc) || 'Gasto';
     return { desc: desc, cents: cents, cur: cur, cat: guessCategory(desc) };
   }
 
@@ -419,7 +438,7 @@
     CATS: CATS, catInfo: catInfo, guessCategory: guessCategory, parseAmount: parseAmount, fmt: fmt,
     splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit,
     live: live, validate: validate, balances: balances, simplify: simplify, monthKey: monthKey,
-    monthStats: monthStats, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
+    monthStats: monthStats, tidyDesc: tidyDesc, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
     exportCSV: exportCSV, centsDot: centsDot
   };
 });

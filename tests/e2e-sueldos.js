@@ -81,7 +81,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   // --- Excepción explícita: a mitades, con motivo ---
   await A.p.click('.fab'); await A.p.fill('#fdesc', 'Regalo para la suegra'); await A.p.fill('[data-in=amount]', '10000');
   await A.p.click('[data-act=mode][data-v=equal]'); await A.p.fill('[data-in=why]', 'lo pagamos a medias');
-  await A.p.click('[data-act=save]'); await A.p.waitForFunction(() => /suegra/.test(document.querySelector('#app').innerText));
+  await A.p.click('[data-act=save]'); await A.p.waitForFunction(() => /suegra/i.test(document.querySelector('#app').innerText));
   g = sheet.grids.Movimientos; const r2 = g[2];
   assert.deepStrictEqual([r2[col('reparto_modo')], r2[col('excepcion')], r2[col('motivo_excepcion')]], ['igual', 'TRUE', 'lo pagamos a medias']);
 

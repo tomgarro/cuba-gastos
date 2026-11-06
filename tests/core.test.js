@@ -95,6 +95,14 @@ t('monthStats', () => {
   assert.strictEqual(s.total, 1000); assert.strictEqual(s.count, 1); assert.strictEqual(s.cats.super, 1000);
   assert.strictEqual(s.share.b, 500);
 });
+t('tidyDesc: prolijo, capitalizado, con siglas y palabras chicas', () => {
+  assert.strictEqual(C.tidyDesc('  SUPER   coto  '), 'Super Coto');
+  assert.strictEqual(C.tidyDesc('pago de la LUZ - edenor,'), 'Pago de la Luz - Edenor');
+  assert.strictEqual(C.tidyDesc('iva y abl de noviembre'), 'IVA y ABL de Noviembre');
+  assert.strictEqual(C.tidyDesc('cena en  la parrilla/ñandú'), 'Cena en la Parrilla/Ñandú');
+  assert.strictEqual(C.tidyDesc(': .. '), '');
+  assert.strictEqual(C.quickParse('netflix MENSUAL 12.000').desc, 'Netflix Mensual');
+});
 t('quickParse', () => {
   let q = C.quickParse('super 15.200');
   assert.deepStrictEqual([q.desc, q.cents, q.cur, q.cat], ['Super', 1520000, 'ARS', 'super']);

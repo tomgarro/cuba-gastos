@@ -208,7 +208,14 @@ const J = x => JSON.parse(JSON.stringify(x));
     assert.ok(eti().some(r => r[1] === 'cat3' && r[2] === 'super' && r[4] === 'manual' && r[5] === 'aplicada'), 'la corrección queda como etiqueta manual');
     assert.ok(J(sheet.grids.Comercios).slice(1).some(r => /local raro/.test(r[0]) && r[2] === 'super'), 'la corrección se vuelve regla');
     checkAppendOnly('categorías');
+    // gasto nuevo: la descripción queda prolija y la categoría la sugiere el motor (Gemini falso) sin tocar nada
+    await B.p.click('.nav [data-v=inicio]'); await B.p.click('.fab');
+    await B.p.fill('#fdesc', '  zorbaflix   DICIEMBRE '); await B.p.click('[data-in=amount]');
+    await B.p.waitForFunction(() => document.querySelector('.cats button.on') && document.querySelector('.cats button.on').dataset.v === 'streaming', null, { timeout: 5000 });
+    assert.strictEqual(await B.p.inputValue('#fdesc'), 'Zorbaflix Diciembre', 'descripción prolija');
+    await B.p.click('[data-act=close]').catch(() => {}); await B.p.keyboard.press('Escape');
     // si el backend está ocupado, la app reintenta sola en vez de mostrar el error
+    await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
     state.busy = 2; const antes = sent.length;
     await B.p.click('[data-act=catrun]');
     await B.p.waitForFunction(() => /No pude categorizar|Categoricé/i.test(document.querySelector('#app').innerText), null, { timeout: 15000 });

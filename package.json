@@ -1,6 +1,6 @@
 {
   "name": "cuba-gastos",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "description": "Cuba: gastos de a dos (PWA)",
   "scripts": {

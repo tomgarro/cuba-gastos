@@ -57,6 +57,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
 .item .s{font-size:13px;color:var(--mut)}
 .item .r{text-align:right;flex:none}
 .item .r .a{font-weight:700}
+.item.pay{padding:8px 0;background:linear-gradient(90deg,transparent,var(--accsoft) 160%)}.item.pay .coin{width:28px;height:28px;border-radius:50%;background:var(--pos);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;flex:none;margin:0 7px}.item.pay .s{white-space:normal;line-height:1.35}.item.pay .s b{color:var(--ink);font-weight:600}.item.pay .a{font-size:15px}.item.pay .a.in{color:var(--pos)}.item.pay .a.out{color:var(--acc)}
 .item .r .b{font-size:12px}
 .nav{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
 .nav div{max-width:520px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
@@ -391,6 +392,25 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     return r;
   }
 
+  // ---------- descripción prolija ----------
+  var CHICAS = { lo: 1, de: 1, del: 1, la: 1, las: 1, el: 1, los: 1, y: 1, e: 1, o: 1, en: 1, a: 1, con: 1, por: 1, para: 1, un: 1, una: 1, al: 1 };
+  var SIGLAS = { iva: 1, abl: 1, afip: 1, arba: 1, hbo: 1, usd: 1, ars: 1, tv: 1, dni: 1, cbu: 1, caba: 1, gba: 1, dj: 1, bbva: 1, icbc: 1, ypf: 1, mp: 1, pc: 1 };
+  function tidyDesc(text) {
+    var t = String(text || '').replace(/\s+/g, ' ').replace(/^[\s:;,.\-–—|]+|[\s:;,.\-–—|]+$/g, '');
+    if (!t) return '';
+    var n = 0;
+    return t.split(' ').map(function (w) {
+      var parts = w.split(/([\/\-])/);
+      return parts.map(function (x) {
+        if (x === '/' || x === '-' || !x) return x;
+        var l = x.toLowerCase(), first = n === 0; n++;
+        if (SIGLAS[l.replace(/[.,;:]+$/, '')]) return x.toUpperCase();
+        if (!first && CHICAS[l]) return l;
+        return l.charAt(0).toUpperCase() + l.slice(1);
+      }).join('');
+    }).join(' ');
+  }
+
   // ---------- entrada rápida ----------
   function quickParse(text) {
     var t = String(text || '').trim();
@@ -407,7 +427,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     if (!(cents > 0)) return null;
     var desc = (t.slice(0, last.index) + ' ' + t.slice(last.index + last[0].length)).replace(/\s+/g, ' ').replace(/^[\s:,-]+|[\s:,-]+$/g, '');
     if (!desc) desc = 'Gasto';
-    desc = desc.charAt(0).toUpperCase() + desc.slice(1);
+    desc = tidyDesc(desc) || 'Gasto';
     return { desc: desc, cents: cents, cur: cur, cat: guessCategory(desc) };
   }
 
@@ -551,7 +571,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     CATS: CATS, catInfo: catInfo, guessCategory: guessCategory, parseAmount: parseAmount, fmt: fmt,
     splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit,
     live: live, validate: validate, balances: balances, simplify: simplify, monthKey: monthKey,
-    monthStats: monthStats, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
+    monthStats: monthStats, tidyDesc: tidyDesc, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
     exportCSV: exportCSV, centsDot: centsDot
   };
 });
@@ -1081,7 +1101,15 @@ function myLine(e) {
   if (net < 0) return '<div class="b neg">debés ' + C.fmt(-net, e.cur, { noDecimals: true }) + '</div>';
   return '<div class="b mut">sin saldo</div>';
 }
+function payRow(e) {
+  var me = S.meId, to = e.sp[0][0], amt = C.fmt(e.cents, e.cur, { noDecimals: true });
+  var cls = e.paidBy === me ? 'out' : (to === me ? 'in' : '');
+  var lbl = e.paidBy === me ? 'pagaste' : (to === me ? 'recibiste' : '');
+  return '<button class="item pay" data-act="detail" data-id="' + esc(e.id) + '"><span class="coin" aria-hidden="true">$</span><span class="grow"><div class="s"><b>' + esc(firstName(e.paidBy)) + '</b> le pagó <b>' + amt + '</b> a <b>' + esc(firstName(to)) + '</b>' + (e.note ? ' · ' + esc(e.note) : '') + ' · ' + dLabel(e.date) + '</div></span>' +
+    '<span class="r">' + (lbl ? '<div class="b mut">' + lbl + '</div><div class="a ' + cls + '">' + amt + '</div>' : '<div class="a mut">' + amt + '</div>') + '</span></button>';
+}
 function entryRow(e) {
+  if (e.type === 'payment') return payRow(e);
   var info = C.catInfo(e.type === 'payment' ? 'pago' : e.cat);
   var sub = e.type === 'payment'
     ? esc(firstName(e.paidBy)) + ' le pagó a ' + esc(firstName(e.sp[0][0])) + ' · ' + dLabel(e.date)
@@ -1542,14 +1570,14 @@ var A = {
   quick: function () {
     var F = S.form, q = C.quickParse(F.quick);
     if (!q) { toast('No encontré un monto. Probá «super 15.200».'); return; }
-    F.desc = q.desc; F.amount = String(C.centsDot(q.cents)).replace('.', ','); F.cur = q.cur; F.cat = q.cat; F.catAuto = true; renderForm();
+    F.desc = q.desc; F.amount = String(C.centsDot(q.cents)).replace('.', ','); F.cur = q.cur; F.cat = q.cat; F.catAuto = true; renderForm(); sugerirCategoria(q.desc);
   },
   save: function () {
     var F = S.form, r = calcForm();
     if (r.soft) { toast('Falta el monto.'); return; }
     if (r.error) { toast(r.error); return; }
     var isPay = F.kind === 'payment';
-    var desc = (F.desc || '').trim();
+    var desc = isPay ? (F.desc || '').trim() : C.tidyDesc(F.desc);
     if (!isPay && !desc) { toast('Poné una descripción.'); return; }
     var old = F.id ? S.entries.filter(function (x) { return x.id === F.id; })[0] : null;
     var e = { id: F.id || rid(), type: F.kind, desc: isPay ? 'Pago' : desc, cents: r.total, cur: F.cur, date: F.date || today(), paidBy: F.paidBy, sp: r.sp, cat: isPay ? 'pago' : F.cat, note: isPay ? desc : (F.note || ''), by: S.meId, at: new Date().toISOString() };
@@ -1667,15 +1695,21 @@ var A = {
   copyexp: function () { copyText(S.exportText, 'CSV copiado'); }
 };
 
-// Si Cuba no reconoce el comercio, al salir de la descripción le consulta a la memoria y a Gemini.
-document.addEventListener('focusout', function (ev) {
-  var el = ev.target; if (!el || !el.dataset || el.dataset.in !== 'desc' || S.mode !== 'sheets' || !S.form || S.form.kind !== 'expense' || !S.form.catAuto || S.readOnly) return;
-  var d = (el.value || '').trim(); if (d.length < 3 || C.guessCategory(d) !== 'otros') return;
+// Descripción prolija y, en cada gasto nuevo, categoría sugerida por la memoria de Cuba y Gemini.
+function sugerirCategoria(d) {
+  if (S.mode !== 'sheets' || !S.form || S.form.kind !== 'expense' || !S.form.catAuto || S.readOnly || d.length < 3) return;
   Store.categorizar([{ descripcion: d, monto_centavos: 0, moneda: S.form.cur || 'ARS' }]).then(function (r) {
     var x = r.resultados && r.resultados[0];
     if (!x || x.categoria === 'otros' || x.confianza < 0.7 || !S.form || !S.form.catAuto || (S.form.desc || '').trim() !== d) return;
     S.form.cat = x.categoria; document.querySelectorAll('.cats button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === x.categoria); });
   }).catch(function () {});
+}
+document.addEventListener('focusout', function (ev) {
+  var el = ev.target; if (!el || !el.dataset || el.dataset.in !== 'desc' || !S.form) return;
+  var d = C.tidyDesc(el.value);
+  if (d !== el.value) el.value = d;
+  S.form.desc = d;
+  if (S.form.kind === 'expense') sugerirCategoria(d);
 });
 
 // ---------------- acariciar a Cuba ----------------
