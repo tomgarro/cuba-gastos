@@ -13,7 +13,7 @@
     { k: 'luz', n: 'Luz', e: '💡', w: ['luz', 'edenor', 'edesur', 'electricidad'] },
     { k: 'agua', n: 'Agua', e: '💧', w: ['agua', 'aysa'] },
     { k: 'gas', n: 'Gas', e: '🔥', w: ['gas', 'metrogas', 'naturgy'] },
-    { k: 'internet', n: 'Internet y celular', e: '📶', w: ['internet', 'wifi', 'fibra', 'flow', 'personal flow', 'fibertel', 'telecentro', 'movistar', 'claro', 'celular', 'telefono', 'teléfono'] },
+    { k: 'internet', n: 'Internet y celular', e: '📶', w: ['internet', 'wifi', 'fibra', 'flow', 'personal flow', 'personal', 'fibertel', 'telecentro', 'movistar', 'claro', 'celular', 'telefono', 'teléfono'] },
     { k: 'streaming', n: 'Streaming', e: '📺', w: ['streaming', 'netflix', 'hbo', 'max', 'amazon prime', 'prime video', 'prime', 'disney', 'star+', 'paramount', 'apple tv', 'youtube premium', 'spotify', 'deezer', 'crunchyroll'] },
     { k: 'seguro', n: 'Seguros', e: '🛡️', w: ['seguro', 'seguros', 'póliza', 'poliza', 'sancor', 'mapfre'] },
     { k: 'impuestos', n: 'Impuestos', e: '🧾', w: ['abl', 'arba', 'patente', 'monotributo', 'afip', 'arca', 'impuesto', 'impuestos', 'rentas'] },
@@ -278,6 +278,66 @@
     }).join(' ');
   }
 
+  // ---------- servicios con el formato de Splitwise: «LUZ | SEPTIEMBRE» ----------
+  var MESES_N = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var MESES_ABR = { ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5, jul: 6, ago: 7, sep: 8, set: 8, oct: 9, nov: 10, dic: 11, setiembre: 8 };
+  var SERV_CATS = { alquiler: 'ALQUILER', expensas: 'EXPENSAS', luz: 'LUZ', agua: 'AGUA', gas: 'GAS', seguro: 'SEGURO' };
+  var SERV_OTROS = { internet: 1, streaming: 1, impuestos: 1, super: 1 };
+  function plano(w) { return String(w || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9+]/g, ''); }
+  function lev(a, b) {
+    var m = [], i, j;
+    for (i = 0; i <= a.length; i++) m[i] = [i];
+    for (j = 1; j <= b.length; j++) m[0][j] = j;
+    for (i = 1; i <= a.length; i++) for (j = 1; j <= b.length; j++)
+      m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return m[a.length][b.length];
+  }
+  function parecida(w, ref) {
+    if (w === ref) return true;
+    if (w.length < 5 || ref.length < 5) return false;
+    return lev(w, ref) <= (ref.length >= 7 ? 2 : 1);
+  }
+  function mesDe(w) {
+    var x = plano(w); if (!x) return -1;
+    if (MESES_ABR.hasOwnProperty(x)) return MESES_ABR[x];
+    var best = -1, bd = 9;
+    for (var i = 0; i < 12; i++) { if (parecida(x, MESES_N[i])) { var dd = lev(x, MESES_N[i]); if (dd < bd) { bd = dd; best = i; } } }
+    return best;
+  }
+  function buscarServicio(w) {
+    var x = plano(w); if (x.length < 3) return null;
+    for (var i = 0; i < CATS.length; i++) {
+      var k = CATS[i].k; if (!SERV_CATS[k] && !SERV_OTROS[k]) continue;
+      for (var j = 0; j < CATS[i].w.length; j++) {
+        var ref = plano(CATS[i].w[j]); if (CATS[i].w[j].indexOf(' ') >= 0) continue;
+        if (parecida(x, ref)) return { cat: k, word: ref };
+      }
+    }
+    return null;
+  }
+  /** «edfenor julio» → { desc: 'LUZ | JULIO', cat: 'luz' }. Si no es un servicio o comercio conocido devuelve null. */
+  function servicioDesc(text, dateISO) {
+    var toks = String(text || '').replace(/[|]/g, ' ').split(/\s+/).filter(Boolean), serv = null, meses = [], extra = [];
+    toks.forEach(function (w) {
+      var pl = plano(w);
+      if (!pl || pl === 'de' || pl === 'y' || w === '&' || pl === 'e') return;
+      var m = mesDe(w);
+      if (m >= 0) { if (meses.indexOf(m) < 0) meses.push(m); return; }
+      var sv = serv ? null : buscarServicio(w);
+      if (sv) { serv = sv; return; }
+      extra.push(w.replace(/[,;:]+$/, ''));
+    });
+    if (!serv) return null;
+    var name = SERV_CATS[serv.cat] || (serv.cat === 'internet' && /^(internet|wifi|fibra)$/.test(serv.word) ? 'INTERNET' : serv.word.toUpperCase());
+    if (!meses.length) {
+      var d = /^\d{4}-\d{2}-\d{2}/.test(dateISO || '') ? dateISO : new Date().toISOString().slice(0, 10);
+      var mo = +d.slice(5, 7) - 1; if (+d.slice(8, 10) <= 10) mo = (mo + 11) % 12;   // se anota a principios de mes: es del mes anterior
+      meses = [mo];
+    }
+    return { desc: [name].concat(extra.map(function (e) { return e.toUpperCase(); })).join(' ') + ' | ' + meses.map(function (i) { return MESES_N[i].toUpperCase(); }).join(' & '), cat: serv.cat };
+  }
+  function prolija(text, dateISO) { var s = servicioDesc(text, dateISO); return s ? s.desc : tidyDesc(text); }
+
   // ---------- entrada rápida ----------
   function quickParse(text) {
     var t = String(text || '').trim();
@@ -294,8 +354,9 @@
     if (!(cents > 0)) return null;
     var desc = (t.slice(0, last.index) + ' ' + t.slice(last.index + last[0].length)).replace(/\s+/g, ' ').replace(/^[\s:,-]+|[\s:,-]+$/g, '');
     if (!desc) desc = 'Gasto';
-    desc = tidyDesc(desc) || 'Gasto';
-    return { desc: desc, cents: cents, cur: cur, cat: guessCategory(desc) };
+    var sv = servicioDesc(desc, null);
+    desc = sv ? sv.desc : (tidyDesc(desc) || 'Gasto');
+    return { desc: desc, cents: cents, cur: cur, cat: sv ? sv.cat : guessCategory(desc) };
   }
 
   // ---------- CSV ----------
@@ -438,7 +499,7 @@
     CATS: CATS, catInfo: catInfo, guessCategory: guessCategory, parseAmount: parseAmount, fmt: fmt,
     splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit,
     live: live, validate: validate, balances: balances, simplify: simplify, monthKey: monthKey,
-    monthStats: monthStats, tidyDesc: tidyDesc, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
+    monthStats: monthStats, tidyDesc: tidyDesc, servicioDesc: servicioDesc, prolija: prolija, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
     exportCSV: exportCSV, centsDot: centsDot
   };
 });

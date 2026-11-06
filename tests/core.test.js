@@ -101,11 +101,25 @@ t('tidyDesc: prolijo, capitalizado, con siglas y palabras chicas', () => {
   assert.strictEqual(C.tidyDesc('iva y abl de noviembre'), 'IVA y ABL de Noviembre');
   assert.strictEqual(C.tidyDesc('cena en  la parrilla/ñandú'), 'Cena en la Parrilla/Ñandú');
   assert.strictEqual(C.tidyDesc(': .. '), '');
-  assert.strictEqual(C.quickParse('netflix MENSUAL 12.000').desc, 'Netflix Mensual');
+  assert.strictEqual(C.quickParse('cena CON amigos 12.000').desc, 'Cena con Amigos');
+});
+t('servicioDesc: formato Splitwise «SERVICIO | MES», corrige typos y deja lo demás en paz', () => {
+  const f = (t, d) => { const r = C.servicioDesc(t, d); return r && [r.desc, r.cat]; };
+  assert.deepStrictEqual(f('edfenor', '2026-11-06'), ['LUZ | OCTUBRE', 'luz'], 'typo + principio de mes = mes anterior');
+  assert.deepStrictEqual(f('edenor julio', '2026-11-20'), ['LUZ | JULIO', 'luz'], 'el mes escrito manda');
+  assert.deepStrictEqual(f('Luz', '2026-11-20'), ['LUZ | NOVIEMBRE', 'luz'], 'después del 10, el mes en curso');
+  assert.deepStrictEqual(f('abl septiembre y octubre', '2026-11-05'), ['ABL | SEPTIEMBRE & OCTUBRE', 'impuestos']);
+  assert.deepStrictEqual(f('carrefour', '2026-10-05'), ['CARREFOUR | SEPTIEMBRE', 'super']);
+  assert.deepStrictEqual(f('seguro auto agosto', '2026-09-15'), ['SEGURO AUTO | AGOSTO', 'seguro']);
+  assert.deepStrictEqual(f('aysa', '2026-01-03'), ['AGUA | DICIEMBRE', 'agua'], 'enero cruza el año');
+  assert.deepStrictEqual(f('alquiller oct', '2026-11-06'), ['ALQUILER | OCTUBRE', 'alquiler']);
+  assert.strictEqual(f('cena con amigos', '2026-11-06'), null, 'lo que no es servicio no se toca');
+  assert.strictEqual(C.prolija('cena CON amigos', '2026-11-06'), 'Cena con Amigos');
+  assert.strictEqual(C.quickParse('edfenor 80000').desc.slice(0, 3), 'LUZ');
 });
 t('quickParse', () => {
   let q = C.quickParse('super 15.200');
-  assert.deepStrictEqual([q.desc, q.cents, q.cur, q.cat], ['Super', 1520000, 'ARS', 'super']);
+  assert.ok(/^SUPER \| [A-Z]+$/.test(q.desc)); assert.deepStrictEqual([q.cents, q.cur, q.cat], [1520000, 'ARS', 'super']);
   q = C.quickParse('15200,50 farmacia');
   assert.strictEqual(q.cents, 1520050); assert.strictEqual(q.cat, 'salud');
   q = C.quickParse('hotel 120 usd');

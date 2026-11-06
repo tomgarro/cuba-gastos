@@ -113,7 +113,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   assert.strictEqual(sheet.grids.Recurrentes.length, 2);
   await A.p.click('.nav [data-v=inicio]'); await A.p.waitForSelector('text=Por pagar'); await A.p.waitForSelector('text=vence hoy');
   await A.p.click('[data-act=recpay]');
-  assert.strictEqual(await A.p.locator('#fdesc').inputValue(), 'Aysa');
+  assert.ok(/^Aysa$/i.test(await A.p.locator('#fdesc').inputValue()));
   await A.p.fill('[data-in=amount]', '4.860'); await A.p.click('[data-act=save]');
   await A.p.waitForFunction(() => /Subió 8 %/.test((document.querySelector('#toast') || {}).innerText || ''), null, { timeout: 5000 });
   await A.p.waitForFunction(() => !/vence hoy/.test(document.querySelector('#app').innerText));
@@ -122,7 +122,8 @@ const J = x => JSON.parse(JSON.stringify(x));
   assert.strictEqual(rec[2], 486000, 'el monto del mes pasa a ser la referencia');
   assert.ok(rec[7] > hoy.toISOString().slice(0, 10), 'próximo vencimiento: el mes que viene');
   const aysa = sheet.grids.Movimientos[sheet.grids.Movimientos.length - 1];
-  assert.deepStrictEqual([aysa[col('descripcion')], aysa[col('monto_centavos')], aysa[col('categoria')], aysa[col('origen')], aysa[col('reparto_modo')]], ['Aysa', 486000, 'agua', 'recurrente', 'sueldo']);
+  assert.ok(/^AGUA \| [A-Z]+$/.test(aysa[col('descripcion')]), 'el servicio queda como «AGUA | MES»: ' + aysa[col('descripcion')]);
+  assert.deepStrictEqual([aysa[col('descripcion')].slice(0, 4), aysa[col('monto_centavos')], aysa[col('categoria')], aysa[col('origen')], aysa[col('reparto_modo')]], ['AGUA', 486000, 'agua', 'recurrente', 'sueldo']);
   // pausar
   await A.p.click('.nav [data-v=ajustes]'); await openAll(A.p); await A.p.click('[data-act=recedit]'); await A.p.click('[data-act=rectoggle]'); await A.p.waitForFunction(() => /En pausa/.test((document.querySelector('#toast') || {}).innerText || ''));
   assert.strictEqual(sheet.grids.Recurrentes[1][8], 'FALSE');

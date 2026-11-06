@@ -870,7 +870,7 @@ var A = {
     if (r.soft) { toast('Falta el monto.'); return; }
     if (r.error) { toast(r.error); return; }
     var isPay = F.kind === 'payment';
-    var desc = isPay ? (F.desc || '').trim() : C.tidyDesc(F.desc);
+    var desc = isPay ? (F.desc || '').trim() : C.prolija(F.desc, F.date || today());
     if (!isPay && !desc) { toast('Poné una descripción.'); return; }
     var old = F.id ? S.entries.filter(function (x) { return x.id === F.id; })[0] : null;
     var e = { id: F.id || rid(), type: F.kind, desc: isPay ? 'Pago' : desc, cents: r.total, cur: F.cur, date: F.date || today(), paidBy: F.paidBy, sp: r.sp, cat: isPay ? 'pago' : F.cat, note: isPay ? desc : (F.note || ''), by: S.meId, at: new Date().toISOString() };
@@ -999,9 +999,10 @@ function sugerirCategoria(d) {
 }
 document.addEventListener('focusout', function (ev) {
   var el = ev.target; if (!el || !el.dataset || el.dataset.in !== 'desc' || !S.form) return;
-  var d = C.tidyDesc(el.value);
+  var sv = S.form.kind === 'expense' ? C.servicioDesc(el.value, S.form.date) : null, d = sv ? sv.desc : C.tidyDesc(el.value);
   if (d !== el.value) el.value = d;
   S.form.desc = d;
+  if (sv && S.form.catAuto && S.form.cat !== sv.cat) { S.form.cat = sv.cat; document.querySelectorAll('.cats button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === sv.cat); }); }
   if (S.form.kind === 'expense') sugerirCategoria(d);
 });
 

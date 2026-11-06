@@ -50,7 +50,7 @@ const MOCK = `
   await p.click('.nav [data-v=gastos]'); await p.locator('.item', { hasText: 'Luz' }).click(); await p.click('[data-act=edit]');
   await p.locator('input[type=checkbox]').nth(1).uncheck(); await p.waitForTimeout(100);
   await p.click('[data-act=save]'); await p.waitForTimeout(300);
-  const luz = await p.evaluate(() => { const e=Object.values([...window.__store.entries()].find(([k])=>k.startsWith('ledger/'))[1].entries).find(x=>x.desc==='Luz'); return e.sp; });
+  const luz = await p.evaluate(() => { const e=Object.values([...window.__store.entries()].find(([k])=>k.startsWith('ledger/'))[1].entries).find(x=>/^LUZ/.test(x.desc)); return e.sp; });
   assert.strictEqual(luz.length, 1); assert.strictEqual(luz[0][1], 800000);
   // el otro viewer escribe directo en la base -> la UI lo refleja en vivo
   await p.evaluate(() => { const k=[...window.__store.keys()].find(x=>x.startsWith('ledger/')); const d=window.__store.get(k); const g=window.__store.get('meta/group'); const t=g.members[0].id, pa=g.members[1].id; d.entries.zz={id:'zz',type:'expense',desc:'Compra remota',cents:100000,cur:'ARS',date:Object.values(d.entries)[0].date,paidBy:t,sp:[[t,50000],[pa,50000]],cat:'otros'}; window.__store.set(k,d); window.claude.use('db').then(db=>db.doc('meta/group').update({})); });
