@@ -26,8 +26,10 @@ Para desconectar celulares: **🐕 Cuba → Cambiar token** (los celulares tiene
 | action | datos | hace |
 |---|---|---|
 | `ping` | | verifica token y esquema |
-| `read` | | personas, movimientos, lotes, categorías y config |
+| `read` | | personas, sueldos, recurrentes, movimientos, lotes, categorías y config |
 | `savePersonas` | `personas: [{id, nombre, color?, alias?, estado?}]` | alta o actualización |
+| `saveSueldo` | `sueldo: {id, persona_id, desde, monto_centavos, moneda, nota?, creado_por?}` | agrega un sueldo (solo se agregan; vigente = mayor `desde` ≤ fecha) |
+| `saveRecurrente` | `recurrente: {id, descripcion, monto_estimado_centavos, moneda, dia_mes, categoria, pagador_id, proximo_vencimiento, activo}` | alta o edición en el lugar (en edición alcanza con mandar `id` y lo que cambia) |
 | `addMovimientos` | `movimientos: [...]`, `lote?` | agrega (máx. 500) |
 | `anularMovimientos` | `ids: [...]` | marca `anulado` |
 | `undoLote` | `lote_id` | anula todo el lote y lo marca `deshecho` |

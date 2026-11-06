@@ -46,25 +46,34 @@
     };
     if (r.lote_id) e.lote = r.lote_id;
     if (r.reemplaza_id) e.replaces = r.reemplaza_id;
+    if (r.excepcion) e.exc = true;
+    if (r.motivo_excepcion) e.why = r.motivo_excepcion;
     if (r.anulado) e.del = true;
     return e;
   }
 
-  // 'igual' solo si el reparto es exactamente el que daría dividir en partes iguales; si no, 'exacto'.
-  function repartoModo(e) {
+  // 'sueldo' si es el reparto proporcional al sueldo vigente a la fecha; 'igual' si es exactamente en partes iguales; si no, 'exacto'.
+  // Excepción = había reparto por sueldo posible (sueldos de todos los que participan) y no se usó.
+  function repartoInfo(e, sueldos) {
     var ids = e.sp.map(function (x) { return x[0]; });
+    var key = function (sp) { return sp.map(function (x) { return x[0] + ':' + x[1]; }).sort().join(); };
+    var sal = e.type === 'payment' || !sueldos || !sueldos.length ? null : C.salarySplit(e.cents, ids, sueldos, e.date);
+    if (sal && sal.sp && key(sal.sp) === key(e.sp)) return { modo: 'sueldo', exc: false };
     var eq = C.splitEqual(e.cents, ids, 0);
     var a = eq.map(function (x) { return x[1]; }).sort(function (x, y) { return x - y; }).join();
     var b = e.sp.map(function (x) { return x[1]; }).sort(function (x, y) { return x - y; }).join();
-    return a === b ? 'igual' : 'exacto';
+    return { modo: a === b ? 'igual' : 'exacto', exc: !!(sal && sal.sp) };
   }
+  function repartoModo(e, sueldos) { return repartoInfo(e, sueldos).modo; }
 
-  function entryToMov(e) {
+  function entryToMov(e, sueldos) {
+    var info = repartoInfo(e, sueldos);
     var m = {
       id: e.id, tipo: e.type === 'payment' ? 'pago' : 'gasto', fecha: e.date, descripcion: e.desc, monto_centavos: e.cents, moneda: e.cur || 'ARS',
-      pagador_id: e.paidBy, reparto_modo: repartoModo(e), reparto: e.sp, categoria: e.cat || '', nota: e.note || '',
+      pagador_id: e.paidBy, reparto_modo: info.modo, excepcion: info.exc, reparto: e.sp, categoria: e.cat || '', nota: e.note || '',
       origen: e.src || 'manual', creado_por: e.by || ''
     };
+    if (info.exc && e.why) m.motivo_excepcion = String(e.why).slice(0, 200);
     if (e.lote) m.lote_id = e.lote;
     if (e.replaces) m.reemplaza_id = e.replaces;
     return m;
@@ -73,7 +82,7 @@
   // Los movimientos solo se agregan: una edición es «agregar uno nuevo que reemplaza al viejo»
   // (el backend anula el viejo en el mismo pedido). Borrar = anular.
   // list: entradas como las arma la app (con `del` para borrar). known: { id: entrada vigente }.
-  function planWrites(list, known, newId) {
+  function planWrites(list, known, newId, sueldos) {
     var add = [], anular = [], applied = [], replaced = {};
     list.forEach(function (e) { if (!e.del && e.replaces) replaced[e.replaces] = true; });
     list.forEach(function (e) {
@@ -85,7 +94,7 @@
       var n = e;
       if (old && !old.del) { n = JSON.parse(JSON.stringify(e)); n.id = newId(); n.replaces = e.id; }
       else if (old) return; // ya existe (anulado): no se resucita
-      add.push(entryToMov(n)); applied.push({ add: n });
+      add.push(entryToMov(n, sueldos)); applied.push({ add: n });
       if (n.replaces && known[n.replaces] && !known[n.replaces].del) applied.push({ del: n.replaces });
     });
     return { add: add, anular: anular, applied: applied };
@@ -98,6 +107,32 @@
       .sort(function (a, b) { return (b.at || '') < (a.at || '') ? -1 : (b.at || '') > (a.at || '') ? 1 : 0; });
   }
 
+  function rowToRec(r) {
+    return { id: r.id, desc: r.descripcion, cents: r.monto_estimado_centavos, cur: r.moneda, day: r.dia_mes, cat: r.categoria || 'otros', paidBy: r.pagador_id, next: r.proximo_vencimiento, active: !!r.activo };
+  }
+  function recToPayload(r) {
+    return { id: r.id, descripcion: r.desc, monto_estimado_centavos: r.cents, moneda: r.cur, dia_mes: r.day, categoria: r.cat, pagador_id: r.paidBy, proximo_vencimiento: r.next, activo: !!r.active };
+  }
+  // Mismo día del mes siguiente (el 31 en un mes de 30 días cae el 30).
+  function addMonth(iso, day) {
+    var p = String(iso).split('-'), y = +p[0], m = +p[1] + 1;
+    if (m > 12) { m = 1; y++; }
+    var last = new Date(Date.UTC(y, m, 0)).getUTCDate(), d = Math.min(day || +p[2], last);
+    return y + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+  }
+  // Primer vencimiento a partir de una fecha (inclusive) para «día N de cada mes».
+  function firstDue(fromIso, day) {
+    var p = String(fromIso).split('-'), y = +p[0], m = +p[1];
+    var last = new Date(Date.UTC(y, m, 0)).getUTCDate(), d = Math.min(day, last);
+    var cand = y + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+    return cand >= fromIso ? cand : addMonth(cand, day);
+  }
+  // Los vencimientos de hoy más lo atrasado, y lo que cae en los próximos `days` días.
+  function dueSoon(recs, today, days) {
+    var lim = new Date(Date.parse(today + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
+    return (recs || []).filter(function (r) { return r.active && r.next && r.next <= lim; }).sort(function (a, b) { return a.next < b.next ? -1 : a.next > b.next ? 1 : 0; });
+  }
+
   function snapshotToState(d) {
     var members = personasToMembers(d.personas);
     var ledger = {};
@@ -107,6 +142,8 @@
     });
     var cfg = d.config || {};
     return {
+      sueldos: (d.sueldos || []).map(function (r) { return { id: r.id, persona: r.persona_id, desde: r.desde, cents: r.monto_centavos, cur: r.moneda, note: r.nota || '', by: r.creado_por || null }; }),
+      recs: (d.recurrentes || []).map(rowToRec),
       group: members.length ? { name: cfg.nombre_grupo || 'Casa', cur: cfg.moneda_base || 'ARS', members: members } : null,
       ledger: ledger
     };
@@ -126,6 +163,7 @@
   return {
     decodeCfg: decodeCfg, personasToMembers: personasToMembers, membersToPersonas: membersToPersonas, rowToEntry: rowToEntry,
     entryToMov: entryToMov, repartoModo: repartoModo, planWrites: planWrites, deriveClosings: deriveClosings,
-    snapshotToState: snapshotToState, applyPlan: applyPlan
+    snapshotToState: snapshotToState, applyPlan: applyPlan, repartoInfo: repartoInfo,
+    rowToRec: rowToRec, recToPayload: recToPayload, addMonth: addMonth, firstDue: firstDue, dueSoon: dueSoon
   };
 });

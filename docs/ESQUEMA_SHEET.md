@@ -51,4 +51,7 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 - `excepcion` queda en `FALSE` hasta que exista el reparto por sueldo; ahí pasa a `TRUE` cuando un gasto no lo use.
 - Editar un movimiento = el backend agrega el nuevo (con `reemplaza_id`) y anula el viejo en el mismo pedido. Si el viejo ya estaba anulado (otro celular lo cambió) responde `conflicto` y no escribe nada.
 - Los cierres que hoy registra la app son pagos («Cierre …») dentro de `Movimientos`; la pestaña `Cierres` queda para el cierre con doble confirmación.
+- `Sueldos` solo se agrega (cada aumento es una fila nueva con su `desde`). Cada persona carga el suyo desde la app; los sueldos viven únicamente en la Sheet (nunca en el repo ni se envían a Gemini).
+- `reparto_modo = sueldo` cuando el reparto es exactamente el proporcional al sueldo vigente a `fecha` entre los que participan. Si había sueldos de todos y no se usó, `excepcion = TRUE` (y `motivo_excepcion` si se escribió uno).
+- `Recurrentes` es configuración y se edita en el lugar. `monto_estimado_centavos` pasa a ser lo último que se pagó de verdad; `proximo_vencimiento` avanza un mes al anotarlo. Lo pagado vive en `Movimientos` con `origen = recurrente`.
 

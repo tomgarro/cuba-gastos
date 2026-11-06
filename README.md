@@ -6,7 +6,7 @@ Reemplaza a Splitwise sin el límite diario de cargas.
 
 **App en vivo:** https://tomgarro.github.io/cuba-gastos/
 
-## Estado actual (v0.2)
+## Estado actual (v0.4)
 
 - Onboarding con Cuba y alta de personas.
 - Gastos y pagos, con división igual, por montos, por porcentaje o por partes.
@@ -15,6 +15,10 @@ Reemplaza a Splitwise sin el límite diario de cargas.
 - Importación (como lote que se puede deshacer en el backend) y exportación en formato CSV de Splitwise.
 - Instalable en el celular.
 - **Datos compartidos entre dos celulares** vía Google Sheet + Apps Script (`apps-script/`). Solo online: sin conexión se ve lo último y no se puede anotar.
+
+- **Reparto por sueldo** por defecto: cada uno carga el suyo en Ajustes → Mi sueldo (con fecha desde la que rige); cada gasto usa el sueldo vigente a su fecha y las excepciones quedan marcadas.
+- **Recurrentes**: servicios y débitos automáticos con monto estimado; «Por pagar» en Inicio, y al anotar el valor real se actualiza y avisa cuánto subió.
+- Categorías de servicios (luz, agua, gas, internet, streaming, seguros, impuestos…) que Cuba reconoce por el comercio.
 
 Sin el backend conectado la app sigue andando en modo local (datos solo en el navegador). Para conectarla: `apps-script/README.md`.
 

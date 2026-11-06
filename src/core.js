@@ -102,6 +102,22 @@
     for (i = 0; i < ids.length; i++) sum += weights[i];
     if (!(sum > 0)) return null;
     var out = [], used = 0, rems = [];
+    // Con enteros se calcula en BigInt: total × peso puede pasar de 2^53 (p. ej. 10^13 centavos × un sueldo en centavos).
+    var big = typeof BigInt === 'function' && Number.isSafeInteger(total) && weights.every(function (w) { return Number.isSafeInteger(w) && w >= 0; });
+    if (big) {
+      var T = BigInt(total), W = weights.map(function (w) { return BigInt(w); }), SUM = BigInt(0);
+      W.forEach(function (w) { SUM += w; });
+      var ub = BigInt(0);
+      for (i = 0; i < ids.length; i++) {
+        var num = T * W[i], bs = num / SUM;
+        out.push([ids[i], Number(bs)]); ub += bs; rems.push({ i: i, rem: num - bs * SUM });
+      }
+      used = Number(ub);
+      var left0 = total - used;
+      rems.sort(function (a, b) { return a.rem === b.rem ? a.i - b.i : (a.rem > b.rem ? -1 : 1); });
+      for (var k0 = 0; k0 < left0; k0++) out[rems[k0 % rems.length].i][1] += 1;
+      return out;
+    }
     for (i = 0; i < ids.length; i++) {
       var exact = total * weights[i];
       var base = Math.floor(exact / sum);
@@ -114,6 +130,38 @@
     rems.sort(function (a, b) { return b.rem - a.rem || a.i - b.i; });
     for (var k = 0; k < left; k++) out[rems[k % rems.length].i][1] += 1;
     return out;
+  }
+
+  // ---------- sueldos ----------
+  // sueldos: [{ persona, desde: 'AAAA-MM-DD', cents, cur }]. Vigente a una fecha = mayor `desde` <= fecha (si empatan, el último cargado).
+  function salaryAt(sueldos, id, date) {
+    var best = null;
+    (sueldos || []).forEach(function (s, i) {
+      if (s.persona !== id || String(s.desde) > String(date)) return;
+      if (!best || s.desde > best.desde || (s.desde === best.desde && i > best.i)) best = { desde: s.desde, cents: s.cents, cur: s.cur, i: i };
+    });
+    return best;
+  }
+  // -> { weights: {id: cents}, cur } | { missing: [ids] } | { mixed: true }
+  function salaryWeights(sueldos, ids, date) {
+    var w = {}, miss = [], cur = null, mixed = false;
+    ids.forEach(function (id) {
+      var s = salaryAt(sueldos, id, date);
+      if (!s || !(s.cents > 0)) { miss.push(id); return; }
+      w[id] = s.cents;
+      if (cur && cur !== s.cur) mixed = true;
+      cur = cur || s.cur;
+    });
+    if (miss.length) return { missing: miss };
+    if (mixed) return { mixed: true };
+    return { weights: w, cur: cur };
+  }
+  // Reparto proporcional al sueldo vigente a la fecha del gasto. Suma exacto al total.
+  function salarySplit(total, ids, sueldos, date) {
+    var r = salaryWeights(sueldos, ids, date);
+    if (!r.weights) return r;
+    var sp = splitProportional(total, ids, ids.map(function (id) { return r.weights[id]; }));
+    return sp ? { sp: sp } : { missing: ids };
   }
   function splitEqual(total, ids, seed) {
     var n = ids.length;
@@ -335,7 +383,7 @@
 
   return {
     CATS: CATS, catInfo: catInfo, guessCategory: guessCategory, parseAmount: parseAmount, fmt: fmt,
-    splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits,
+    splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit,
     live: live, validate: validate, balances: balances, simplify: simplify, monthKey: monthKey,
     monthStats: monthStats, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise,
     exportCSV: exportCSV, centsDot: centsDot

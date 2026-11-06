@@ -173,4 +173,33 @@ t('categorías: servicios por comercio y palabras completas', () => {
   assert.strictEqual(C.CATS[C.CATS.length - 1].k, 'pago');
   assert.strictEqual(new Set(C.CATS.map(c => c.k)).size, C.CATS.length, 'claves únicas');
 });
+t('sueldos: reparto proporcional a la fecha del gasto, suma exacto', () => {
+  const sue = [
+    { persona: 'a', desde: '2026-01-01', cents: 100000000, cur: 'ARS' }, { persona: 'b', desde: '2026-01-01', cents: 50000000, cur: 'ARS' },
+    { persona: 'a', desde: '2026-07-01', cents: 200000000, cur: 'ARS' }
+  ];
+  const sum = r => r.sp.reduce((x, y) => x + y[1], 0);
+  let r = C.salarySplit(30000, ['a', 'b'], sue, '2026-03-15');
+  assert.deepStrictEqual(r.sp, [['a', 20000], ['b', 10000]], '2/3 y 1/3 con el sueldo de marzo');
+  r = C.salarySplit(30000, ['a', 'b'], sue, '2026-07-01');
+  assert.deepStrictEqual(r.sp, [['a', 24000], ['b', 6000]], 'desde el 1/7 rige el aumento de a (4/5 y 1/5)');
+  r = C.salarySplit(30000, ['a', 'b'], sue, '2026-06-30');
+  assert.deepStrictEqual(r.sp, [['a', 20000], ['b', 10000]], 'el día anterior todavía no rige');
+  // restos: siempre suma exacto, para cualquier monto
+  for (let total = 1; total <= 400; total++) {
+    const x = C.salarySplit(total, ['a', 'b'], [{ persona: 'a', desde: '2026-01-01', cents: 123457, cur: 'ARS' }, { persona: 'b', desde: '2026-01-01', cents: 98765, cur: 'ARS' }], '2026-02-01');
+    assert.strictEqual(sum(x), total); x.sp.forEach(y => assert.ok(Number.isInteger(y[1]) && y[1] >= 0));
+  }
+  // montos grandes: total × sueldo supera 2^53 y sigue exacto
+  r = C.salarySplit(10000000000000, ['a', 'b'], [{ persona: 'a', desde: '2026-01-01', cents: 3000000000000, cur: 'ARS' }, { persona: 'b', desde: '2026-01-01', cents: 1000000000000, cur: 'ARS' }], '2026-02-01');
+  assert.deepStrictEqual(r.sp, [['a', 7500000000000], ['b', 2500000000000]]);
+  // faltantes y monedas
+  assert.deepStrictEqual(C.salarySplit(1000, ['a', 'c'], sue, '2026-03-01').missing, ['c']);
+  assert.deepStrictEqual(C.salarySplit(1000, ['a', 'b'], sue, '2025-12-31').missing, ['a', 'b'], 'antes del primer sueldo no hay vigente');
+  assert.strictEqual(C.salarySplit(1000, ['a', 'b'], [{ persona: 'a', desde: '2026-01-01', cents: 1, cur: 'ARS' }, { persona: 'b', desde: '2026-01-01', cents: 1, cur: 'USD' }], '2026-02-01').mixed, true);
+  // empate de fecha: gana el último cargado
+  assert.strictEqual(C.salaryAt([{ persona: 'a', desde: '2026-01-01', cents: 1, cur: 'ARS' }, { persona: 'a', desde: '2026-01-01', cents: 2, cur: 'ARS' }], 'a', '2026-02-01').cents, 2);
+  // un solo participante paga todo
+  assert.deepStrictEqual(C.salarySplit(777, ['a'], sue, '2026-03-01').sp, [['a', 777]]);
+});
 console.log('\n' + n + ' tests ok');

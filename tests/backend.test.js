@@ -289,4 +289,41 @@ t('no se crean dos veces las mismas personas (doble toque / reintento con ids nu
   assert.strictEqual(b.call('savePersonas', { personas: [{ id: 'm9', nombre: 'Tomi', color: '#112233' }] }).actualizadas, 1);
 });
 
+t('sueldos: solo se agregan, reintento no duplica, valida y se leen con la vigencia por fecha', () => {
+  const b = withPeople();
+  const sue = (o) => ({ id: 's1', persona_id: 'm1', desde: '2026-01-01', monto_centavos: 150000000, moneda: 'ARS', nota: 'inicial', creado_por: 'm1', ...(o || {}) });
+  assert.strictEqual(b.call('saveSueldo', { sueldo: sue() }).creados, 1);
+  assert.deepStrictEqual(J(b.call('saveSueldo', { sueldo: sue() }).omitidos), ['s1'], 'reintento: no duplica');
+  assert.strictEqual(b.grids.Sueldos.length, 2);
+  const antes = J(b.grids.Sueldos[1]);
+  b.call('saveSueldo', { sueldo: sue({ id: 's2', desde: '2026-06-01', monto_centavos: 180000000 }) });
+  assert.deepStrictEqual(J(b.grids.Sueldos[1]), antes, 'el historial no se toca');
+  const r = b.call('read');
+  assert.deepStrictEqual(J(r.sueldos.map(x => [x.id, x.persona_id, x.desde, x.monto_centavos, x.moneda])), [['s1', 'm1', '2026-01-01', 150000000, 'ARS'], ['s2', 'm1', '2026-06-01', 180000000, 'ARS']]);
+  [{ monto_centavos: 0 }, { monto_centavos: 10.5 }, { monto_centavos: -5 }, { desde: '2026-13-01' }, { desde: '' }, { persona_id: 'nadie' }, { moneda: 'EUR' }, { id: 'a b' }].forEach((o) => {
+    assert.ok(err(() => b.call('saveSueldo', { sueldo: sue({ id: 'x' + Math.random().toString(36).slice(2, 8), ...o }) })).code, JSON.stringify(o));
+  });
+  assert.strictEqual(b.grids.Sueldos.length, 3, 'nada inválido se escribió');
+  b.call('savePersonas', { personas: [{ id: 'm2', nombre: 'Pau', estado: 'archivada' }] });
+  assert.strictEqual(err(() => b.call('saveSueldo', { sueldo: sue({ id: 's9', persona_id: 'm2' }) })).code, 'sueldo_invalido');
+});
+
+t('recurrentes: alta, edición en el lugar (monto y vencimiento) y validaciones', () => {
+  const b = withPeople();
+  const rec = (o) => ({ id: 'r1', descripcion: 'Aysa', monto_estimado_centavos: 450000, moneda: 'ARS', dia_mes: 10, categoria: 'agua', pagador_id: 'm1', proximo_vencimiento: '2026-11-10', activo: true, ...(o || {}) });
+  assert.strictEqual(b.call('saveRecurrente', { recurrente: rec() }).creado, true);
+  assert.strictEqual(b.call('saveRecurrente', { recurrente: { id: 'r1', monto_estimado_centavos: 486000, proximo_vencimiento: '2026-12-10' } }).creado, false);
+  assert.strictEqual(b.grids.Recurrentes.length, 2, 'editar no crea otra fila');
+  const r = b.call('read').recurrentes[0];
+  assert.deepStrictEqual(J(r), { id: 'r1', descripcion: 'Aysa', monto_estimado_centavos: 486000, moneda: 'ARS', dia_mes: 10, categoria: 'agua', pagador_id: 'm1', proximo_vencimiento: '2026-12-10', activo: true });
+  b.call('saveRecurrente', { recurrente: { id: 'r1', activo: false } });
+  assert.strictEqual(b.call('read').recurrentes[0].activo, false);
+  assert.strictEqual(b.call('read').recurrentes[0].monto_estimado_centavos, 486000, 'pausar no cambia el resto');
+  [{ id: 'r2', descripcion: '' }, { id: 'r2', monto_estimado_centavos: 0 }, { id: 'r2', monto_estimado_centavos: 1.5 }, { id: 'r2', dia_mes: 0 }, { id: 'r2', dia_mes: 32 },
+   { id: 'r2', moneda: 'EUR' }, { id: 'r2', pagador_id: 'nadie' }, { id: 'r2', proximo_vencimiento: '2026-02-30' }].forEach((o) => {
+    assert.strictEqual(err(() => b.call('saveRecurrente', { recurrente: rec(o) })).code, 'recurrente_invalido', JSON.stringify(o));
+  });
+  assert.strictEqual(b.grids.Recurrentes.length, 2);
+});
+
 console.log(n + ' pruebas del backend');

@@ -86,4 +86,52 @@ t('cierres salen de los pagos «Cierre …» vigentes', () => {
   const r = S.deriveClosings([pay('a', 'Cierre noviembre 2026'), pay('b', 'Cierre noviembre 2026', true), pay('c', 'a mano'), e1]);
   assert.deepStrictEqual(r.map(c => [c.id, c.from, c.to, c.month]), [['a', 'm1', 'm2', '2026-11']]);
 });
+const SUE = [{ persona: 'm1', desde: '2026-01-01', cents: 200000000, cur: 'ARS' }, { persona: 'm2', desde: '2026-01-01', cents: 100000000, cur: 'ARS' }];
+t('reparto: sueldo / igual / exacto y excepción explícita', () => {
+  const base = { id: 'g', type: 'expense', desc: 'x', cents: 30000, cur: 'ARS', date: '2026-11-06', paidBy: 'm1', cat: 'otros' };
+  let i = S.repartoInfo(Object.assign({}, base, { sp: [['m1', 20000], ['m2', 10000]] }), SUE);
+  assert.deepStrictEqual(i, { modo: 'sueldo', exc: false });
+  i = S.repartoInfo(Object.assign({}, base, { sp: [['m1', 15000], ['m2', 15000]] }), SUE);
+  assert.deepStrictEqual(i, { modo: 'igual', exc: true }, 'a mitades con sueldos cargados = excepción');
+  i = S.repartoInfo(Object.assign({}, base, { sp: [['m1', 25000], ['m2', 5000]] }), SUE);
+  assert.deepStrictEqual(i, { modo: 'exacto', exc: true });
+  i = S.repartoInfo(Object.assign({}, base, { sp: [['m1', 15000], ['m2', 15000]] }), []);
+  assert.deepStrictEqual(i, { modo: 'igual', exc: false }, 'sin sueldos no hay excepción');
+  i = S.repartoInfo(Object.assign({}, base, { sp: [['m1', 30000]] }), SUE);
+  assert.deepStrictEqual(i, { modo: 'sueldo', exc: false }, 'un solo participante');
+  i = S.repartoInfo(Object.assign({}, base, { date: '2025-06-01', sp: [['m1', 15000], ['m2', 15000]] }), SUE);
+  assert.deepStrictEqual(i, { modo: 'igual', exc: false }, 'antes de los sueldos no hay excepción');
+  const pay = { id: 'p', type: 'payment', desc: 'Pago', cents: 500, cur: 'ARS', date: '2026-11-06', paidBy: 'm1', sp: [['m2', 500]], cat: 'pago' };
+  assert.strictEqual(S.entryToMov(pay, SUE).excepcion, false, 'un pago no es excepción');
+  const m = S.entryToMov(Object.assign({}, base, { sp: [['m1', 15000], ['m2', 15000]], why: 'Invitó Tom' }), SUE);
+  assert.deepStrictEqual([m.reparto_modo, m.excepcion, m.motivo_excepcion], ['igual', true, 'Invitó Tom']);
+  const m2 = S.entryToMov(Object.assign({}, base, { sp: [['m1', 20000], ['m2', 10000]], why: 'no va' }), SUE);
+  assert.deepStrictEqual([m2.reparto_modo, m2.excepcion, m2.motivo_excepcion], ['sueldo', false, undefined], 'sin excepción no se guarda motivo');
+  const back = S.rowToEntry({ id: 'z', tipo: 'gasto', descripcion: 'x', monto_centavos: 30000, moneda: 'ARS', fecha: '2026-11-06', pagador_id: 'm1', reparto_json: '[["m1",15000],["m2",15000]]', categoria: 'otros', excepcion: true, motivo_excepcion: 'Invitó Tom', anulado: false });
+  assert.deepStrictEqual([back.exc, back.why], [true, 'Invitó Tom']);
+});
+
+t('recurrentes: fechas (fin de mes, año nuevo) y próximos vencimientos', () => {
+  assert.strictEqual(S.addMonth('2026-01-31', 31), '2026-02-28');
+  assert.strictEqual(S.addMonth('2026-02-28', 31), '2026-03-31');
+  assert.strictEqual(S.addMonth('2028-01-31', 31), '2028-02-29', 'bisiesto');
+  assert.strictEqual(S.addMonth('2026-12-10', 10), '2027-01-10');
+  assert.strictEqual(S.firstDue('2026-11-06', 10), '2026-11-10');
+  assert.strictEqual(S.firstDue('2026-11-10', 10), '2026-11-10', 'hoy cuenta');
+  assert.strictEqual(S.firstDue('2026-11-11', 10), '2026-12-10');
+  assert.strictEqual(S.firstDue('2026-02-15', 31), '2026-02-28');
+  assert.strictEqual(S.firstDue('2026-12-20', 5), '2027-01-05');
+  const recs = [{ id: 'a', active: true, next: '2026-11-10' }, { id: 'b', active: true, next: '2026-11-30' }, { id: 'c', active: false, next: '2026-11-08' }, { id: 'd', active: true, next: '2026-11-01' }];
+  assert.deepStrictEqual(S.dueSoon(recs, '2026-11-06', 7).map(r => r.id), ['d', 'a'], 'atrasados y próximos 7 días, en orden; los pausados no');
+  const r = { id: 'r', desc: 'Aysa', cents: 450000, cur: 'ARS', day: 10, cat: 'agua', paidBy: 'm1', next: '2026-11-10', active: true };
+  assert.deepStrictEqual(S.rowToRec({ id: 'r', descripcion: 'Aysa', monto_estimado_centavos: 450000, moneda: 'ARS', dia_mes: 10, categoria: 'agua', pagador_id: 'm1', proximo_vencimiento: '2026-11-10', activo: true }), r);
+  assert.strictEqual(S.recToPayload(r).monto_estimado_centavos, 450000);
+});
+
+t('snapshot trae sueldos y recurrentes', () => {
+  const st = S.snapshotToState({ personas: [{ id: 'm1', nombre: 'Tomi' }], movimientos: [], sueldos: [{ id: 's', persona_id: 'm1', desde: '2026-01-01', monto_centavos: 5, moneda: 'ARS' }], recurrentes: [] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(st.sueldos)), [{ id: 's', persona: 'm1', desde: '2026-01-01', cents: 5, cur: 'ARS', note: '', by: null }]);
+  assert.deepStrictEqual(st.recs, []);
+  assert.deepStrictEqual(S.snapshotToState({ personas: [], movimientos: [] }).sueldos, [], 'backend viejo sin sueldos: no rompe');
+});
 console.log(n + ' pruebas de traducción');

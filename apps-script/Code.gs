@@ -30,7 +30,9 @@ var TABS = {
   Personas: ['id', 'nombre', 'alias', 'color', 'estado', 'creada'],
   Movimientos: ['id', 'tipo', 'fecha', 'descripcion', 'monto_centavos', 'moneda', 'pagador_id', 'reparto_modo', 'reparto_json',
     'excepcion', 'motivo_excepcion', 'categoria', 'confianza', 'nota', 'lote_id', 'origen', 'creado_por', 'creado_en', 'anulado', 'reemplaza_id'],
+  Sueldos: ['id', 'persona_id', 'desde', 'monto_centavos', 'moneda', 'nota', 'creado_por', 'creado_en'],
   Lotes: ['id', 'origen', 'archivo', 'fecha', 'cantidad', 'moneda_original', 'estado'],
+  Recurrentes: ['id', 'descripcion', 'monto_estimado_centavos', 'moneda', 'dia_mes', 'categoria', 'pagador_id', 'proximo_vencimiento', 'activo'],
   Categorias: ['id', 'nombre', 'emoji', 'presupuesto_mensual_centavos', 'moneda'],
   Config: ['clave', 'valor']
 };
@@ -94,6 +96,8 @@ var ACTIONS = {
   ping: actionPing_,
   read: actionRead_,
   savePersonas: actionSavePersonas_,
+  saveSueldo: actionSaveSueldo_,
+  saveRecurrente: actionSaveRecurrente_,
   addMovimientos: actionAddMovimientos_,
   anularMovimientos: actionAnularMovimientos_,
   undoLote: actionUndoLote_
@@ -117,6 +121,8 @@ function actionRead_() {
     version: CUBA.VERSION,
     serverTime: new Date().toISOString(),
     personas: readTab_('Personas'),
+    sueldos: readTab_('Sueldos').map(sueldoOut_),
+    recurrentes: readTab_('Recurrentes').map(recOut_),
     movimientos: readTab_('Movimientos').map(movOut_),
     lotes: readTab_('Lotes'),
     categorias: readTab_('Categorias'),
@@ -182,6 +188,60 @@ function actionSavePersonas_(req) {
   }
   if (news.length) appendRows_(sheet, news, cols.length);
   return { ok: true, creadas: news.length, actualizadas: updates.length };
+}
+
+/** Sueldos: solo se agregan (el historial de aumentos queda). Vigente a una fecha = el de mayor `desde` <= fecha. */
+function actionSaveSueldo_(req) {
+  checkSchema_();
+  var x = req.sueldo, bad = function (why) { fail_('sueldo_invalido', why); };
+  if (!x || typeof x !== 'object') bad('Falta el sueldo.');
+  var id = idOf_(x.id, 'Sueldo'), pid = idOf_(x.persona_id, 'Persona');
+  var persona = readTab_('Personas').filter(function (p) { return String(p.id) === pid; })[0];
+  if (!persona) bad('La persona no existe.');
+  if (String(persona.estado) === 'archivada') bad('La persona está archivada.');
+  if (!isDate_(x.desde)) bad('La fecha «desde» es inválida (usá AAAA-MM-DD).');
+  if (!isInt_(x.monto_centavos) || x.monto_centavos <= 0 || x.monto_centavos > 1e13) bad('El sueldo tiene que ser un entero de centavos mayor a cero.');
+  if (ENUM.moneda.indexOf(x.moneda) < 0) bad('moneda debe ser ARS o USD.');
+  var sheet = sheet_('Sueldos'), last = sheet.getLastRow();
+  var ids = last > 1 ? sheet.getRange(2, 1, last - 1, 1).getValues() : [];
+  for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === id) return { ok: true, creados: 0, omitidos: [id] }; // reintento: no duplica
+  var by = x.creado_por == null || x.creado_por === '' ? '' : idOf_(x.creado_por, 'creado_por');
+  appendRows_(sheet, [[id, pid, x.desde, x.monto_centavos, x.moneda, text_(x.nota, 200), by, new Date().toISOString()]], TABS.Sueldos.length);
+  return { ok: true, creados: 1, omitidos: [] };
+}
+
+/** Recurrentes (servicios, débitos): es configuración, se edita en el lugar. Lo que se pagó de verdad vive en Movimientos. */
+function actionSaveRecurrente_(req) {
+  checkSchema_();
+  var x = req.recurrente, bad = function (why) { fail_('recurrente_invalido', why); };
+  if (!x || typeof x !== 'object') bad('Falta el recurrente.');
+  var id = idOf_(x.id, 'Recurrente');
+  var sheet = sheet_('Recurrentes'), cols = TABS.Recurrentes, last = sheet.getLastRow();
+  var rows = last > 1 ? sheet.getRange(2, 1, last - 1, cols.length).getValues() : [], at = -1, old = null;
+  for (var i = 0; i < rows.length; i++) if (String(rows[i][0]) === id) { at = i; old = {}; cols.forEach(function (c, k) { old[c] = rows[i][k]; }); break; }
+  var has = function (k) { return x[k] !== undefined && x[k] !== null; };
+  var v = {
+    id: id,
+    descripcion: has('descripcion') ? text_(x.descripcion, 80) : (old ? String(old.descripcion) : ''),
+    monto_estimado_centavos: has('monto_estimado_centavos') ? x.monto_estimado_centavos : (old ? Number(old.monto_estimado_centavos) : null),
+    moneda: has('moneda') ? x.moneda : (old ? String(old.moneda) : 'ARS'),
+    dia_mes: has('dia_mes') ? x.dia_mes : (old ? Number(old.dia_mes) : null),
+    categoria: has('categoria') ? text_(x.categoria, 40) : (old ? String(old.categoria) : 'otros'),
+    pagador_id: has('pagador_id') ? x.pagador_id : (old ? String(old.pagador_id) : ''),
+    proximo_vencimiento: has('proximo_vencimiento') ? x.proximo_vencimiento : (old ? String(old.proximo_vencimiento) : ''),
+    activo: has('activo') ? x.activo === true : (old ? bool_(old.activo) : true)
+  };
+  if (!v.descripcion) bad('Poné una descripción.');
+  if (!isInt_(v.monto_estimado_centavos) || v.monto_estimado_centavos <= 0 || v.monto_estimado_centavos > 1e13) bad('El monto tiene que ser un entero de centavos mayor a cero.');
+  if (ENUM.moneda.indexOf(v.moneda) < 0) bad('moneda debe ser ARS o USD.');
+  if (!isInt_(v.dia_mes) || v.dia_mes < 1 || v.dia_mes > 31) bad('El día del mes tiene que ir de 1 a 31.');
+  if (!isDate_(v.proximo_vencimiento)) bad('El próximo vencimiento es inválido (usá AAAA-MM-DD).');
+  var persona = readTab_('Personas').filter(function (p) { return String(p.id) === v.pagador_id; })[0];
+  if (!persona) bad('El pagador no existe en Personas.');
+  var row = [v.id, v.descripcion, v.monto_estimado_centavos, v.moneda, v.dia_mes, v.categoria, v.pagador_id, v.proximo_vencimiento, v.activo ? 'TRUE' : 'FALSE'];
+  if (at >= 0) sheet.getRange(at + 2, 1, 1, cols.length).setValues([row]);
+  else appendRows_(sheet, [row], cols.length);
+  return { ok: true, creado: at < 0 };
 }
 
 function actionAddMovimientos_(req) {
@@ -388,6 +448,14 @@ function movOut_(r) {
     origen: String(r.origen), creado_por: String(r.creado_por), creado_en: String(r.creado_en),
     anulado: bool_(r.anulado), reemplaza_id: String(r.reemplaza_id)
   };
+}
+function sueldoOut_(r) {
+  return { id: String(r.id), persona_id: String(r.persona_id), desde: String(r.desde), monto_centavos: Number(r.monto_centavos),
+    moneda: String(r.moneda), nota: String(r.nota), creado_por: String(r.creado_por), creado_en: String(r.creado_en) };
+}
+function recOut_(r) {
+  return { id: String(r.id), descripcion: String(r.descripcion), monto_estimado_centavos: Number(r.monto_estimado_centavos), moneda: String(r.moneda),
+    dia_mes: Number(r.dia_mes), categoria: String(r.categoria), pagador_id: String(r.pagador_id), proximo_vencimiento: String(r.proximo_vencimiento), activo: bool_(r.activo) };
 }
 function bool_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
 

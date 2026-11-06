@@ -14,13 +14,14 @@ Orden por dependencia. Marcar a medida que se completa.
 - [ ] Personas con ID fijo, alias, archivar, fusionar con vista previa
 - [ ] Importar Splitwise con pantalla de mapeo de nombres
 - [ ] Importaciones por lote: deshacer y cambiar moneda del lote
-- [ ] Sueldos con fecha y reparto proporcional por defecto (igual, porcentaje o excepción marcada)
+- [x] Sueldos con fecha y reparto proporcional por defecto (igual, porcentaje o excepción marcada)
 - [ ] Notificaciones por Telegram al subir o saldar un gasto
 
 ## Fase 2 · Inteligencia
 - [ ] Categorización: memoria de comercios, Gemini Flash-Lite, cola de dudosos
 - [ ] Presupuestos por categoría con semáforo
-- [ ] Gastos recurrentes, vencimientos y calendario `.ics`
+- [x] Gastos recurrentes y vencimientos («Por pagar» en Inicio, monto que se actualiza y aviso de suba)
+- [ ] Calendario `.ics` de vencimientos y aviso por Telegram
 - [ ] Detector de anomalías y duplicados
 - [ ] Notificaciones web (Android y iPhone con la app instalada)
 
