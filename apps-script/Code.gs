@@ -753,8 +753,8 @@ function guardarClaveGemini() {
   var ui = SpreadsheetApp.getUi();
   var r = ui.prompt('Clave de Gemini', 'Pegá la clave de la API de Gemini (queda solo en las Propiedades del script, no en la Sheet):', ui.ButtonSet.OK_CANCEL);
   if (r.getSelectedButton() !== ui.Button.OK) return;
-  var k = r.getResponseText().trim();
-  if (!/^[A-Za-z0-9_\-]{20,}$/.test(k)) { ui.alert('Esa clave no parece válida. No se guardó nada.'); return; }
+  var k = r.getResponseText().replace(/[\s"']/g, '');
+  if (!/^[A-Za-z0-9_.\-]{20,}$/.test(k)) { ui.alert('Esa clave no parece válida. No se guardó nada.'); return; }
   PropertiesService.getScriptProperties().setProperty(IA.KEY_PROP, k);
   var res = gemini_([{ descripcion: 'Coto', monto: 20000, moneda: 'ARS' }], k);
   ui.alert(res.error ? 'Guardada, pero la prueba falló: ' + res.error : 'Listo: Gemini responde (' + (res.items[0] ? res.items[0].categoria : '?') + ' para «Coto»).');
