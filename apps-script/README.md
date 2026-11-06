@@ -36,4 +36,8 @@ Para desconectar celulares: **🐕 Cuba → Cambiar token** (los celulares tiene
 
 El token vive solo en *Propiedades del script* (`CUBA_TOKEN`). Nunca en la Sheet ni en el repo. Lo mismo para la clave de Gemini y el token del bot cuando lleguen.
 
-Pendiente: llamadas a Gemini, avisos por Telegram y mail mensual con disparadores por tiempo.
+## Avisos de vencimientos (v0.6)
+
+Menú **🐕 Cuba → Activar avisos de vencimientos**: pide los mails, crea un disparador diario (9 h, Buenos Aires), manda un mail de prueba y muestra el tema privado de **ntfy** (app gratuita, notificación nativa en iPhone y Android, sin servidor). Avisa una vez por etapa de cada vencimiento (faltan ≤3 días / vence hoy / vencido). Al celu no van montos; el mail sí lleva el monto aproximado. Si ningún canal sale, reintenta al día siguiente. Los mails y el tema viven en Propiedades del script (`CUBA_MAILS`, `CUBA_NTFY_TOPIC`), nunca en el repo.
+
+Pendiente: llamadas a Gemini y mail mensual con resumen.

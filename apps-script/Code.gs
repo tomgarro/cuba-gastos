@@ -555,6 +555,8 @@ function cambiarUrl() {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('🐕 Cuba')
     .addItem('Link para emparejar celulares', 'mostrarEmparejado')
+    .addItem('Activar avisos de vencimientos', 'activarAvisos')
+    .addItem('Desactivar avisos', 'desactivarAvisos')
     .addItem('Cambiar URL de la app web', 'cambiarUrl')
     .addItem('Cambiar token (desconecta los celulares)', 'rotarToken')
     .addToUi();
@@ -580,6 +582,118 @@ function rotarToken() {
   if (r !== ui.Button.YES) return;
   PropertiesService.getScriptProperties().setProperty(CUBA.TOKEN_PROP, newToken_());
   mostrarEmparejado();
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Avisos de vencimientos: mail + notificación nativa en el celu        */
+/* (ntfy: app gratuita, push real en iPhone y Android, sin servidor).   */
+/* El tema de ntfy es un texto al azar guardado solo en Propiedades.    */
+/* Al celu NUNCA van montos ni nombres: solo "vence Luz en 2 días".     */
+/* ------------------------------------------------------------------ */
+
+var AVISO = { DIAS: 3, TZ: 'America/Argentina/Buenos_Aires', HORA: 9, NTFY: 'https://ntfy.sh/',
+  TOPIC_PROP: 'CUBA_NTFY_TOPIC', MAILS_PROP: 'CUBA_MAILS', SENT_PROP: 'CUBA_AVISADOS', FN: 'avisarVencimientos' };
+
+function dayNum_(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  return m ? Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000) : NaN;
+}
+
+/** Qué hay que avisar hoy. Una vez por etapa (pronto / hoy / vencido) y vencimiento. Pura: no manda nada. */
+function avisosPendientes_(recs, hoy, yaAvisados) {
+  var out = [], h = dayNum_(hoy);
+  recs.forEach(function (r) {
+    if (!bool_(r.activo)) return;
+    var d = dayNum_(r.proximo_vencimiento) - h;
+    if (isNaN(d) || d > AVISO.DIAS) return;
+    var etapa = d < 0 ? 'vencido' : d === 0 ? 'hoy' : 'pronto';
+    var key = r.id + '|' + String(r.proximo_vencimiento).slice(0, 10) + '|' + etapa;
+    if (yaAvisados.indexOf(key) >= 0) return;
+    out.push({ key: key, id: String(r.id), descripcion: String(r.descripcion), monto: Number(r.monto_estimado_centavos),
+      moneda: String(r.moneda), dias: d, etapa: etapa });
+  });
+  out.sort(function (a, b) { return a.dias - b.dias; });
+  return out;
+}
+
+function cuandoTxt_(d) {
+  return d < 0 ? 'venció hace ' + (-d) + (d === -1 ? ' día' : ' días') : d === 0 ? 'vence hoy' : d === 1 ? 'vence mañana' : 'vence en ' + d + ' días';
+}
+function plata_(c, mon) {
+  var n = Math.round(Math.abs(c)) / 100;
+  return (mon === 'USD' ? 'US$ ' : '$ ') + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, '.').replace(/\.(\d\d)$/, ',$1');
+}
+
+/** Disparador diario. `hoy` solo se pasa en las pruebas. */
+function avisarVencimientos(hoy) {
+  hoy = typeof hoy === 'string' ? hoy : Utilities.formatDate(new Date(), AVISO.TZ, 'yyyy-MM-dd');
+  var props = PropertiesService.getScriptProperties();
+  var sent = []; try { sent = JSON.parse(props.getProperty(AVISO.SENT_PROP) || '[]'); } catch (e) { sent = []; }
+  var list = avisosPendientes_(readTab_('Recurrentes'), hoy, sent);
+  if (!list.length) return { avisos: 0 };
+  var topic = props.getProperty(AVISO.TOPIC_PROP);
+  var mails = String(props.getProperty(AVISO.MAILS_PROP) || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  var ok = { push: false, mail: false }, errores = [];
+  var corto = list.map(function (a) { return a.descripcion + ' ' + cuandoTxt_(a.dias); }).join(' · ');
+  if (topic) {
+    try {
+      var resp = UrlFetchApp.fetch(AVISO.NTFY, { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+        payload: JSON.stringify({ topic: topic, title: '🐕 Cuba: ' + (list.length === 1 ? 'un vencimiento' : list.length + ' vencimientos'),
+          message: corto, tags: ['dog'], click: CUBA.APP_URL, priority: list.some(function (a) { return a.dias <= 0; }) ? 4 : 3 }) });
+      if (resp.getResponseCode() === 200) ok.push = true; else errores.push('ntfy ' + resp.getResponseCode());
+    } catch (e) { errores.push('ntfy: ' + e.message); }
+  }
+  if (mails.length) {
+    try {
+      var cuerpo = '¡Guau! Esto se viene:\n\n' + list.map(function (a) {
+        return '• ' + a.descripcion + ' (' + plata_(a.monto, a.moneda) + ' aprox.): ' + cuandoTxt_(a.dias);
+      }).join('\n') + '\n\nCuando lo pagues, anotalo en Cuba y el próximo vencimiento se corre solo:\n' + CUBA.APP_URL + '\n\n— Cuba';
+      MailApp.sendEmail(mails.join(','), '🐕 Cuba: ' + corto, cuerpo);
+      ok.mail = true;
+    } catch (e) { errores.push('mail: ' + e.message); }
+  }
+  // Solo se da por avisado si salió por algún canal; si no, mañana reintenta.
+  if (ok.push || ok.mail) {
+    list.forEach(function (a) { sent.push(a.key); });
+    props.setProperty(AVISO.SENT_PROP, JSON.stringify(sent.slice(-80)));
+  }
+  return { avisos: list.length, push: ok.push, mail: ok.mail, errores: errores };
+}
+
+function activarAvisos() {
+  var ui = SpreadsheetApp.getUi(), props = PropertiesService.getScriptProperties();
+  var yo = ''; try { yo = Session.getEffectiveUser().getEmail(); } catch (e) { yo = ''; }
+  var r = ui.prompt('Avisos por mail', 'Mails que reciben los avisos, separados por coma (el tuyo y el de tu pareja):', ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var mails = r.getResponseText().split(',').map(function (x) { return x.trim(); }).filter(function (x) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); });
+  if (!mails.length && yo) mails = [yo];
+  props.setProperty(AVISO.MAILS_PROP, mails.join(','));
+  var topic = props.getProperty(AVISO.TOPIC_PROP);
+  if (!topic) { topic = 'cuba-' + newToken_().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24); props.setProperty(AVISO.TOPIC_PROP, topic); }
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === AVISO.FN) ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger(AVISO.FN).timeBased().everyDays(1).atHour(AVISO.HORA).inTimezone(AVISO.TZ).create();
+  var res = enviarPrueba_(topic, mails);
+  ui.alert('Avisos activados',
+    'Todos los días a las ' + AVISO.HORA + ' revisa los vencimientos.\n\nMail a: ' + mails.join(', ') + (res.mail ? ' ✓ (te mandé uno de prueba)' : ' ✗ ' + res.err) +
+    '\n\nNotificación en el celu (opcional): instalá la app gratuita «ntfy», tocá "+" y suscribite al tema:\n\n' + topic +
+    '\n\n(Es tu tema privado: no lo compartas. Al celu nunca van montos.)', ui.ButtonSet.OK);
+}
+
+function enviarPrueba_(topic, mails) {
+  var res = { mail: false, push: false, err: '' };
+  try { MailApp.sendEmail(mails.join(','), '🐕 Cuba: avisos activados', 'Listo, a partir de ahora te aviso cuando se acerque un vencimiento.\n' + CUBA.APP_URL); res.mail = true; } catch (e) { res.err = e.message; }
+  try {
+    var resp = UrlFetchApp.fetch(AVISO.NTFY, { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ topic: topic, title: '🐕 Cuba', message: 'Avisos activados. ¡Guau!', tags: ['dog'], click: CUBA.APP_URL }) });
+    res.push = resp.getResponseCode() === 200;
+  } catch (e) { /* ntfy es opcional */ }
+  return res;
+}
+
+function desactivarAvisos() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === AVISO.FN) ScriptApp.deleteTrigger(t); });
+  SpreadsheetApp.getUi().alert('Avisos desactivados.');
 }
 
 /* ------------------------------------------------------------------ */

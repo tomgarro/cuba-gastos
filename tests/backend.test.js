@@ -326,4 +326,40 @@ t('recurrentes: alta, edición en el lugar (monto y vencimiento) y validaciones'
   assert.strictEqual(b.grids.Recurrentes.length, 2);
 });
 
+
+t('avisos: vence pronto / hoy / vencido, una sola vez por etapa, sin montos al celu y reintenta si no salió', () => {
+  const b = boot(); b.call('savePersonas', { personas: P });
+  const rec = (id, d, ven, over) => Object.assign({ id, descripcion: d, monto_estimado_centavos: 1234500, moneda: 'ARS', dia_mes: 10, categoria: 'luz', pagador_id: 'm1', proximo_vencimiento: ven, activo: true }, over || {});
+  ['r1|Luz|2026-11-08', 'r2|Agua|2026-11-06', 'r3|Gas|2026-11-03', 'r4|Lejos|2026-12-20'].forEach(x => { const [id, d, v] = x.split('|'); b.call('saveRecurrente', { recurrente: rec(id, d, v) }); });
+  b.call('saveRecurrente', { recurrente: rec('r5', 'Pausado', '2026-11-06', { activo: false }) });
+  const sent = { mails: [], push: [] };
+  b.ctx.MailApp = { sendEmail: (to, subj, body) => sent.mails.push({ to, subj, body }) };
+  let code = 200;
+  b.ctx.UrlFetchApp = { fetch: (u, o) => { sent.push.push({ u, o: JSON.parse(o.payload) }); return { getResponseCode: () => code }; } };
+  b.log.props.CUBA_NTFY_TOPIC = 'cuba-secreto123'; b.log.props.CUBA_MAILS = 'a@x.com, b@x.com';
+  const run = day => vm.runInContext('avisarVencimientos("' + day + '")', b.ctx);
+  const r = run('2026-11-06');
+  assert.strictEqual(r.avisos, 3, 'gas vencido, agua hoy, luz pronto; ni el lejano ni el pausado');
+  assert.ok(r.push && r.mail);
+  const m = sent.push[0].o;
+  assert.strictEqual(m.topic, 'cuba-secreto123');
+  assert.ok(/Gas venció hace 3 días/.test(m.message) && /Agua vence hoy/.test(m.message) && /Luz vence en 2 días/.test(m.message));
+  assert.ok(!/\d{3}/.test(m.message.replace(/\s/g, '')) && !/\$/.test(m.message), 'al celu no van montos');
+  assert.ok(sent.mails[0].to === 'a@x.com,b@x.com' && /12\.345,00/.test(sent.mails[0].body), 'el mail sí lleva monto aprox.');
+  assert.strictEqual(run('2026-11-06').avisos, 0, 'no repite el mismo día');
+  assert.strictEqual(run('2026-11-07').avisos, 1, 'agua pasó de «hoy» a vencida: aviso nuevo; el resto no insiste');
+  assert.strictEqual(run('2026-11-08').avisos, 1, 'luz pasa a «hoy»: aviso nuevo');
+});
+t('avisos: si ningún canal sale, no se da por avisado y reintenta', () => {
+  const b = boot(); b.call('savePersonas', { personas: P });
+  b.call('saveRecurrente', { recurrente: { id: 'r1', descripcion: 'Luz', monto_estimado_centavos: 100, moneda: 'ARS', dia_mes: 6, categoria: 'luz', pagador_id: 'm1', proximo_vencimiento: '2026-11-06', activo: true } });
+  b.ctx.MailApp = { sendEmail() { throw new Error('cuota'); } };
+  b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 500 }) };
+  b.log.props.CUBA_NTFY_TOPIC = 'cuba-x'; b.log.props.CUBA_MAILS = 'a@x.com';
+  const r = vm.runInContext('avisarVencimientos("2026-11-06")', b.ctx);
+  assert.strictEqual(r.avisos, 1); assert.ok(!r.push && !r.mail && r.errores.length === 2);
+  b.ctx.MailApp = { sendEmail() {} };
+  assert.strictEqual(vm.runInContext('avisarVencimientos("2026-11-06")', b.ctx).mail, true, 'reintenta y sale');
+  assert.strictEqual(vm.runInContext('avisarVencimientos("2026-11-06")', b.ctx).avisos, 0);
+});
 console.log(n + ' pruebas del backend');

@@ -39,3 +39,5 @@ Orden por dependencia. Marcar a medida que se completa.
 ## Fase 4 · Integraciones
 - [ ] Mercado Pago
 - [ ] Bancos: solo importación de resúmenes
+
+- v0.6: avisos de vencimientos por mail + notificación nativa (ntfy). Telegram descartado por decisión del usuario.
