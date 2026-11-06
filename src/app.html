@@ -100,8 +100,19 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 .sel button.on{border-color:var(--acc);background:var(--accsoft)}
 @keyframes wag{0%,100%{transform:rotate(0)}50%{transform:rotate(-4deg)}}
 .cuba svg{animation:wag 3.2s ease-in-out infinite;transform-origin:50% 90%}
-@media (prefers-reduced-motion:reduce){.cuba svg{animation:none}}
-@media (prefers-reduced-motion:no-preference){.perk .cuba svg{animation-duration:.5s}}
+/* Cuba ilustrado: cada pose respira o se mueve a su manera */
+.cuba img{display:block;transform-origin:50% 100%;animation:breathe 4.2s ease-in-out infinite;user-select:none;-webkit-user-drag:none}
+.pose-happy img{animation:wiggle 1.2s ease-in-out infinite}
+.pose-alert img{animation:lookout 3.6s ease-in-out infinite}
+.pose-sleepy img{animation:breathe 6s ease-in-out infinite}
+.zz{position:absolute;right:4%;top:0;font-style:normal;font-weight:800;color:var(--mut);opacity:0;animation:zfloat 3.4s ease-in infinite}
+.zz b{display:inline-block;font-size:.75em;margin-left:2px}
+@keyframes breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.012,1.028)}}
+@keyframes wiggle{0%,100%{transform:rotate(-2.2deg) translateY(0)}50%{transform:rotate(2.2deg) translateY(-2%)}}
+@keyframes lookout{0%,100%{transform:translateX(0) rotate(0)}40%{transform:translateX(2.5%) rotate(1.2deg)}70%{transform:translateX(1%) rotate(-.6deg)}}
+@keyframes zfloat{0%{opacity:0;transform:translate(0,10px) scale(.7)}25%{opacity:.85}100%{opacity:0;transform:translate(10px,-22px) scale(1.15)}}
+@media (prefers-reduced-motion:reduce){.cuba svg,.cuba img,.zz{animation:none}.zz{opacity:.7}}
+@media (prefers-reduced-motion:no-preference){.perk .cuba svg{animation-duration:.5s}.perk .cuba img{animation-duration:.45s}}
 </style>
 </head>
 <body>
@@ -109,6 +120,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 <div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast"></div>
 <script>/*CORE*/</script>
+<script>/*CUBAIMG*/</script>
 <script>/*CUBA*/</script>
 <script>/*SHEETS*/</script>
 <script>
