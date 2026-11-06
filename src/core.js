@@ -6,12 +6,21 @@
 
   // ---------- categorías ----------
   var CATS = [
-    { k: 'super', n: 'Supermercado', e: '🛒', w: ['super', 'coto', 'carrefour', 'dia', 'jumbo', 'disco', 'chino', 'verdulería', 'verduleria', 'almacen', 'almacén', 'mercado'] },
+    { k: 'super', n: 'Supermercado', e: '🛒', w: ['super', 'supermercado', 'coto', 'carrefour', 'dia', 'jumbo', 'disco', 'chino', 'verdulería', 'verduleria', 'almacen', 'almacén', 'mercado'] },
     { k: 'comida', n: 'Salidas / comida', e: '🍽️', w: ['resto', 'restaurant', 'cena', 'almuerzo', 'cafe', 'café', 'bar', 'birra', 'cerveza', 'pizza', 'sushi', 'helado', 'delivery', 'rappi', 'pedidosya', 'mcdonald', 'burger'] },
-    { k: 'casa', n: 'Casa / alquiler', e: '🏠', w: ['alquiler', 'expensas', 'luz', 'gas', 'agua', 'internet', 'wifi', 'edenor', 'edesur', 'metrogas', 'abl', 'limpieza', 'ferretería', 'ferreteria'] },
+    { k: 'alquiler', n: 'Alquiler', e: '🔑', w: ['alquiler', 'renta'] },
+    { k: 'expensas', n: 'Expensas', e: '🏢', w: ['expensas', 'consorcio'] },
+    { k: 'luz', n: 'Luz', e: '💡', w: ['luz', 'edenor', 'edesur', 'electricidad'] },
+    { k: 'agua', n: 'Agua', e: '💧', w: ['agua', 'aysa'] },
+    { k: 'gas', n: 'Gas', e: '🔥', w: ['gas', 'metrogas', 'naturgy'] },
+    { k: 'internet', n: 'Internet y celular', e: '📶', w: ['internet', 'wifi', 'fibra', 'flow', 'personal flow', 'fibertel', 'telecentro', 'movistar', 'claro', 'celular', 'telefono', 'teléfono'] },
+    { k: 'streaming', n: 'Streaming', e: '📺', w: ['streaming', 'netflix', 'hbo', 'max', 'amazon prime', 'prime video', 'prime', 'disney', 'star+', 'paramount', 'apple tv', 'youtube premium', 'spotify', 'deezer', 'crunchyroll'] },
+    { k: 'seguro', n: 'Seguros', e: '🛡️', w: ['seguro', 'seguros', 'póliza', 'poliza', 'sancor', 'mapfre'] },
+    { k: 'impuestos', n: 'Impuestos', e: '🧾', w: ['abl', 'arba', 'patente', 'monotributo', 'afip', 'arca', 'impuesto', 'impuestos', 'rentas'] },
+    { k: 'casa', n: 'Casa / varios', e: '🏠', w: ['limpieza', 'ferretería', 'ferreteria', 'muebles', 'plomero', 'electricista', 'bazar'] },
     { k: 'transporte', n: 'Transporte', e: '🚗', w: ['nafta', 'uber', 'cabify', 'sube', 'peaje', 'estacionamiento', 'taxi', 'tren', 'colectivo', 'subte', 'combustible', 'ypf', 'shell'] },
     { k: 'salud', n: 'Salud', e: '💊', w: ['farmacia', 'medico', 'médico', 'dentista', 'prepaga', 'remedio', 'kinesio', 'psicologo', 'psicólogo', 'analisis', 'análisis'] },
-    { k: 'ocio', n: 'Ocio', e: '🎬', w: ['cine', 'netflix', 'spotify', 'disney', 'hbo', 'teatro', 'recital', 'juego', 'steam', 'show', 'entrada', 'salida'] },
+    { k: 'ocio', n: 'Ocio', e: '🎬', w: ['cine', 'teatro', 'recital', 'juego', 'steam', 'show', 'entrada', 'salida'] },
     { k: 'viaje', n: 'Viajes', e: '✈️', w: ['hotel', 'vuelo', 'aerolinea', 'aerolínea', 'airbnb', 'pasaje', 'hospedaje', 'viaje', 'excursion', 'excursión'] },
     { k: 'mascota', n: 'Mascota', e: '🐕', w: ['veterinaria', 'vete', 'alimento balanceado', 'perro', 'gato', 'cuba'] },
     { k: 'regalo', n: 'Regalos', e: '🎁', w: ['regalo', 'cumple', 'flores'] },
@@ -23,12 +32,13 @@
     for (var i = 0; i < CATS.length; i++) if (CATS[i].k === k) return CATS[i];
     return CATS[CATS.length - 2];
   }
+  // Palabras completas (o frases): «gasto» no es «gas»; acepta plural simple («seguros», «expensas»).
   function guessCategory(desc) {
-    var d = ' ' + String(desc || '').toLowerCase() + ' ';
+    var d = ' ' + String(desc || '').toLowerCase().replace(/[^a-z0-9áéíóúüñ+]+/g, ' ').trim() + ' ';
     for (var i = 0; i < CATS.length; i++) {
       for (var j = 0; j < CATS[i].w.length; j++) {
         var w = CATS[i].w[j];
-        if (d.indexOf(' ' + w) >= 0 || d.indexOf(w + ' ') >= 0) return CATS[i].k;
+        if (d.indexOf(' ' + w + ' ') >= 0 || d.indexOf(' ' + w + 's ') >= 0) return CATS[i].k;
       }
     }
     return 'otros';

@@ -160,4 +160,17 @@ t('parseSplitwise pago múltiple conserva saldos', () => {
   const b = C.balances(r.entries, ids).ARS;
   assert.deepStrictEqual(ids.map(i => b[i]), [3000, 3000, -6000]);
 });
+t('categorías: servicios por comercio y palabras completas', () => {
+  const g = d => C.guessCategory(d);
+  const casos = { 'Aysa': 'agua', 'AYSA agosto': 'agua', 'Edenor': 'luz', 'Edesur': 'luz', 'Metrogas': 'gas', 'Personal Flow': 'internet',
+    'Expensas octubre': 'expensas', 'Alquiler': 'alquiler', 'Seguro del auto': 'seguro', 'HBO Max': 'streaming', 'Amazon Prime': 'streaming',
+    'Spotify': 'streaming', 'Netflix': 'streaming', 'Coto': 'super', 'ABL': 'impuestos', 'Cine con Pau': 'ocio' };
+  Object.keys(casos).forEach(k => assert.strictEqual(g(k), casos[k], k));
+  assert.strictEqual(g('Gastos varios'), 'otros', '«gastos» no es «gas»');
+  assert.strictEqual(g('Gasto prueba'), 'otros');
+  assert.strictEqual(g('Salida de luz'), 'luz');
+  assert.strictEqual(C.catInfo('no-existe').k, 'otros');
+  assert.strictEqual(C.CATS[C.CATS.length - 1].k, 'pago');
+  assert.strictEqual(new Set(C.CATS.map(c => c.k)).size, C.CATS.length, 'claves únicas');
+});
 console.log('\n' + n + ' tests ok');

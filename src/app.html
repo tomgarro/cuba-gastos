@@ -383,7 +383,8 @@ function viewSheetsError() {
 }
 function viewOnboarding() {
   var o = S.ob;
-  if (o.step === 0) return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('happy', 190) + '</div><h1>¡Guau! Soy Cuba</h1><p>Soy tu guardián de la plata. Anoto los gastos de a dos, hago las cuentas sin límite diario y ladro cuando se acerca el cierre del mes.</p><button class="btn acc full" data-act="ob" data-v="1">Empezar</button></div>';
+  if (o.step === 0) return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('happy', 190) + '</div><h1>¡Guau! Soy Cuba</h1><p>Soy tu guardián de la plata. Anoto los gastos de a dos, hago las cuentas sin límite diario y ladro cuando se acerca el cierre del mes.</p><button class="btn acc full" data-act="ob" data-v="1">Empezar</button>' +
+    '<details style="margin-top:14px"><summary class="mut" style="font-size:14px">¿Ya la usan en otro celular? Conectar con la Sheet</summary><p class="mut" style="font-size:13px">Pegá el link de emparejado (menú 🐕 Cuba de la Sheet). Hace falta una sola vez en cada celular, y también si la agregás a la pantalla de inicio.</p><input data-in="pairlink" placeholder="https://tomgarro.github.io/cuba-gastos/#cfg=…" autocomplete="off" autocapitalize="off"><button class="btn sm full" style="margin-top:8px" data-act="pair">Conectar</button></details></div>';
   if (o.step === 1) {
     var inputs = o.names.map(function (n, i) { return '<input data-in="obname" data-i="' + i + '" placeholder="Nombre de la persona ' + (i + 1) + '" value="' + esc(n) + '" maxlength="30" autocomplete="off">'; }).join('');
     return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('idle', 120) + '</div><h1>¿Quiénes comparten los gastos?</h1><p>Pueden ser dos o más personas.</p><div style="display:grid;gap:10px">' + inputs + '</div>' +
@@ -656,6 +657,13 @@ var A = {
   },
   retry: function () { Store.refresh(); },
   disconnect: function () { if (confirm('¿Desconectar este celular de la Sheet? Los datos siguen en la Sheet.')) Store.disconnect(); },
+  pair: function () {
+    var raw = (($('[data-in="pairlink"]') || {}).value || '').trim();
+    var m = /cfg=([A-Za-z0-9_\-=]+)/.exec(raw), ok = m ? CubaSheets.decodeCfg('#cfg=' + m[1]) : null;
+    if (!ok) { toast('Ese link no sirve. Copialo entero desde el menú 🐕 Cuba de la Sheet.'); return; }
+    try { localStorage.setItem(LSSH, JSON.stringify(ok)); localStorage.removeItem(LSSNAP); } catch (e) {}
+    location.reload();
+  },
   connect: function () {
     var u = (($('[data-in="shurl"]') || {}).value || '').trim(), t = (($('[data-in="shtok"]') || {}).value || '').trim();
     var ok = CubaSheets.decodeCfg('#cfg=' + btoa(JSON.stringify({ u: u, t: t })).replace(/\+/g, '-').replace(/\//g, '_'));

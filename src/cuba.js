@@ -4,6 +4,14 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
   // Cuba, el doberman. Ilustración vectorial propia; moods: idle | happy | alert | sleepy.
+  // Collar de caracoles cauri (así lo llevaba Cuba): cordón y siete caracoles blancos con su abertura.
+  function cowries() {
+    var xs = [66, 79, 91, 100, 109, 121, 134], ys = [153, 158, 161, 162, 161, 158, 153], rs = [-24, -16, -7, 0, 7, 16, 24], h = '<path d="M58 149Q100 172 142 149" stroke="#8a6a43" stroke-width="2.4" fill="none" stroke-linecap="round"/>';
+    for (var i = 0; i < xs.length; i++) {
+      h += '<g transform="translate(' + xs[i] + ' ' + ys[i] + ') rotate(' + rs[i] + ')"><ellipse rx="6.2" ry="8.6" fill="#f6f1e7" stroke="#cfc5b3" stroke-width="1"/><path d="M0-5.2V5.2" stroke="#4a3a30" stroke-width="1.7" stroke-linecap="round"/></g>';
+    }
+    return h;
+  }
   function cuba(mood, size) {
     var eyes, brows, mouth;
     var tan = '#c9843f', ink = '#1d1d22';
@@ -30,7 +38,7 @@
       brows + eyes +
       '<ellipse cx="100" cy="121" rx="12" ry="8" fill="#0e0e10"/><ellipse cx="96" cy="118.5" rx="4" ry="2" fill="#fff" opacity=".35"/>' +
       '<path d="M100 129V137" stroke="#0e0e10" stroke-width="2.4" stroke-linecap="round"/>' + mouth +
-      '<rect x="64" y="150" width="72" height="14" rx="7" fill="#b3322a"/><circle cx="100" cy="171" r="8.5" fill="#e4b53c"/><text x="100" y="175" text-anchor="middle" font-size="10" font-weight="800" fill="#6b4a05" font-family="sans-serif">C</text>' +
+      cowries() +
       '</svg></span>';
   }
 

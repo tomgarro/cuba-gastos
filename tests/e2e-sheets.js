@@ -81,6 +81,18 @@ const J = x => JSON.parse(JSON.stringify(x));
   assert.ok(/le debe/.test(await B.txt()) && /7\.600,00/.test(await B.txt()), 'B ve el gasto de A: ' + (await B.txt()).slice(0, 200));
   assert.ok((await B.p.locator('.chip').innerText()).startsWith('Pau'));
 
+  // Celular C: la app agregada a la pantalla de inicio (almacenamiento vacío, sin #cfg) → pega el link y conecta
+  const Cc = await phone('C');
+  await Cc.p.goto(URL_APP);
+  await Cc.p.waitForSelector('text=Soy Cuba');
+  await Cc.p.click('summary >> text=Conectar con la Sheet');
+  await Cc.p.fill('[data-in=pairlink]', 'texto basura'); await Cc.p.click('[data-act=pair]');
+  await Cc.p.waitForSelector('#toast.show'); assert.ok(/no sirve/.test(await Cc.p.locator('#toast').innerText()));
+  await Cc.p.fill('[data-in=pairlink]', 'https://tomgarro.github.io/cuba-gastos/#cfg=' + cfg); await Cc.p.click('[data-act=pair]');
+  await Cc.p.waitForSelector('[data-act=who]'); // ya ve a las personas de la Sheet, no pide «poné dos nombres»
+  assert.ok(!(await Cc.txt()).includes('Soy Cuba'));
+  await Cc.ctx.close();
+
   // B edita (cena pagada por Pau, 70/30) → reemplaza, no pisa
   await B.p.click('.fab'); await B.p.fill('#fdesc', 'Cena'); await B.p.fill('[data-in=amount]', '10000');
   await B.p.selectOption('[data-in=paidBy]', { label: 'Pau' });
