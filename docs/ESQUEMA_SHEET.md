@@ -42,3 +42,13 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 ## Config
 `clave | valor`
 - Ej.: `moneda_base`, `nombre_grupo`, `zona_horaria`.
+
+## Notas de implementación (backend v1)
+
+- La Sheet está en configuración regional **en_US** (las fórmulas de validación se guardan con coma como separador); no afecta a los datos, que son texto ISO y enteros.
+- Las columnas de IDs, fechas, JSON y flags son de **formato texto**; los booleanos se guardan como `TRUE` / `FALSE`.
+- `confianza` va de 0 a 1.
+- `excepcion` queda en `FALSE` hasta que exista el reparto por sueldo; ahí pasa a `TRUE` cuando un gasto no lo use.
+- Editar un movimiento = el backend agrega el nuevo (con `reemplaza_id`) y anula el viejo en el mismo pedido. Si el viejo ya estaba anulado (otro celular lo cambió) responde `conflicto` y no escribe nada.
+- Los cierres que hoy registra la app son pagos («Cierre …») dentro de `Movimientos`; la pestaña `Cierres` queda para el cierre con doble confirmación.
+

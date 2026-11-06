@@ -1,13 +1,37 @@
 # Backend (Google Apps Script)
 
-**Pendiente: es el próximo paso del roadmap.** Esta carpeta guardará el código del backend ligado a la Google Sheet.
+`Code.gs` es todo el backend: se pega tal cual en el editor de Apps Script ligado a la Google Sheet. Lo prueba `tests/backend.test.js` (el mismo archivo, sobre una Sheet simulada) y `tests/e2e-sheets.js` (dos celulares contra ese backend).
 
-Responsabilidades previstas:
+## Publicarlo (una sola vez)
 
-- Leer y agregar movimientos, personas, sueldos y cierres según `docs/ESQUEMA_SHEET.md`.
-- `LockService` para evitar escrituras simultáneas.
-- Token por dispositivo (Script Properties) para autenticar a la PWA.
-- Llamadas a Gemini con la clave en Script Properties.
-- Avisos por Telegram y mail mensual con disparadores por tiempo.
+1. En la Sheet: **Extensiones → Apps Script**. Borrá lo que haya, pegá el contenido de `Code.gs` y guardá.
+2. **Implementar → Nueva implementación → Aplicación web.** *Ejecutar como:* **yo**. *Quién tiene acceso:* **Cualquier persona**. Autorizá los permisos que pide. (El acceso real lo controla el token; la otra persona no necesita acceso al script.)
+3. Volvé a la Sheet y recargá la página: aparece el menú **🐕 Cuba → Link para emparejar celulares**.
+4. Abrí ese link **una vez en cada celular** (mandalo por un chat privado: lleva la clave). La app guarda la conexión y borra el link de la barra de direcciones.
 
-Los secretos (clave de Gemini, token del bot) se cargan a mano en *Propiedades del script*. Nunca se escriben en archivos del repo.
+Para desconectar celulares: **🐕 Cuba → Cambiar token** (los celulares tienen que abrir el link nuevo). Si cambiás `Code.gs`, hay que **Implementar → Administrar implementaciones → editar → Nueva versión**.
+
+## Qué hace cumplir (no solo la app)
+
+- Montos en centavos enteros, moneda `ARS`/`USD`, el reparto suma exacto al monto y nombra a personas que existen.
+- `Movimientos` solo crece: lo único que se modifica de una fila es `anulado`. Editar = nuevo movimiento con `reemplaza_id` + el viejo anulado, en el mismo pedido; si el viejo ya cambió desde otro celular responde `conflicto`.
+- Reintentar un pedido no duplica (idempotente por `id`). Un pedido inválido no escribe nada.
+- Personas: se crean y se renombran, nunca se borran.
+- `LockService` en cada pedido. El esquema de la Sheet se verifica antes de escribir.
+
+## Protocolo
+
+`POST` a la URL `/exec`, `Content-Type: text/plain` (así el navegador no hace preflight CORS), cuerpo JSON `{ token, action, ... }`. Respuesta `{ ok: true, ... }` o `{ ok: false, error, message }`.
+
+| action | datos | hace |
+|---|---|---|
+| `ping` | | verifica token y esquema |
+| `read` | | personas, movimientos, lotes, categorías y config |
+| `savePersonas` | `personas: [{id, nombre, color?, alias?, estado?}]` | alta o actualización |
+| `addMovimientos` | `movimientos: [...]`, `lote?` | agrega (máx. 500) |
+| `anularMovimientos` | `ids: [...]` | marca `anulado` |
+| `undoLote` | `lote_id` | anula todo el lote y lo marca `deshecho` |
+
+El token vive solo en *Propiedades del script* (`CUBA_TOKEN`). Nunca en la Sheet ni en el repo. Lo mismo para la clave de Gemini y el token del bot cuando lleguen.
+
+Pendiente: llamadas a Gemini, avisos por Telegram y mail mensual con disparadores por tiempo.

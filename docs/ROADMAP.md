@@ -5,10 +5,10 @@ Orden por dependencia. Marcar a medida que se completa.
 ## Fase 0 · Base (en curso)
 - [x] Prototipo: gastos, pagos, saldos, cierre, importar y exportar Splitwise, mascota
 - [x] PWA instalable (manifest, service worker, íconos)
-- [ ] Repo en GitHub y publicación en GitHub Pages
-- [ ] Google Sheet con el esquema de `ESQUEMA_SHEET.md`
-- [ ] Apps Script: leer y escribir movimientos, token por dispositivo, bloqueo de concurrencia
-- [ ] Adaptador de almacenamiento «Sheets» en la app (datos compartidos entre celulares)
+- [x] Repo en GitHub y publicación en GitHub Pages
+- [x] Google Sheet con el esquema de `ESQUEMA_SHEET.md`
+- [x] Apps Script: leer y escribir movimientos, token, bloqueo de concurrencia (`apps-script/Code.gs`; falta publicarlo, ver su README)
+- [x] Adaptador de almacenamiento «Sheets» en la app (datos compartidos entre celulares; solo online)
 
 ## Fase 1 · Personas, importaciones y justicia
 - [ ] Personas con ID fijo, alias, archivar, fusionar con vista previa

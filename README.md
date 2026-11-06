@@ -6,18 +6,17 @@ Reemplaza a Splitwise sin el límite diario de cargas.
 
 **App en vivo:** https://tomgarro.github.io/cuba-gastos/
 
-## Estado actual (v0.1)
-
-Funciona hoy, sin servidor:
+## Estado actual (v0.2)
 
 - Onboarding con Cuba y alta de personas.
 - Gastos y pagos, con división igual, por montos, por porcentaje o por partes.
 - Saldos por moneda (ARS y USD por separado) y deudas simplificadas.
 - Cierre mensual con resumen por categoría y texto para compartir.
-- Importación y exportación en formato CSV de Splitwise.
+- Importación (como lote que se puede deshacer en el backend) y exportación en formato CSV de Splitwise.
 - Instalable en el celular.
+- **Datos compartidos entre dos celulares** vía Google Sheet + Apps Script (`apps-script/`). Solo online: sin conexión se ve lo último y no se puede anotar.
 
-> **Importante:** en esta versión los datos viven **solo en el navegador de cada dispositivo**. Todavía no se comparten entre dos celulares. Eso llega con el backend (Google Sheet + Apps Script), ver `docs/ROADMAP.md`.
+Sin el backend conectado la app sigue andando en modo local (datos solo en el navegador). Para conectarla: `apps-script/README.md`.
 
 ## Instalar en el celular
 

@@ -101,6 +101,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 @keyframes wag{0%,100%{transform:rotate(0)}50%{transform:rotate(-4deg)}}
 .cuba svg{animation:wag 3.2s ease-in-out infinite;transform-origin:50% 90%}
 @media (prefers-reduced-motion:reduce){.cuba svg{animation:none}}
+@media (prefers-reduced-motion:no-preference){.perk .cuba svg{animation-duration:.5s}}
 </style>
 </head>
 <body>
@@ -109,6 +110,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 <div class="toast" id="toast"></div>
 <script>/*CORE*/</script>
 <script>/*CUBA*/</script>
+<script>/*SHEETS*/</script>
 <script>
 (function () {
 'use strict';
@@ -122,10 +124,10 @@ var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'ag
 var mLabel = function (k) { var p = k.split('-'); return MESES[+p[1] - 1] + ' ' + p[0]; };
 var dLabel = function (d) { var p = d.split('-'); return +p[2] + ' ' + MESES[+p[1] - 1].slice(0, 3); };
 var COLORS = ['#c47a35', '#4f7c6d', '#7a5ea8', '#c0504d', '#3f6fa3', '#a68a2e'];
-var LS = 'cuba:v1', LSME = 'cuba:me';
+var LS = 'cuba:v1', LSME = 'cuba:me', LSSH = 'cuba:sheets', LSSNAP = 'cuba:sheetsnap';
 
 // ---------------- estado ----------------
-var S = { group: null, ledger: {}, entries: [], closings: [], meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false,
+var S = { group: null, ledger: {}, entries: [], closings: [], meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
   month: C.monthKey(today()), q: '', cat: '', ob: { step: 0, names: ['', ''] }, form: null, imp: null, closeMonth: C.monthKey(today()), confirmDel: null, exportText: null };
 var members = function () { return (S.group && S.group.members) || []; };
 var mem = function (id) { return members().filter(function (m) { return m.id === id; })[0] || { id: id, name: '?', color: '#999' }; };
@@ -136,12 +138,72 @@ function rebuild() {
   Object.keys(S.ledger).forEach(function (m) { var o = S.ledger[m] || {}; Object.keys(o).forEach(function (id) { all.push(o[id]); }); });
   all.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (b.at || '') < (a.at || '') ? -1 : 1; });
   S.entries = all;
+  if (S.mode === 'sheets') S.closings = CubaSheets.deriveClosings(all);
 }
 var clean = function (o) { return JSON.parse(JSON.stringify(o)); };
 
 // ---------------- almacenamiento ----------------
 var Store = {
-  db: null, user: null, uid: null,
+  db: null, user: null, uid: null, cfg: null, gen: 0, busy: null,
+  // ---- Google Sheet (vía Apps Script). Solo online: sin conexión se ve lo último y no se carga nada. ----
+  sheetsCfg: function () {
+    var fromHash = null;
+    try { fromHash = CubaSheets.decodeCfg(location.hash); } catch (e) {}
+    if (fromHash) {
+      try { localStorage.setItem(LSSH, JSON.stringify(fromHash)); localStorage.removeItem(LSSNAP); } catch (e) {}
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+      return fromHash;
+    }
+    try { var c = JSON.parse(localStorage.getItem(LSSH) || 'null'); return c && c.u && c.t ? c : null; } catch (e) { return null; }
+  },
+  call: function (action, body) {
+    var cfg = this.cfg, ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var to = setTimeout(function () { if (ctl) ctl.abort(); }, 30000);
+    var netErr = function () { var er = new Error('red'); er.code = 'red'; er.userMessage = 'No hay conexión con la Sheet. Probá de nuevo.'; return er; };
+    return fetch(cfg.u, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', signal: ctl ? ctl.signal : undefined,
+      body: JSON.stringify(Object.assign({ token: cfg.t, action: action }, body || {})) })
+      .then(function (r) {
+        return r.json().catch(function () { var er = new Error('respuesta'); er.code = 'respuesta'; er.userMessage = 'La Sheet no respondió como esperaba. Revisá que la app web esté publicada para «Cualquier persona».'; throw er; });
+      }, function () { throw netErr(); })
+      .then(function (d) {
+        clearTimeout(to);
+        if (!d || !d.ok) { var er = new Error((d && d.message) || 'respuesta'); er.code = (d && d.error) || 'respuesta'; er.userMessage = (d && d.message) || null; throw er; }
+        return d;
+      }, function (e) { clearTimeout(to); throw e; });
+  },
+  snap: function () { try { localStorage.setItem(LSSNAP, JSON.stringify({ u: this.cfg.u, group: S.group, ledger: S.ledger })); } catch (e) {} },
+  refresh: function () {
+    var self = this;
+    var run = function () {
+      var gen = self.gen, had = !!S.group, seen = {};
+      S.entries.forEach(function (x) { seen[x.id] = 1; });
+      return self.call('read').then(function (d) {
+        if (gen !== self.gen) return; // hubo una escritura en el medio: este snapshot ya quedó viejo
+        var st = CubaSheets.snapshotToState(d);
+        S.group = st.group; S.ledger = st.ledger; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); render();
+        if (had && S.entries.some(function (x) { return !x.del && !seen[x.id] && x.by && x.by !== S.meId; })) { var a = $('#app'); a.classList.add('perk'); clearTimeout(self.pt); self.pt = setTimeout(function () { a.classList.remove('perk'); }, 2800); }
+      }).catch(function (e) { S.loaded = true; S.offline = true; S.authErr = !!(e && (e.code === 'no_autorizado' || e.code === 'sin_token')); render(); });
+    };
+    var p = (this.busy || Promise.resolve()).then(run);
+    this.busy = p; p.then(function () { if (self.busy === p) self.busy = null; });
+    return p;
+  },
+  initSheets: function (cfg) {
+    var self = this; this.cfg = cfg; S.mode = 'sheets';
+    try { S.meId = localStorage.getItem(LSME) || null; } catch (e) {}
+    try {
+      var sn = JSON.parse(localStorage.getItem(LSSNAP) || 'null');
+      if (sn && sn.u === cfg.u && sn.group) { S.group = sn.group; S.ledger = sn.ledger || {}; S.loaded = true; rebuild(); render(); }
+    } catch (e) {}
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') self.refresh(); });
+    window.addEventListener('online', function () { self.refresh(); });
+    setInterval(function () { if (document.visibilityState === 'visible' && !self.busy && !S.form) self.refresh(); }, 60000);
+    return this.refresh();
+  },
+  disconnect: function () {
+    try { localStorage.removeItem(LSSH); localStorage.removeItem(LSSNAP); } catch (e) {}
+    location.reload();
+  },
   persist: function () {
     try { localStorage.setItem(LS, JSON.stringify({ group: S.group, ledger: S.ledger, closings: S.closings })); } catch (e) {}
   },
@@ -152,6 +214,7 @@ var Store = {
   },
   init: function () {
     var self = this;
+    var sh = this.sheetsCfg(); if (sh) return this.initSheets(sh);
     var timeout = new Promise(function (res) { setTimeout(function () { res('timeout'); }, 10000); });
     var get = function (n) { return (window.claude && window.claude.use) ? Promise.resolve().then(function () { return window.claude.use(n); }).catch(function () { return null; }) : Promise.resolve(null); };
     return Promise.race([Promise.all([get('db'), get('user')]), timeout]).then(function (r) {
@@ -182,6 +245,12 @@ var Store = {
     }
   },
   saveGroup: function (g) {
+    if (this.cfg) {
+      var me = this;
+      if (S.group && S.group.members && S.group.members.length && !g._force) return Promise.resolve();
+      this.gen++;
+      return this.call('savePersonas', { personas: CubaSheets.membersToPersonas(g.members) }).then(function () { return me.refresh(); });
+    }
     if (this.db) {
       var ref = this.db.doc('meta/group');
       return ref.get().then(function (s) { if (s.exists && !g._force) { return; } var b = clean(g); delete b._force; return ref.set(b); });
@@ -194,7 +263,8 @@ var Store = {
     if (this.db && this.uid) { return this.db.doc('data/users/' + this.uid + '/me').set({ memberId: id }).catch(function () {}); }
     return Promise.resolve();
   },
-  putEntries: function (list) {
+  putEntries: function (list, opts) {
+    if (this.cfg) return this.putSheets(list, opts || {});
     var by = {};
     list.forEach(function (e) { var m = C.monthKey(e.date); (by[m] = by[m] || {})[e.id] = clean(e); });
     if (!this.db) {
@@ -217,7 +287,23 @@ var Store = {
     });
     return p;
   },
+  putSheets: function (list, opts) {
+    var self = this, known = {};
+    S.entries.forEach(function (x) { known[x.id] = x; });
+    var plan = CubaSheets.planWrites(list, known, rid);
+    var p = Promise.resolve(); this.gen++;
+    for (var i = 0, k = 0; i < plan.add.length; i += 400, k++) {
+      (function (chunk, first) {
+        p = p.then(function () { var b = { movimientos: chunk }; if (opts.lote && first) b.lote = opts.lote; return self.call('addMovimientos', b); });
+      })(plan.add.slice(i, i + 400), k === 0);
+    }
+    if (plan.anular.length) p = p.then(function () { return self.call('anularMovimientos', { ids: plan.anular }); });
+    return p.then(function () {
+      S.ledger = CubaSheets.applyPlan(S.ledger, plan.applied); rebuild(); self.snap(); render(); self.refresh();
+    }, function (e) { self.refresh(); throw e; });
+  },
   saveClosing: function (c) {
+    if (this.cfg) return Promise.resolve(); // el pago ya es un movimiento; los cierres salen de ahí
     if (this.db) return this.db.doc('closings/' + c.id).set(clean(c));
     S.closings.unshift(c); this.persist(); render(); return Promise.resolve();
   }
@@ -235,7 +321,7 @@ function allTransfers() {
   return { bal: bal, transfers: out };
 }
 function toast(msg) { var t = $('#toast'); t.textContent = msg; t.className = 'toast show'; clearTimeout(toast._t); toast._t = setTimeout(function () { t.className = 'toast'; }, 2600); }
-function fail(e) { console.error(e); toast('No se pudo guardar' + (e && e.code ? ' (' + e.code + ')' : '') + '. Probá de nuevo.'); }
+function fail(e) { console.error(e); toast(e && e.userMessage ? e.userMessage : 'No se pudo guardar' + (e && e.code ? ' (' + e.code + ')' : '') + '. Probá de nuevo.'); }
 function monthsAvailable() {
   var set = {}; set[C.monthKey(today())] = 1;
   S.entries.forEach(function (e) { if (!e.del) set[C.monthKey(e.date)] = 1; });
@@ -278,16 +364,22 @@ function render() {
   pendingRender = false;
   var app = $('#app');
   if (!S.loaded) { app.innerHTML = '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('sleepy', 150) + '</div><p>Cuba está despertándose…</p></div>'; return; }
+  if (S.mode === 'sheets' && !S.group && S.offline) { app.innerHTML = viewSheetsError(); return; }
   if (!S.group) { app.innerHTML = viewOnboarding(); return; }
   if (!S.meId || memIdx(S.meId) < 0) { app.innerHTML = viewWho(); return; }
   var v = S.tab === 'gastos' ? viewGastos() : S.tab === 'cierre' ? viewCierre() : S.tab === 'ajustes' ? viewAjustes() : viewInicio();
   var banner = '';
   if (S.mode === 'local') banner = '<div class="banner">Modo local: tus datos viven solo en este navegador. Abrí la app desde claude.ai con sesión iniciada para compartirla con tu pareja.</div>';
+  else if (S.mode === 'sheets' && S.offline) banner = S.authErr ? '<div class="banner">La Sheet no reconoce este celular (¿cambiaron el token?). Pedí el link nuevo desde el menú Cuba de la Sheet.</div>' : '<div class="banner">Sin conexión con la Sheet: veo lo último que guardé y no puedo anotar hasta que vuelva.</div>';
   else if (S.slow) banner = '<div class="banner">No puedo conectar con los datos compartidos. Lo que ves puede estar desactualizado.</div>';
   else if (S.readOnly) banner = '<div class="banner">Tenés acceso de solo lectura: pedí permiso de <b>Contributor</b> para poder anotar gastos.</div>';
   app.innerHTML = '<div class="top"><div class="brand">' + cuba('idle', 34) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
     '<button class="fab" data-act="new" aria-label="Anotar gasto">+</button>' +
     '<nav class="nav"><div>' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['ajustes', '⚙️', 'Ajustes']].map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
+}
+function viewSheetsError() {
+  return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('alert', 140) + '</div><h1>No llego a la Sheet</h1><p>' + (S.authErr ? 'La Sheet no reconoce este celular. Abrí el link de emparejado nuevo (menú Cuba de la Sheet).' : 'Revisá la conexión y probá de nuevo.') + '</p>' +
+    '<button class="btn acc full" data-act="retry">Reintentar</button><button class="btn ghost full" style="margin-top:8px" data-act="disconnect">Desconectar este celular</button></div>';
 }
 function viewOnboarding() {
   var o = S.ob;
@@ -378,7 +470,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><p class="mut" style="font-size:13px;margin:8px 0 0">Próximamente: bot de Telegram con audio y fotos, Gemini para categorizar, importar resúmenes de tarjeta y vencimientos.</p></div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '<p class="mut" style="font-size:13px;margin:8px 0 0">Próximamente: bot de Telegram con audio y fotos, Gemini para categorizar, importar resúmenes de tarjeta y vencimientos.</p></div>';
   return h;
 }
 function impHtml() {
@@ -516,7 +608,7 @@ var A = {
     var e = { id: F.id || rid(), type: F.kind, desc: isPay ? 'Pago' : desc, cents: r.total, cur: F.cur, date: F.date || today(), paidBy: F.paidBy, sp: r.sp, cat: isPay ? 'pago' : F.cat, note: isPay ? desc : (F.note || ''), by: S.meId, at: new Date().toISOString() };
     var bad = C.validate(e); if (bad) { toast(bad); return; }
     var list = [e];
-    if (old && C.monthKey(old.date) !== C.monthKey(e.date)) { e.id = rid(); var tomb = Object.assign({}, old, { del: true }); list.push(tomb); }
+    if (old && C.monthKey(old.date) !== C.monthKey(e.date)) { e.id = rid(); e.replaces = old.id; var tomb = Object.assign({}, old, { del: true }); list.push(tomb); }
     var btn = document.querySelector('[data-act="save"]'); if (btn) btn.disabled = true;
     Store.putEntries(list).then(function () { closeSheet(); toast(old ? 'Cambios guardados' : isPay ? 'Pago anotado' : '¡Anotado! Guau.'); render(); }).catch(function (er) { if (btn) btn.disabled = false; fail(er); });
   },
@@ -553,10 +645,21 @@ var A = {
   impgo: function () {
     var i = S.imp; if (!i || i.error || S.readOnly) return;
     var g = clean(S.group), hasNew = i.members.length !== g.members.length;
-    var go = function () { return Store.putEntries(i.entries.map(function (e) { e.by = S.meId; e.at = new Date().toISOString(); return e; })); };
+    var loteId = 'L' + rid(), cur0 = (i.entries[0] && i.entries[0].cur) || 'ARS';
+    var go = function () { return Store.putEntries(i.entries.map(function (e) { e.by = S.meId; e.at = new Date().toISOString(); e.lote = loteId; return e; }),
+      { lote: { id: loteId, origen: 'splitwise', fecha: today(), cantidad: i.entries.length, moneda_original: cur0 } }); };
     var p = Promise.resolve();
     if (hasNew) { g.members = i.members.map(function (m, k) { return Object.assign({ color: COLORS[k % COLORS.length] }, m); }); g._force = true; p = Store.saveGroup(g); }
     p.then(go).then(function () { S.imp = null; toast(i.entries.length + ' movimientos importados'); render(); }).catch(fail);
+  },
+  retry: function () { Store.refresh(); },
+  disconnect: function () { if (confirm('¿Desconectar este celular de la Sheet? Los datos siguen en la Sheet.')) Store.disconnect(); },
+  connect: function () {
+    var u = (($('[data-in="shurl"]') || {}).value || '').trim(), t = (($('[data-in="shtok"]') || {}).value || '').trim();
+    var ok = CubaSheets.decodeCfg('#cfg=' + btoa(JSON.stringify({ u: u, t: t })).replace(/\+/g, '-').replace(/\//g, '_'));
+    if (!ok) { toast('Revisá la dirección (tiene que ser de script.google.com) y el token.'); return; }
+    try { localStorage.setItem(LSSH, JSON.stringify(ok)); localStorage.removeItem(LSSNAP); } catch (e) {}
+    location.reload();
   },
   export: function () { S.exportText = C.exportCSV(S.entries, members()); render(); },
   copyexp: function () { copyText(S.exportText, 'CSV copiado'); }
