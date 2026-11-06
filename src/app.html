@@ -113,6 +113,14 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 @keyframes zfloat{0%{opacity:0;transform:translate(0,10px) scale(.7)}25%{opacity:.85}100%{opacity:0;transform:translate(10px,-22px) scale(1.15)}}
 @media (prefers-reduced-motion:reduce){.cuba svg,.cuba img,.zz{animation:none}.zz{opacity:.7}}
 @media (prefers-reduced-motion:no-preference){.perk .cuba svg{animation-duration:.5s}.perk .cuba img{animation-duration:.45s}}
+/* Acariciar a Cuba: al tocarlo alterna dos poses mimado y salen corazones */
+.petting img{animation:petlean .76s ease-in-out infinite !important}
+@keyframes petlean{0%,100%{transform:rotate(-2.5deg) translateY(0)}50%{transform:rotate(2.5deg) translateY(1.5%)}}
+.heart{position:absolute;bottom:62%;width:15px;height:15px;pointer-events:none;opacity:0;animation:heartup 1.35s ease-out forwards}
+@keyframes heartup{0%{opacity:0;transform:translateY(0) scale(.5)}20%{opacity:1}100%{opacity:0;transform:translateY(-52px) scale(1.15) rotate(var(--r,0deg))}}
+.bone{position:fixed;top:-30px;font-size:26px;pointer-events:none;z-index:99;animation:bonefall 1.5s ease-in forwards}
+@keyframes bonefall{to{transform:translateY(105vh) rotate(260deg)}}
+@media (prefers-reduced-motion:reduce){.petting img{animation:none !important}.heart,.bone{display:none}}
 </style>
 </head>
 <body>
@@ -839,6 +847,30 @@ var A = {
   export: function () { S.exportText = C.exportCSV(S.entries, members()); render(); },
   copyexp: function () { copyText(S.exportText, 'CSV copiado'); }
 };
+
+// ---------------- acariciar a Cuba ----------------
+var PET = { n: 0, last: 0 };
+function petHeart(box) {
+  var h = document.createElement('span'); h.className = 'heart';
+  h.style.left = (20 + Math.random() * 60) + '%'; h.style.setProperty('--r', (Math.random() * 30 - 15) + 'deg');
+  h.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 5 6.3 5c2 0 3.7 1.1 4.7 2.7C12 6.1 13.7 5 15.7 5 19 5 21.1 8.3 19.6 11.7 19.5 11.9 12 21 12 21z" fill="#e0566c"/></svg>';
+  box.appendChild(h); setTimeout(function () { if (h.parentNode) h.parentNode.removeChild(h); }, 1500);
+}
+document.addEventListener('click', function (ev) {
+  var box = ev.target.closest && ev.target.closest('.cuba'); if (!box) return;
+  var img = box.querySelector('img'), I = window.CUBA_IMG; if (!img || !I || !I.mimado_a || !I.mimado_b) return;
+  var now = Date.now(); PET.n = now - PET.last < 3000 ? PET.n + 1 : 1; PET.last = now;
+  if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
+  var calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!box._pet) {
+    box._pet = { orig: img.src, i: 0 }; box.classList.add('petting'); img.src = I.mimado_a;
+    if (!calm) box._pet.iv = setInterval(function () { if (!box.isConnected) return; box._pet.i++; img.src = box._pet.i % 2 ? I.mimado_b : I.mimado_a; }, 380);
+  }
+  if (!calm) { petHeart(box); if (PET.n % 2 === 0) petHeart(box); }
+  clearTimeout(box._pet.end);
+  box._pet.end = setTimeout(function () { clearInterval(box._pet.iv); if (box.isConnected) { img.src = box._pet.orig; box.classList.remove('petting'); } box._pet = null; }, 2200);
+  if (PET.n === 10 && !calm) { for (var k = 0; k < 9; k++) { var b = document.createElement('span'); b.className = 'bone'; b.textContent = '🦴'; b.style.left = (4 + k * 11) + '%'; b.style.animationDelay = (k % 3) * 0.15 + 's'; document.body.appendChild(b); setTimeout(function (x) { return function () { x.remove(); }; }(b), 2000); } toast('Cuba te quiere. Y pide un hueso 🦴'); }
+});
 
 document.addEventListener('click', function (ev) {
   var el = ev.target.closest('[data-act]'); if (!el) { if (ev.target.id === 'scrim') closeSheet(); return; }

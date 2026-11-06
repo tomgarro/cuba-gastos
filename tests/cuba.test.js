@@ -22,7 +22,7 @@ t('con poses embebidas usa la ilustración de cada humor, con alt y sin red', ()
 });
 t('el index.html trae las 4 poses y pesa razonable', () => {
   const h = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  ['tranquilo', 'feliz', 'alerta', 'durmiendo'].forEach(k => assert.ok(new RegExp('"' + k + '": "data:image/webp;base64,').test(h), k));
+  ['tranquilo', 'feliz', 'alerta', 'durmiendo', 'mimado_a', 'mimado_b'].forEach(k => assert.ok(new RegExp('"' + k + '": "data:image/webp;base64,').test(h), k));
   assert.ok(h.length < 600000, 'index.html: ' + h.length);
   assert.ok(!/https:\/\/[^"'\s)]*\.(webp|png|jpg)/.test(h.replace(/data:image[^"]+/g, '')), 'sin imágenes remotas');
 });

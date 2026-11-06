@@ -12,3 +12,8 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 - **Se activa:** al anotar el último recurrente que estaba por vencer (se vacía «Por pagar»), Cuba mueve la cola a toda velocidad unos 3 segundos.
 - **Se apaga:** borrar el bloque `pa.classList.add('perk')` en `A.save` (src/app.html). Reutiliza la misma regla de CSS que el detalle de v0.2 y respeta «reducir movimiento».
 
+
+## v0.7 · Cuba pide un hueso
+
+- **Se activa:** acariciar a Cuba (tocarlo) 10 veces seguidas, con menos de 3 segundos entre toque y toque: llueven huesos y aparece un aviso.
+- **Se apaga:** borrar la línea `if (PET.n === 10 && !calm) {…}` al final del bloque «acariciar a Cuba» en `src/app.html`. No aparece con «reducir movimiento».
