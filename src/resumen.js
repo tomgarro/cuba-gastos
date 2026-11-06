@@ -46,9 +46,30 @@
       out.lineas.push({ id: 'rs' + key, fecha: fecha, bruto: d, cuota: cuota, cents: cents, cur: cur });
     });
     if (!out.cierre && out.lineas.length) out.cierre = out.lineas.reduce(function (a, l) { return l.fecha > a ? l.fecha : a; }, '');
+    out.dolar = dolarTarjeta(t, out.lineas);
     if (!out.lineas.length) out.error = 'No encontré consumos. Si es un PDF, abrilo, copiá todo el texto y pegalo acá.';
     return out;
   }
+
+  /** Dólar tarjeta que sale del propio resumen: TC vendedor (base de la percepción IVA ÷ USD) y percepciones que se suman. null si no se puede. */
+  function dolarTarjeta(t, lineas) {
+    var usd = lineas.filter(function (l) { return l.cur === 'USD'; }).reduce(function (a, l) { return a + l.cents; }, 0);
+    if (!usd) return null;
+    var pcts = [], tc = 0, re = /(IVA RG|IIBB PERCEP|DB\.RG)[^\n(]*?(\d+(?:,\d+)?)\s*%\s*\(\s*(\d[\d.]*,\d{2})\s*\)/gi, m;
+    while ((m = re.exec(t))) {
+      var pct = parseFloat(m[2].replace(',', '.')), base = importe(m[3]);
+      if (/IVA/i.test(m[1])) tc = base / usd;                                  // centavos de peso por centavo de USD = pesos por dólar
+      pcts.push({ nombre: m[1].toUpperCase().replace(/\.$/, ''), pct: pct, base: base });
+    }
+    if (!(tc > 0)) return null;
+    var usdPesos = usd * tc, suma = 0, usados = [];
+    pcts.forEach(function (x) {
+      if (/DB\./i.test(x.nombre) || Math.abs(x.base - usdPesos) <= usdPesos * 0.02) { suma += x.pct; usados.push(x.nombre + ' ' + x.pct + '%'); }
+    });
+    return { tc: Math.round(tc * 100) / 100, pct: suma, detalle: usados.join(' + ') };
+  }
+  /** USD en centavos → pesos en centavos, con tipo de cambio y % de impuestos. */
+  function aPesos(usdCents, tc, pct) { return Math.round(usdCents * tc * (1 + (pct || 0) / 100)); }
 
   // ---------------------------------------------------------------- nombres prolijos
   var ALIAS = [[/hbo ?max|hbomax/i, 'HBO'], [/prime ?video/i, 'PRIME VIDEO'], [/spotify/i, 'SPOTIFY'], [/netflix/i, 'NETFLIX'], [/disney/i, 'DISNEY'],
@@ -252,5 +273,5 @@
     return txt;
   }
 
-  return { parseResumen: parseResumen, limpiar: limpiar, nombreGasto: nombreGasto, patron: patron, clasificar: clasificar, pdfTexto: pdfTexto, importe: importe };
+  return { parseResumen: parseResumen, limpiar: limpiar, nombreGasto: nombreGasto, patron: patron, clasificar: clasificar, pdfTexto: pdfTexto, aPesos: aPesos, dolarTarjeta: dolarTarjeta, importe: importe };
 });

@@ -263,6 +263,28 @@ const J = x => JSON.parse(JSON.stringify(x));
     await A.p.click('[data-act=rsclear]');
   }
 
+  // ---- Resumen con dólares y sueldos cargados después de la fecha del gasto ----
+  {
+    const [pT, pP] = sheet.grids.Personas.slice(1).map(r => r[0]);
+    sheet.grids.Sueldos.push(['s1', pT, '2026-11-06', '300000000', 'ARS', '', pT, '2026-11-06T10:00:00Z'], ['s2', pP, '2026-11-06', '100000000', 'ARS', '', pP, '2026-11-06T10:00:00Z']);
+    const txt = require('fs').readFileSync(path.resolve(__dirname, 'fixtures', 'resumen_dolar.txt'), 'utf8');
+    await refresh(B.p); await B.p.waitForTimeout(250);
+    await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
+    await B.p.fill('#rspaste', txt); await B.p.click('[data-act=rsread]');
+    await B.p.waitForSelector('.rsrow', { timeout: 10000 });
+    assert.strictEqual(await B.p.inputValue('#rstc'), '500', 'lee la cotización del propio resumen');
+    assert.strictEqual(await B.p.inputValue('#rspct'), '53', 'IVA + IIBB + RG 5617');
+    await B.p.locator('.rsrow', { hasText: /Zorbaflix/i }).locator('.chip').click();
+    await B.p.locator('.rsrow', { hasText: /Luz/i }).locator('.chip:not(.on)').click().catch(() => {});
+    await B.p.click('[data-act=rsgo]');
+    await B.p.waitForFunction(() => /gastos? compartidos? cargados?/.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+    const mv = J(sheet.grids.Movimientos).filter(r => /ZORBAFLIX/i.test(r[col('descripcion')]) && r[col('origen')] === 'resumen')[0];
+    assert.strictEqual(mv[col('moneda')], 'ARS'); assert.strictEqual(+mv[col('monto_centavos')], 1000 * 500 * 153 / 100 * 1, 'USD 10 × 500 × 1,53 = $7.650');
+    const rep = JSON.parse(mv[col('reparto_json')]); const vals = Array.isArray(rep) ? rep.map(x => x[1]) : Object.values(rep);
+    assert.deepStrictEqual(vals.slice().sort((a, b) => a - b), [191250, 573750], 'reparto 25/75 por sueldo, no mitad y mitad');
+    assert.ok(/USD 10,00 × 500/.test(mv[col('nota')]), 'la nota guarda cómo se convirtió');
+  }
+
   // ---- Borrar desde A ----
   await refresh(A.p); await A.p.click('.nav [data-v=gastos]');
   await A.p.locator('.item', { hasText: 'Cena' }).click(); await A.p.click('[data-act=askdel]'); await A.p.click('[data-act=del]');

@@ -954,9 +954,30 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
       out.lineas.push({ id: 'rs' + key, fecha: fecha, bruto: d, cuota: cuota, cents: cents, cur: cur });
     });
     if (!out.cierre && out.lineas.length) out.cierre = out.lineas.reduce(function (a, l) { return l.fecha > a ? l.fecha : a; }, '');
+    out.dolar = dolarTarjeta(t, out.lineas);
     if (!out.lineas.length) out.error = 'No encontré consumos. Si es un PDF, abrilo, copiá todo el texto y pegalo acá.';
     return out;
   }
+
+  /** Dólar tarjeta que sale del propio resumen: TC vendedor (base de la percepción IVA ÷ USD) y percepciones que se suman. null si no se puede. */
+  function dolarTarjeta(t, lineas) {
+    var usd = lineas.filter(function (l) { return l.cur === 'USD'; }).reduce(function (a, l) { return a + l.cents; }, 0);
+    if (!usd) return null;
+    var pcts = [], tc = 0, re = /(IVA RG|IIBB PERCEP|DB\.RG)[^\n(]*?(\d+(?:,\d+)?)\s*%\s*\(\s*(\d[\d.]*,\d{2})\s*\)/gi, m;
+    while ((m = re.exec(t))) {
+      var pct = parseFloat(m[2].replace(',', '.')), base = importe(m[3]);
+      if (/IVA/i.test(m[1])) tc = base / usd;                                  // centavos de peso por centavo de USD = pesos por dólar
+      pcts.push({ nombre: m[1].toUpperCase().replace(/\.$/, ''), pct: pct, base: base });
+    }
+    if (!(tc > 0)) return null;
+    var usdPesos = usd * tc, suma = 0, usados = [];
+    pcts.forEach(function (x) {
+      if (/DB\./i.test(x.nombre) || Math.abs(x.base - usdPesos) <= usdPesos * 0.02) { suma += x.pct; usados.push(x.nombre + ' ' + x.pct + '%'); }
+    });
+    return { tc: Math.round(tc * 100) / 100, pct: suma, detalle: usados.join(' + ') };
+  }
+  /** USD en centavos → pesos en centavos, con tipo de cambio y % de impuestos. */
+  function aPesos(usdCents, tc, pct) { return Math.round(usdCents * tc * (1 + (pct || 0) / 100)); }
 
   // ---------------------------------------------------------------- nombres prolijos
   var ALIAS = [[/hbo ?max|hbomax/i, 'HBO'], [/prime ?video/i, 'PRIME VIDEO'], [/spotify/i, 'SPOTIFY'], [/netflix/i, 'NETFLIX'], [/disney/i, 'DISNEY'],
@@ -1160,7 +1181,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     return txt;
   }
 
-  return { parseResumen: parseResumen, limpiar: limpiar, nombreGasto: nombreGasto, patron: patron, clasificar: clasificar, pdfTexto: pdfTexto, importe: importe };
+  return { parseResumen: parseResumen, limpiar: limpiar, nombreGasto: nombreGasto, patron: patron, clasificar: clasificar, pdfTexto: pdfTexto, aPesos: aPesos, dolarTarjeta: dolarTarjeta, importe: importe };
 });
 </script>
 <script>
@@ -1711,6 +1732,16 @@ function resumenFalta() { // resúmenes que ya cerraron y todavía no se subiero
   var lim = new Date(Date.parse(today() + 'T00:00:00Z') - 2 * 86400000).toISOString().slice(0, 10);
   return misResumenes().filter(function (r) { return r.proximo_cierre && r.proximo_cierre <= lim; });
 }
+function rsDolar() { var d = (S.rs && S.rs.dolar) || {}, tc = C.parseAmount(d.tc), pct = parseFloat(String(d.pct || '0').replace(',', '.')) || 0; return { tc: tc > 0 ? tc / 100 : 0, pct: pct }; }
+function rsPesos(x) { // un consumo ya en la moneda que se carga: USD → pesos con el dólar tarjeta
+  if (x.cur !== 'USD') return { cents: x.cents, cur: x.cur, nota: '' };
+  var d = rsDolar(); if (!d.tc) return { cents: x.cents, cur: 'USD', nota: '', sinTc: true };
+  return { cents: CubaResumen.aPesos(x.cents, d.tc, d.pct), cur: 'ARS', nota: ' · USD ' + C.fmt(x.cents, 'USD').replace(/[^\d.,]/g, '') + ' × ' + String(d.tc).replace('.', ',') + (d.pct ? ' + ' + d.pct + '% impuestos' : '') };
+}
+function repartoFecha(ids, fecha) { // si el sueldo se cargó después del gasto, se usa el más antiguo cargado (no se cae a partes iguales)
+  var lim = ''; ids.forEach(function (id) { var mn = ''; (S.sueldos || []).forEach(function (q) { if (q.persona === id && (!mn || q.desde < mn)) mn = q.desde; }); if (mn > lim) lim = mn; });
+  return lim && fecha < lim ? lim : fecha;
+}
 function viewResumen() {
   if (S.mode !== 'sheets') return '';
   var h = '<div class="card"><h3>Resumen de tarjeta</h3>';
@@ -1729,13 +1760,18 @@ function viewResumen() {
   var row = function (x) {
     var i = its.indexOf(x), c = C.catInfo(x.cat);
     return '<div class="rsrow"><span class="grow"><div class="t">' + esc(x.nombre) + '</div><div class="s">' + dLarga(x.fecha) + ' · ' + c.e + ' ' + esc(c.n) + (x.why ? ' · ' + esc(x.why) : '') + '</div></span>' +
-      '<span class="r"><div class="a">' + C.fmt(x.cents, x.cur, { noDecimals: x.cur === 'ARS' }) + '</div><button class="chip' + (x.comparte ? ' on' : '') + '" data-act="rstog" data-i="' + i + '" aria-pressed="' + !!x.comparte + '">' + (x.comparte ? 'Compartido' : 'Personal') + '</button></span></div>';
+      '<span class="r"><div class="a">' + (x.cur === 'USD' ? C.fmt(x.cents, 'USD') + (rsPesos(x).cur === 'ARS' ? '<div class="s">≈ ' + C.fmt(rsPesos(x).cents, 'ARS', { noDecimals: true }) + '</div>' : '') : C.fmt(x.cents, x.cur, { noDecimals: x.cur === 'ARS' })) + '</div><button class="chip' + (x.comparte ? ' on' : '') + '" data-act="rstog" data-i="' + i + '" aria-pressed="' + !!x.comparte + '">' + (x.comparte ? 'Compartido' : 'Personal') + '</button></span></div>';
   };
   if (S.rsBusy) h += '<p class="mut" style="font-size:14px">Cuba está pensando qué es cada cosa…</p>';
   if (nuevos.length) h += '<h3 style="margin:14px 0 4px">Para decidir (' + nuevos.length + ')</h3>' + nuevos.map(row).join('');
   if (reglas.length) h += '<h3 style="margin:14px 0 4px">Ya sabía (' + reglas.length + ')</h3>' + reglas.map(row).join('');
   if (ya.length) h += '<p class="mut" style="font-size:13px;margin:10px 0 0">' + ya.length + ' ya estaban cargados en Cuba.</p>';
-  var tot = {}; sel.forEach(function (x) { tot[x.cur] = (tot[x.cur] || 0) + x.cents; });
+  if (its.some(function (x) { return x.cur === 'USD' && x.estado !== 'ya'; })) {
+    var dz2 = S.rs.dolar;
+    h += '<div class="preview" style="margin-top:10px"><b>Dólar tarjeta</b> (solo para los consumos en USD)<div class="row" style="display:flex;gap:8px;margin-top:6px;align-items:center"><label class="grow" style="font-size:13px">Cotización<input id="rstc" inputmode="decimal" value="' + esc(dz2.tc) + '" placeholder="TC vendedor"></label><label style="width:90px;font-size:13px">Impuestos %<input id="rspct" inputmode="decimal" value="' + esc(dz2.pct) + '"></label></div>' +
+      '<div class="mut" style="font-size:12px;margin-top:4px">' + (dz2.det ? 'Leído del resumen: ' + esc(dz2.det) + '.' : 'No pude leerlo del resumen: poné la cotización.') + ' Se carga en pesos.</div></div>';
+  }
+  var tot = {}; sel.forEach(function (x) { var q = rsPesos(x); tot[q.cur] = (tot[q.cur] || 0) + q.cents; });
   h += '<div class="stat" style="margin-top:10px"><span>Compartidos que se cargan</span><b>' + sel.length + (sel.length ? ' · ' + Object.keys(tot).map(function (k) { return C.fmt(tot[k], k, { noDecimals: k === 'ARS' }); }).join(' + ') : '') + '</b></div>';
   h += '<button class="btn acc full" style="margin-top:8px" data-act="rsgo"' + (S.readOnly || S.rsBusy || !sel.length ? ' disabled' : '') + '>Cargar ' + sel.length + (sel.length === 1 ? ' gasto compartido' : ' gastos compartidos') + '</button>' +
     '<button class="btn ghost full" style="margin-top:6px" data-act="rsclear">Cancelar</button>';
@@ -1746,7 +1782,7 @@ function rsDe(texto) {
   if (res.error) { S.rsMsg = res.error; render(); return; }
   var vivos = C.live(S.entries); // lo que ya está cargado
   var items = CubaResumen.clasificar(res, S.reglas, vivos, S.recs);
-  S.rs = { tarjeta: res.tarjeta, cierre: res.cierre, vencimiento: res.vencimiento, proximoCierre: res.proximoCierre, items: items, cargos: res.cargos }; S.rsMsg = ''; S.rsBusy = false;
+  var dz = res.dolar; S.rs = { dolar: { tc: dz ? String(dz.tc).replace('.', ',') : '', pct: dz ? String(dz.pct) : '30', det: dz ? dz.detalle : '' }, tarjeta: res.tarjeta, cierre: res.cierre, vencimiento: res.vencimiento, proximoCierre: res.proximoCierre, items: items, cargos: res.cargos }; S.rsMsg = ''; S.rsBusy = false;
   render();
   var duda = items.filter(function (x) { return x.estado === 'nuevo' && x.cat === 'otros'; });
   if (!duda.length) return;
@@ -2035,11 +2071,15 @@ var A = {
     var R = S.rs; if (!R || S.readOnly || S.rsBusy) return;
     var sel = R.items.filter(function (x) { return x.estado !== 'ya' && x.comparte; }); if (!sel.length) return;
     var ids = members().map(function (m) { return m.id; }), loteId = 'L' + rid(), now = new Date().toISOString(), problema = '';
+    if (sel.some(function (x) { return rsPesos(x).sinTc; })) { toast('Poné la cotización del dólar tarjeta para cargar los consumos en USD.'); return; }
     var entries = sel.map(function (x) {
-      var sr = C.salarySplit(x.cents, ids, S.sueldos, x.fecha), sp = sr.sp || C.splitEqual(x.cents, ids, x.cents);
-      return { id: x.id, type: 'expense', desc: x.nombre, cents: x.cents, cur: x.cur, date: x.fecha, paidBy: S.meId, sp: sp, cat: x.cat || 'otros',
-        note: R.tarjeta + ' · cierre ' + R.cierre, by: S.meId, at: now, src: 'resumen', lote: loteId };
+      var q = rsPesos(x), sr = C.salarySplit(q.cents, ids, S.sueldos, repartoFecha(ids, x.fecha)), sp = sr.sp;
+      if (!sp && !(S.sueldos || []).length) sp = C.splitEqual(q.cents, ids, x.cents);   // nadie cargó sueldos: partes iguales
+      if (!sp) { problema = sr.mixed ? 'Los sueldos están en monedas distintas.' : 'Falta el sueldo de ' + (sr.missing || []).map(firstName).join(' y ') + ' (Ajustes → Mi sueldo).'; return null; }
+      return { id: x.id, type: 'expense', desc: x.nombre, cents: q.cents, cur: q.cur, date: x.fecha, paidBy: S.meId, sp: sp, cat: x.cat || 'otros',
+        note: R.tarjeta + ' · cierre ' + R.cierre + q.nota, by: S.meId, at: now, src: 'resumen', lote: loteId };
     });
+    if (problema || entries.indexOf(null) >= 0) { toast(problema || 'No pude calcular el reparto.'); return; }
     var reglas = R.items.filter(function (x) { return x.estado !== 'ya'; }).map(function (x) { return { descripcion: CubaResumen.limpiar(x.bruto), comparte: x.comparte ? 'si' : 'no', categoria: x.comparte ? x.cat : '' }; });
     S.rsBusy = true; render();
     Store.putEntries(entries, { lote: { id: loteId, origen: 'resumen', archivo: '', fecha: today(), cantidad: entries.length, moneda_original: 'ARS' } }).then(function () {
@@ -2148,6 +2188,7 @@ document.addEventListener('click', function (ev) {
 document.addEventListener('change', function (ev) {
   var el = ev.target;
   if (el.type === 'checkbox' && el.dataset.act === 'toggle') { A.toggle(el); return; }
+  if ((el.id === 'rstc' || el.id === 'rspct') && S.rs) { S.rs.dolar[el.id === 'rstc' ? 'tc' : 'pct'] = el.value; render(); return; }
   if (el.type === 'file' && el.id === 'rsfile') {
     var fr = el.files && el.files[0]; if (!fr) return;
     var rr = new FileReader();

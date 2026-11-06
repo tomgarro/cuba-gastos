@@ -44,3 +44,10 @@ t('pdfTexto: lee un PDF comprimido sin librerías y da lo mismo que el texto', a
   await assert.rejects(() => R.pdfTexto(Buffer.from('no soy un pdf')));
 });
 setTimeout(() => console.log(n + ' pruebas de resúmenes'), 500);
+
+t('dólar tarjeta: cotización leída de las percepciones del resumen y conversión a pesos con impuestos', () => {
+  const r = R.parseResumen(fs.readFileSync(path.join(__dirname, 'fixtures', 'resumen_dolar.txt'), 'utf8'));
+  assert.deepStrictEqual([r.dolar.tc, r.dolar.pct], [500, 53]);
+  assert.strictEqual(R.aPesos(1000, 500, 53), 765000, 'USD 10 → $7.650,00 en centavos');
+  assert.strictEqual(R.parseResumen(TXT).dolar, null, 'sin percepciones no inventa cotización');
+});
