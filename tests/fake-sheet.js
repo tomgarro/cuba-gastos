@@ -9,7 +9,7 @@ const CODE = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'
 
 function boot(opts) {
   opts = opts || {};
-  const log = { sleeps: 0, locks: 0, releases: 0, props: {}, ui: [] };
+  const log = { sleeps: 0, locks: 0, releases: 0, props: {}, ui: [], cache: {} };
   const grids = {};
   const lockFails = { v: false };
   const sandbox = {
@@ -20,6 +20,7 @@ function boot(opts) {
       base64EncodeWebSafe: s => Buffer.from(s).toString('base64').replace(/\+/g, '-').replace(/\//g, '_')
     },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in log.props ? log.props[k] : null), setProperty: (k, v) => { log.props[k] = v; } }) },
+    
     LockService: { getScriptLock: () => ({
       waitLock() { if (lockFails.v) throw new Error('timeout'); log.locks++; },
       releaseLock() { log.releases++; }

@@ -39,7 +39,7 @@ t('ping y read sobre Sheet vacía', () => {
 t('usa el lock y lo libera aunque la acción falle', () => {
   const b = boot();
   b.call('read'); err(() => b.call('addMovimientos', { movimientos: [] }));
-  assert.strictEqual(b.log.locks, 2); assert.strictEqual(b.log.releases, 2);
+  assert.strictEqual(b.log.locks, 1, 'leer no toma candado'); assert.strictEqual(b.log.releases, 1);
 });
 t('si el lock no se consigue, responde ocupado y no escribe', () => {
   const b = withPeople(); b.lockFails.v = true;
@@ -513,4 +513,32 @@ t('pestañas nuevas (ReglasResumen, Resumenes…) se crean solas aunque Google l
   assert.strictEqual(b.call('aprenderResumen', { reglas: [{ descripcion: 'COTO', comparte: 'si', categoria: 'super' }] }).nuevas, 1);
   assert.strictEqual(b.call('registrarResumen', { tarjeta: 'VISA', persona_id: 'm1', cierre: '2026-10-29', proximo_cierre: '2026-11-26', consumos: 3, compartidos: 1, creado_por: 'm1' }).ok, true);
   assert.deepStrictEqual(J(b.grids.ReglasResumen[0]), J(b.TABS.ReglasResumen)); assert.strictEqual(b.grids.Resumenes.length, 2);
+});
+
+t('aprenderResumen: el mismo comercio dos veces en un resumen (COTO sep + oct) no rompe y cuenta las dos', () => {
+  const b = boot(); b.call('savePersonas', { personas: P });
+  const r = b.call('aprenderResumen', { reglas: [
+    { descripcion: 'COTO', comparte: 'si', categoria: 'super' }, { descripcion: 'LUZ', comparte: 'si', categoria: 'luz' },
+    { descripcion: 'COTO', comparte: 'no', categoria: '' }, { descripcion: 'SUBTE', comparte: 'no', categoria: '' }] });
+  assert.strictEqual(r.ok, true);
+  const rows = J(b.grids.ReglasResumen).slice(1), coto = rows.find(x => x[0] === 'coto');
+  assert.strictEqual(rows.length, 3); assert.deepStrictEqual([coto[1], coto[3]], ['no', 2], 'gana la última decisión y cuenta 2 veces');
+  // y una segunda subida sobre filas ya guardadas también actualiza
+  b.call('aprenderResumen', { reglas: [{ descripcion: 'COTO', comparte: 'si', categoria: 'super' }] });
+  assert.deepStrictEqual(J(b.grids.ReglasResumen).slice(1).find(x => x[0] === 'coto').slice(1, 4), ['si', 'super', 3]);
+});
+
+t('leer es liviano: sin cambios responde «unchanged», y cada escritura mueve el contador', () => {
+  const b = withPeople();
+  const r1 = b.call('read'); assert.ok(r1.rev, 'trae rev'); const l0 = b.log.locks;
+  assert.strictEqual(b.call('read', { rev: r1.rev }).unchanged, true, 'sin cambios no baja la Sheet');
+  assert.strictEqual(b.log.locks, l0, 'leer no toma el candado');
+  b.call('addMovimientos', { movimientos: [mov({ id: 'q1' })] });
+  const r2 = b.call('read', { rev: r1.rev }); assert.ok(!r2.unchanged && r2.rev !== r1.rev && r2.movimientos.length === 1);
+  assert.strictEqual(b.call('read', { rev: r2.rev }).unchanged, true);
+});
+t('aprenderResumen puede registrar el resumen en el mismo pedido', () => {
+  const b = withPeople();
+  b.call('aprenderResumen', { reglas: [{ descripcion: 'COTO', comparte: 'si', categoria: 'super' }], resumen: { tarjeta: 'VISA', persona_id: 'm1', cierre: '2026-10-29', proximo_cierre: '2026-11-26', consumos: 3, compartidos: 1, creado_por: 'm1' } });
+  assert.strictEqual(b.grids.Resumenes.length, 2);
 });

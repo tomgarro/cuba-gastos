@@ -91,10 +91,19 @@ function handle_(req) {
     fail_('ocupado', 'El backend está ocupado. Probá de nuevo en unos segundos.');
   }
   try {
-    return fn(req);
+    var res = fn(req);
+    bumpRev_();                       // algo pudo cambiar: los celulares sabrán que tienen que releer
+    return res;
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Contador de cambios en Script Properties: permite que el celular pregunte «¿cambió algo?» sin bajar toda la Sheet. */
+function rev_() { return PropertiesService.getScriptProperties().getProperty('CUBA_REV') || '0'; }
+function bumpRev_() {
+  var pr = PropertiesService.getScriptProperties();
+  pr.setProperty('CUBA_REV', String((Number(pr.getProperty('CUBA_REV')) || 0) + 1));
 }
 
 var ACTIONS = {
@@ -114,7 +123,8 @@ var ACTIONS = {
 };
 
 /** Acciones que solo leen o llaman afuera: no toman el candado (Gemini tarda y no debe frenar las cargas). */
-var SIN_CANDADO = { categorizar: true };
+var SIN_CANDADO = { categorizar: true, read: true, ping: true };   // leer no frena a quien está escribiendo
+var SOLO_LEE = { read: true, ping: true, categorizar: true };
 
 /* ------------------------------------------------------------------ */
 /* Acciones                                                            */
@@ -125,13 +135,16 @@ function actionPing_() {
   return { ok: true, version: CUBA.VERSION, serverTime: new Date().toISOString() };
 }
 
-function actionRead_() {
+function actionRead_(req) {
+  var rev = rev_();
+  if (req && req.rev && String(req.rev) === rev) return { ok: true, unchanged: true, rev: rev };   // nada nuevo: respuesta casi instantánea
   checkSchema_();
   var config = {};
   readTab_('Config').forEach(function (r) { if (r.clave) config[r.clave] = r.valor; });
   return {
     ok: true,
     version: CUBA.VERSION,
+    rev: rev,
     serverTime: new Date().toISOString(),
     personas: readTab_('Personas'),
     sueldos: readTab_('Sueldos').map(sueldoOut_),
@@ -261,7 +274,7 @@ function actionSaveRecurrente_(req) {
 }
 
 function actionAddMovimientos_(req) {
-  checkSchema_();
+  checkSchema_(['Personas', 'Movimientos', 'Lotes']);
   var list = req.movimientos;
   if (!Array.isArray(list) || !list.length) fail_('movimientos_invalidos', 'No hay movimientos para agregar.');
   if (list.length > CUBA.MAX_BATCH) fail_('movimientos_invalidos', 'Máximo ' + CUBA.MAX_BATCH + ' movimientos por pedido.');
@@ -309,7 +322,7 @@ function actionAddMovimientos_(req) {
 }
 
 function actionAnularMovimientos_(req) {
-  checkSchema_();
+  checkSchema_(['Movimientos']);
   var ids = req.ids;
   if (!Array.isArray(ids) || !ids.length || ids.length > CUBA.MAX_BATCH) fail_('ids_invalidos', 'Mandá entre 1 y ' + CUBA.MAX_BATCH + ' ids.');
   ids.forEach(function (id) { idOf_(id, 'id'); });
@@ -325,7 +338,7 @@ function actionAnularMovimientos_(req) {
 }
 
 function actionUndoLote_(req) {
-  checkSchema_();
+  checkSchema_(['Movimientos', 'Lotes']);
   var id = idOf_(req.lote_id, 'lote_id');
   var lSheet = sheet_('Lotes');
   var last = lSheet.getLastRow();
@@ -433,8 +446,9 @@ function sheet_(name) {
   return sh;
 }
 
-function checkSchema_() {
-  Object.keys(TABS).forEach(function (name) {
+/** Verifica que las pestañas tengan las columnas esperadas. Sin argumento: todas; con lista: solo esas (los pedidos frecuentes no necesitan revisar las 13). */
+function checkSchema_(names) {
+  (names || Object.keys(TABS)).forEach(function (name) {
     var cols = TABS[name];
     var head = sheet_(name).getRange(1, 1, 1, cols.length).getValues()[0];
     for (var i = 0; i < cols.length; i++) {
@@ -1057,7 +1071,7 @@ function resumenOut_(r) {
 
 /** Anota que un resumen ya se subió (no guarda los consumos: los compartidos son movimientos y lo demás no se guarda). Idempotente. */
 function actionRegistrarResumen_(req) {
-  checkSchema_();
+  checkSchema_(['Resumenes']);
   var persona = idOf_(req.persona_id, 'persona_id'), tarjeta = text_(req.tarjeta, 40);
   if (!tarjeta) fail_('pedido_invalido', 'Falta la tarjeta.');
   var cierre = req.cierre, venc = req.vencimiento || '', prox = req.proximo_cierre || '';
@@ -1073,7 +1087,7 @@ function actionRegistrarResumen_(req) {
 
 /** «Este comercio es compartido / personal»: lo ven los dos, porque la Sheet es una sola. */
 function actionAprenderResumen_(req) {
-  checkSchema_();
+  checkSchema_(['ReglasResumen', 'Comercios', 'Resumenes']);
   var list = req.reglas;
   if (!Array.isArray(list) || !list.length || list.length > 300) fail_('pedido_invalido', 'reglas: de 1 a 300.');
   var sh = sheet_('ReglasResumen'), cols = TABS.ReglasResumen, last = sh.getLastRow(), now = new Date().toISOString();
@@ -1085,12 +1099,19 @@ function actionAprenderResumen_(req) {
     var comparte = x.comparte === 'si' ? 'si' : x.comparte === 'no' ? 'no' : ''; if (!comparte) return;
     var cat = categoriaValida_(x.categoria) ? x.categoria : '';
     if (pos.hasOwnProperty(p)) {
-      var i = pos[p], row = vals[i];
-      sh.getRange(i + 2, 2, 1, 4).setValues([[comparte, cat || row[2], (Number(row[3]) || 0) + 1, now]]); cambios++;
+      var i = pos[p];
+      if (i >= vals.length) {                                     // ya la agregué en este mismo pedido (el mismo comercio dos veces en el resumen)
+        var nu = nuevas[i - vals.length]; nu[1] = comparte; nu[2] = cat || nu[2]; nu[3] = Number(nu[3]) + 1; nu[4] = now;
+      } else {
+        var row = vals[i], nv = [comparte, cat || row[2], (Number(row[3]) || 0) + 1, now];
+        vals[i] = [row[0]].concat(nv); cambios++;                 // varias veces en el pedido: se suma sobre lo ya acumulado
+        sh.getRange(i + 2, 2, 1, 4).setValues([nv]);
+      }
     } else { pos[p] = vals.length + nuevas.length; nuevas.push([p, comparte, cat, 1, now]); }
     if (comparte === 'si' && cat && cat !== 'otros') aprenderComercio_(text_(x.descripcion, 80), cat, now);
   });
   if (nuevas.length) appendRows_(sh, nuevas, cols.length);
+  if (req.resumen) actionRegistrarResumen_(req.resumen);       // un solo viaje: aprender + dejar registrado el resumen
   return { ok: true, nuevas: nuevas.length, actualizadas: cambios };
 }
 

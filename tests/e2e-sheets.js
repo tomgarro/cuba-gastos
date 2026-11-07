@@ -15,7 +15,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   const sheet = boot();
   const col = n => sheet.TABS.Movimientos.indexOf(n);
   const wire = { posts: 0, options: 0, badType: 0, bodies: [] };
-  const state = { down: false, busy: 0 };
+  const state = { down: false, busy: 0, falla: null };
   const errs = [];
   const browser = await chromium.launch();
 
@@ -27,6 +27,7 @@ const J = x => JSON.parse(JSON.stringify(x));
       if (state.down) return route.abort('failed');
       if (req.method() === 'OPTIONS') { wire.options++; return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } }); }
       if (state.busy > 0) { state.busy--; return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ ok: false, error: 'ocupado', message: 'El backend está ocupado. Probá de nuevo en unos segundos.' }) }); }
+      if (state.falla && new RegExp('"action":"' + state.falla + '"').test(req.postData() || '')) return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ ok: false, error: 'interno', message: 'Error interno del backend.' }) });
       wire.posts++;
       if (!/^text\/plain/.test(req.headers()['content-type'] || '')) wire.badType++;
       wire.bodies.push(req.postData());
@@ -125,7 +126,8 @@ const J = x => JSON.parse(JSON.stringify(x));
   state.down = true;
   await B.p.click('.fab'); await B.p.fill('#fdesc', 'Fantasma'); await B.p.fill('[data-in=amount]', '500'); await B.p.click('[data-act=save]');
   await B.p.waitForFunction(() => /No hay conexión con la Sheet/.test((document.querySelector('#toast') || {}).innerText || ''), null, { timeout: 5000 });
-  await B.p.click('[data-act=close]');
+  assert.ok(/Fantasma/.test(await B.p.locator('#toast').innerText()), 'avisa cuál no quedó guardado');
+  await B.p.waitForTimeout(300); if (await B.p.locator('[data-act=close]').count()) await B.p.click('[data-act=close]');
   await B.p.waitForSelector('.banner >> text=Sin conexión');
   assert.ok((await B.txt()).includes('Cena'), 'sigue mostrando lo último');
   assert.strictEqual(sheet.grids.Movimientos.length, 4, 'nada se escribió');
@@ -296,6 +298,25 @@ const J = x => JSON.parse(JSON.stringify(x));
     const zs = J(sheet.grids.Movimientos).filter(r => /ZORBAFLIX/i.test(r[col('descripcion')]) && r[col('origen')] === 'resumen');
     assert.strictEqual(zs.length, 2, 'queda el anulado y el nuevo'); assert.deepStrictEqual(zs.map(r => r[col('anulado')]), ['TRUE', 'FALSE']);
     checkAppendOnly('reimportar tras deshacer');
+    // blindaje: si falla guardar lo aprendido, los gastos ya quedaron y reintentar NO los duplica
+    const n0 = J(sheet.grids.Movimientos).filter(r => r[col('origen')] === 'resumen').length;
+    const txt2 = txt.replace('ZORBAFLIX', 'NUEVOCOMERCIO').replace('OTROSERVICIO', 'OTROCOMERCIO');
+    state.falla = 'aprenderResumen';
+    await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
+    await B.p.fill('#rspaste', txt2); await B.p.click('[data-act=rsread]'); await B.p.waitForSelector('.rsrow', { timeout: 10000 });
+    await B.p.locator('.rsrow', { hasText: /Nuevocomercio/i }).locator('.chip:not(.on)').click();
+    await B.p.click('[data-act=rsgo]');
+    await B.p.waitForFunction(() => /no pude guardar lo que Cuba aprendi/i.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+    state.falla = null;
+    const n1 = J(sheet.grids.Movimientos).filter(r => r[col('origen')] === 'resumen').length;
+    assert.ok(n1 > n0, 'los gastos quedaron cargados');
+    await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
+    await B.p.fill('#rspaste', txt2); await B.p.click('[data-act=rsread]'); await B.p.waitForSelector('.rsrow', { timeout: 10000 });
+    assert.ok(await B.p.locator('[data-act=rsgo]').isDisabled() || /ya estaban/.test(await B.txt()), 'lo cargado figura como ya estaba');
+    if (!(await B.p.locator('[data-act=rsgo]').isDisabled())) await B.p.click('[data-act=rsgo]');
+    await B.p.waitForTimeout(500);
+    assert.strictEqual(J(sheet.grids.Movimientos).filter(r => r[col('origen')] === 'resumen').length, n1, 'reintentar no duplica nada');
+    await B.p.click('[data-act=rsclear]').catch(() => {});
   }
 
   // ---- Borrar desde A ----
