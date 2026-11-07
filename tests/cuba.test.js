@@ -13,7 +13,7 @@ t('con poses embebidas usa la ilustración de cada humor, con alt y sin red', ()
   global.CUBA_IMG = { tranquilo: 'data:image/webp;base64,AAA', feliz: 'data:image/webp;base64,BBB', alerta: 'data:image/webp;base64,CCC', durmiendo: 'data:image/webp;base64,DDD' };
   const { cuba } = load();
   [['idle', 'AAA'], ['happy', 'BBB'], ['alert', 'CCC'], ['sleepy', 'DDD'], [undefined, 'AAA'], ['raro', 'AAA']].forEach(([m, k]) => {
-    const h = cuba(m, 120); assert.ok(h.includes('base64,' + k), String(m)); assert.ok(h.includes('alt="Cuba, el doberman"')); assert.ok(!/src="https?:/.test(h), 'nada de internet');
+    const h = cuba(m, 120); assert.ok(h.includes('base64,' + k), String(m)); assert.ok(h.includes('alt="Cuba, la doberman"')); assert.ok(!/src="https?:/.test(h), 'nada de internet');
   });
   assert.ok(cuba('sleepy', 120).includes('class="zz"'), 'dormido tiene sus «z»');
   assert.ok(!cuba('happy', 120).includes('zz'));

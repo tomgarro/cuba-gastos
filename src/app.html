@@ -119,7 +119,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 @media (prefers-reduced-motion:reduce){.cuba svg,.cuba img,.zz{animation:none}.zz{opacity:.7}}
 @media (prefers-reduced-motion:no-preference){.perk .cuba svg{animation-duration:.5s}.perk .cuba img{animation-duration:.45s}}
 .chips{display:flex;flex-wrap:wrap;gap:6px}.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 12px;font-size:14px;font-family:inherit;cursor:pointer}.chip.on{background:var(--acc);color:#1b1208;border-color:var(--acc)}
-/* Acariciar a Cuba: al tocarlo alterna dos poses mimado y salen corazones */
+/* Acariciar a Cuba: al tocarla alterna dos poses mimado y salen corazones */
 .petting img{animation:petlean .76s ease-in-out infinite !important}
 @keyframes petlean{0%,100%{transform:rotate(-2.5deg) translateY(0)}50%{transform:rotate(2.5deg) translateY(1.5%)}}
 .heart{position:absolute;bottom:62%;width:15px;height:15px;pointer-events:none;opacity:0;animation:heartup 1.35s ease-out forwards}
@@ -506,7 +506,7 @@ function viewSheetsError() {
 }
 function viewOnboarding() {
   var o = S.ob;
-  if (o.step === 0) return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('happy', 190) + '</div><h1>¡Guau! Soy Cuba</h1><p>Soy tu guardián de la plata. Anoto los gastos de a dos, hago las cuentas sin límite diario y ladro cuando se acerca el cierre del mes.</p><button class="btn acc full" data-act="ob" data-v="1">Empezar</button>' +
+  if (o.step === 0) return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('happy', 190) + '</div><h1>¡Guau! Soy Cuba</h1><p>Soy tu guardiana de la plata. Anoto los gastos de a dos, hago las cuentas sin límite diario y ladro cuando se acerca el cierre del mes.</p><button class="btn acc full" data-act="ob" data-v="1">Empezar</button>' +
     '<details style="margin-top:14px"><summary class="mut" style="font-size:14px">¿Ya la usan en otro celular? Conectar con la Sheet</summary><p class="mut" style="font-size:13px">Pegá el link de emparejado (menú 🐕 Cuba de la Sheet). Hace falta una sola vez en cada celular, y también si la agregás a la pantalla de inicio.</p><input data-in="pairlink" placeholder="https://tomgarro.github.io/cuba-gastos/#cfg=…" autocomplete="off" autocapitalize="off"><button class="btn sm full" style="margin-top:8px" data-act="pair">Conectar</button></details></div>';
   if (o.step === 1) {
     var inputs = o.names.map(function (n, i) { return '<input data-in="obname" data-i="' + i + '" placeholder="Nombre de la persona ' + (i + 1) + '" value="' + esc(n) + '" maxlength="30" autocomplete="off">'; }).join('');

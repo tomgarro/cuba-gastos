@@ -28,6 +28,8 @@ App de gastos compartidos de una pareja (PWA). Respondé en español rioplatense
 
 ## Cuba (la mascota)
 
+Cuba es **hembra** (una perra): siempre en femenino («la doberman», «ella», «guardiana», «contenta»). Nunca «él». En prompts de imagen: *female Doberman Pinscher, a girl*.
+
 Lleva un **collar de caracoles cauri blancos**, no collar rojo ni medalla. Antes de pedir o dibujar cualquier imagen, leer `context.md`.
 
 ## Dónde mirar

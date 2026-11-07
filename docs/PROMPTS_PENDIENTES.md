@@ -11,9 +11,9 @@ Faltan 5 imágenes. Mientras tanto la app usa poses existentes (feliz, alerta, t
 
 ## Bloque base (pegar en todos)
 ```
-Same character as the attached reference images: a black-and-tan Doberman dog named Cuba, flat vector cartoon style, soft rounded shapes, uniform dark-grey outline.
+Same character as the attached reference images: a FEMALE black-and-tan Doberman Pinscher dog (a girl, a bitch) named Cuba, flat vector cartoon style, soft rounded shapes, uniform dark-grey outline.
 Fixed features, identical in every image: big erect pointed ears with tan inside, small tan dot eyebrows, tan muzzle sides, two tan patches on the chest, tan legs, short tail.
-He wears ONLY a necklace of white cowrie shells strung on a thin thread, hanging in a curve at the base of the neck (cream oval shells with the central slit visible).
+She wears ONLY a necklace of white cowrie shells strung on a thin thread, hanging in a curve at the base of the neck (cream oval shells with the central slit visible).
 NO red collar, NO tag, NO medal, NO letters.
 Palette only: fur #242528, tan #BE6C35, shells #F2F0E7, outline #4A4A4D, ink #141416, eye #3A2418.
 Background: flat solid pure green #00FF00, no shadows, no gradients, no floor. Square 1024x1024, whole body visible, 10% margin, nothing cropped.

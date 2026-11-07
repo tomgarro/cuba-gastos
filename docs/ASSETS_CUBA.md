@@ -1,6 +1,6 @@
 # Assets de Cuba
 
-Cuba es un doberman negro y fuego (marcas canela). **No lleva collar rojo ni medalla:** lleva un collar de **caracoles cauri blancos** enhebrados, con su abertura central visible. Es un homenaje al Cuba real: ilustración caricaturesca, cálida y respetuosa. Ficha completa en `context.md`.
+Cuba es una **perra** doberman pinscher (hembra) negra y fuego (marcas canela). **No lleva collar rojo ni medalla:** lleva un collar de **caracoles cauri blancos** enhebrados, con su abertura central visible. Es un homenaje a la Cuba real: ilustración caricaturesca, cálida y respetuosa. Ficha completa en `context.md`.
 
 ## Cómo generarlos (Gemini)
 
@@ -13,13 +13,13 @@ Cuba es un doberman negro y fuego (marcas canela). **No lleva collar rojo ni med
 | Archivo | Qué es | Dónde se usa |
 |---|---|---|
 | `cuba_hoja.png` | Frente, 3/4, perfil, espalda | Referencia |
-| `cuba_feliz.png` | Contento | Saldos a mano |
+| `cuba_feliz.png` | Contenta | Saldos a mano |
 | `cuba_tranquilo.png` | Sentado | Inicio |
 | `cuba_alerta.png` | Ladrando | Cierre cerca, vencimientos |
 | `cuba_durmiendo.png` | Durmiendo | Cargando, modo noche |
 | `cuba_olfateando.png` | Con un ticket | Leyendo comprobantes, categorizando |
 | `cuba_pensando.png` | Cabeza ladeada | Gasto dudoso |
-| `cuba_sorprendido.png` | Sorprendido | Gasto raro |
+| `cuba_sorprendido.png` | Sorprendida | Gasto raro |
 | `cuba_triste.png` | Orejas caídas | Deuda o presupuesto pasado |
 | `cuba_festejando.png` | Confeti | Meta cumplida, mes saldado |
 | `cuba_sobre.png` | Sobre en el hocico | Vencimientos |

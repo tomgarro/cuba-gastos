@@ -1,6 +1,6 @@
 # Cuba · gastos de a dos
 
-App web (PWA) para llevar gastos compartidos entre dos personas, con seguimiento personal, reparto justo según sueldos y una mascota: **Cuba**, un doberman que cuida la plata.
+App web (PWA) para llevar gastos compartidos entre dos personas, con seguimiento personal, reparto justo según sueldos y una mascota: **Cuba**, una doberman pinscher que cuida la plata.
 
 Reemplaza a Splitwise sin el límite diario de cargas.
 

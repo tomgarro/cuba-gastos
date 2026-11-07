@@ -1,7 +1,8 @@
 # Contexto fijo de Cuba (leer antes de pedir, generar o dibujar CUALQUIER imagen)
 
 ## Quién es Cuba
-- Doberman **negro y fuego** (marcas canela), de estilo caricaturesco, cálido y respetuoso. Es un homenaje al Cuba real.
+- **Cuba es HEMBRA (una perra).** Siempre en femenino: «la doberman», «ella», «contenta», «guardiana». Nunca «él» ni «el perro». En los prompts de imagen: *female Doberman Pinscher, a girl, she/her*.
+- Doberman Pinscher **negro y fuego** (marcas canela), de estilo caricaturesco, cálido y respetuoso. Es un homenaje a la Cuba real.
 - **NO lleva collar rojo ni medalla con una «C».** Esa descripción era un error.
 - **Lleva un collar de caracoles cauri blancos enhebrados** en la base del cuello: óvalos crema con la abertura central visible, en un hilo que cae en curva. Es su rasgo más distintivo y tiene que estar en TODAS las imágenes.
 - Rasgos: orejas grandes y paradas con el interior canela, cejas canela en forma de puntos, hocico canela, dos manchas canela en el pecho, patas canela, cola corta.

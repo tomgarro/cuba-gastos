@@ -3,7 +3,7 @@
   else root.CubaArt = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
-  // Cuba, el doberman (homenaje al Cuba real). Ilustración vectorial propia, estilo plano de contornos suaves.
+  // Cuba, la doberman (hembra; homenaje a la Cuba real). Ilustración vectorial propia, estilo plano de contornos suaves.
   // Moods: idle | happy | alert | sleepy. Paleta: pelaje #242528, fuego #BE6C35, caracoles cauri #F2F0E7, contorno #4a4a4d.
   var FUR = '#242528', TAN = '#be6c35', LINE = '#4a4a4d', INK = '#141416', SHELL = '#f2f0e7', EYE = '#3a2418';
 
@@ -60,7 +60,7 @@
   function sprite(mood, size) {
     var w = size, h = Math.round(size * 1.05), z = mood === 'sleepy' ? '<i class="zz" style="font-size:' + Math.max(10, Math.round(size * 0.17)) + 'px" aria-hidden="true">z<b>z</b></i>' : '';
     return '<span class="cuba pose-' + mood + '" style="display:inline-block;line-height:0;position:relative;width:' + w + 'px;height:' + h + 'px">' +
-      '<img src="' + CUBA_IMG[POSE[mood]] + '" alt="Cuba, el doberman" draggable="false" style="width:100%;height:100%;object-fit:contain;object-position:50% 100%">' + z + '</span>';
+      '<img src="' + CUBA_IMG[POSE[mood]] + '" alt="Cuba, la doberman" draggable="false" style="width:100%;height:100%;object-fit:contain;object-position:50% 100%">' + z + '</span>';
   }
   function cuba(mood, size) {
     mood = mood || 'idle';
