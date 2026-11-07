@@ -2214,7 +2214,7 @@ function viewInicio() {
     if (nearClose) { mood = 'alert'; msg += ' Se viene el cierre del mes.'; }
   }
   var h = '<div class="hero" data-mood="' + mood + '"><div style="flex:none">' + cuba(mood, 150) + '</div><div class="bubble">' + msg + '</div></div>';
-  h += '<div class="actions"><button class="btn acc" data-act="new">+ Anotar gasto</button><button class="btn ghost" data-act="tab" data-v="cierre">Saldar</button></div>';
+  h += '<div class="actions"><button class="btn acc" data-act="new">+ Anotar gasto</button><button class="btn ghost" data-act="newpay">💸 Agregar pago</button></div>';
   if (live.length) h += '<button class="btn ghost full" style="margin:-4px 0 12px" data-act="ask">💬 Preguntale a Cuba</button>';
   if (S.mode === 'sheets') resumenFalta().forEach(function (r) { h += '<div class="card"><h3>Falta un resumen</h3><div class="stat"><span>Ya cerró la ' + esc(r.tarjeta) + ' (' + dLarga(r.proximo_cierre) + ')</span><button class="btn sm acc" data-act="rsir">Subirlo</button></div></div>'; });
   h += viewPorPagar() + viewAjuste() + viewAvisos();
@@ -2312,7 +2312,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.19.1</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.19.2</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
@@ -2729,6 +2729,14 @@ var Per = {
     });
   }
 };
+var SRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+function dictar(cb) {   // dictado en español rioplatense; el resultado vuelve como texto
+  if (!SRec) return;
+  var r = new SRec(); r.lang = 'es-AR'; r.interimResults = false;
+  r.onresult = function (e) { cb(e.results[0][0].transcript); };
+  r.onerror = function () { toast('No te pude escuchar.'); };
+  try { r.start(); toast('Te escucho…'); } catch (e) {}
+}
 function bajar(nombre, texto, mime) {
   var b = new Blob(['﻿' + texto], { type: mime || 'text/plain' }), a = document.createElement('a');
   a.href = URL.createObjectURL(b); a.download = nombre; document.body.appendChild(a); a.click();
@@ -2818,7 +2826,7 @@ function renderForm() {
   var h = '<div class="sh-head"><h2>' + (F.id ? 'Editar' : isPay ? 'Registrar un pago' : 'Nuevo gasto') + (evv ? ' · ✈️ ' + esc(evv.name) : '') + '</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div>';
   if (!F.id) h += '<div class="seg"><button class="' + (!isPay ? 'on' : '') + '" data-act="kind" data-v="expense">Gasto</button><button class="' + (isPay ? 'on' : '') + '" data-act="kind" data-v="payment">Pago entre nosotros</button></div>';
   if (!F.id && !isPay) h += '<label class="chip" style="display:inline-block;margin:0 0 8px;cursor:pointer">📎 Leer un comprobante<input type="file" id="shfile" accept="image/*,application/pdf" hidden></label>';
-  if (!F.id && !isPay) h += '<div class="quick"><input id="quick" data-in="quick" placeholder="Anotá rápido: «super 15.200»" value="' + esc(F.quick) + '" autocomplete="off"><button data-act="quick">Cuba, anotá</button></div>';
+  if (!F.id) h += '<div class="quick"><input id="quick" data-in="quick" placeholder="' + (isPay ? 'Decilo: «le pagué 20.000»' : 'Anotá rápido: «super 15.200»') + '" value="' + esc(F.quick) + '" autocomplete="off"><button data-act="quick">Cuba, anotá</button>' + (SRec ? '<button data-act="quickvoz" aria-label="Dictar">🎤</button>' : '') + '</div>';
   h += '<label class="f">' + (isPay ? 'Nota' : 'Descripción') + '</label><input data-in="desc" id="fdesc" value="' + esc(F.desc) + '" placeholder="' + (isPay ? 'Transferencia, efectivo…' : '¿Qué fue?') + '" maxlength="80" autocomplete="off">';
   h += '<div class="two"><div><label class="f">Monto</label><input data-in="amount" inputmode="decimal" value="' + esc(F.amount) + '" placeholder="0,00" autocomplete="off"></div><div><label class="f">Moneda</label><select data-in="cur"' + (evv ? ' disabled' : '') + '><option value="ARS"' + (F.cur === 'ARS' ? ' selected' : '') + '>ARS</option><option value="USD"' + (F.cur === 'USD' ? ' selected' : '') + '>USD</option></select></div></div>';
   h += '<div class="two"><div><label class="f">' + (isPay ? 'Quién paga' : 'Pagó') + '</label><select data-in="paidBy">' + ms.map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === F.paidBy ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div><div><label class="f">Fecha</label><input type="date" data-in="date" value="' + esc(F.date) + '"></div></div>';
@@ -2978,6 +2986,7 @@ var A = {
   askgo: function () { var i = $('#askq'); Ask.go(i && i.value); },
   askchip: function (el) { var i = $('#askq'); if (i) i.value = el.dataset.q; Ask.go(el.dataset.q); },
   new: function () { if (S.readOnly) { toast('Solo lectura.'); return; } S.form = newForm('expense'); renderForm(); },
+  newpay: function () { if (S.readOnly) { toast('Solo lectura.'); return; } S.form = newForm('payment'); renderForm(); },
   close: function () { closeSheet(); },
   kind: function (el) { var F = S.form; F.kind = el.dataset.v; renderForm(); },
   mode: function (el) { S.form.mode = el.dataset.v; if (S.form.mode === 'shares') members().forEach(function (m) { if (S.form.vals[m.id] == null) S.form.vals[m.id] = '1'; }); renderForm(); },
@@ -3030,7 +3039,8 @@ var A = {
   cat: function (el) { S.form.cat = el.dataset.v; S.form.catAuto = false; renderForm(); },
   quick: function () {
     var F = S.form, q = C.quickParse(F.quick);
-    if (!q) { toast('No encontré un monto. Probá «super 15.200».'); return; }
+    if (!q) { toast('No encontré un monto. Probá ' + (F.kind === 'payment' ? '«le pagué 20.000».' : '«super 15.200».')); return; }
+    if (F.kind === 'payment') { F.amount = String(C.centsDot(q.cents)).replace('.', ','); F.cur = q.cur; if (!F.desc) F.desc = /transf/i.test(F.quick) ? 'Transferencia' : /efectivo/i.test(F.quick) ? 'Efectivo' : ''; renderForm(); return; }
     F.desc = q.desc; F.amount = String(C.centsDot(q.cents)).replace('.', ','); F.cur = q.cur; F.cat = q.cat; F.catAuto = true; renderForm(); sugerirCategoria(q.desc);
   },
   save: function () {
@@ -3175,13 +3185,8 @@ var A = {
       toast(l.cuotas ? l.cuotas + ' cuotas de ' + perMonto(evs[0].c, l.cur) + ' anotadas' : 'Anotado: ' + l.desc + ' ' + perMonto(l.cents, l.cur) + ' · ' + c.n);
     });
   },
-  pervoz: function () {
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return;
-    var r = new SR(); r.lang = 'es-AR'; r.interimResults = false;
-    r.onresult = function (e) { var i = $('#perq'); if (i) { i.value = e.results[0][0].transcript; A.perpon(); } };
-    r.onerror = function () { toast('No te pude escuchar.'); };
-    try { r.start(); toast('Te escucho…'); } catch (e) {}
-  },
+  pervoz: function () { dictar(function (t) { var i = $('#perq'); if (i) { i.value = t; A.perpon(); } }); },
+  quickvoz: function () { dictar(function (t) { if (!S.form) return; S.form.quick = t; A.quick(); }); },
   permes: function (el) { S.perMes = P.addMes((S.perMes || C.monthKey(today())) + '-01', +el.dataset.v).slice(0, 7); S.perN = 0; render(); },
   percur: function (el) { S.perCur = el.dataset.v; render(); },
   permas: function () { S.perN = (S.perN || 20) + 30; render(); },

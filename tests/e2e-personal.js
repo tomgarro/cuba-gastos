@@ -48,7 +48,7 @@ const URL_APP = require('url').pathToFileURL(path.resolve(__dirname, '..', 'inde
   // carga rápida
   const add = async t => { await A.p.fill('#perq', t); await A.p.press('#perq', 'Enter'); await A.p.waitForFunction(() => !document.querySelector('#perq').value); };
   await add('Terapia secreta 50.000'); await add('almuerzo 4500 ayer'); await add('tele 120000 en 6 cuotas'); await A.p.fill('#perq', 'nada de monto'); await A.p.press('#perq', 'Enter'); assert.ok(/No encontré el monto/.test(await A.p.locator('#toast').innerText())); await A.p.fill('#perq', '');
-  await settle(A.p);
+  await settle(A.p); await A.p.waitForSelector('text=Cuotas que ya vienen');
   let txt = await A.txt();
   assert.ok(/Terapia secreta/i.test(txt) && /Almuerzo/i.test(txt), txt);
   assert.ok(/Cuotas que ya vienen/.test(txt), 'cuotas futuras');
@@ -79,7 +79,24 @@ const URL_APP = require('url').pathToFileURL(path.resolve(__dirname, '..', 'inde
   await A.p.click('[data-act=save]'); await settle(A.p);
   assert.strictEqual(sheet.grids.Movimientos.length, 2, 'se cargó en lo compartido');
 
+  // Inicio: «Agregar pago» (de quien usa la app hacia el otro) con dictado
+  await A.p.addInitScript(() => { window.SpeechRecognition = window.webkitSpeechRecognition = function () { this.start = () => setTimeout(() => this.onresult({ results: [[{ transcript: 'le pagué 20.000 transferencia' }]] }), 50); }; });
+  await A.p.reload(); await A.p.waitForSelector('.nav');
+  await A.p.click('.nav button:has-text("Inicio")');
+  assert.ok(!/Saldar/.test(await A.txt()), 'ya no hay botón Saldar en Inicio');
+  await A.p.click('[data-act=newpay]');
+  assert.ok(/Registrar un pago/.test(await A.p.locator('#sheet').innerText()));
+  await A.p.click('[data-act=quickvoz]');
+  await A.p.waitForFunction(() => /^20000/.test(document.querySelector('[data-in=amount]').value));
+  assert.strictEqual(await A.p.inputValue('[data-in=desc]'), 'Transferencia');
+  assert.strictEqual(await A.p.inputValue('[data-in=paidBy]'), sheet.grids.Personas[1][0], 'paga quien usa la app');
+  assert.notStrictEqual(await A.p.inputValue('[data-in=to]'), sheet.grids.Personas[1][0], 'le paga al otro');
+  const nm = sheet.grids.Movimientos.length;
+  await A.p.click('[data-act=save]'); await settle(A.p);
+  assert.ok(sheet.grids.Movimientos.length > nm, 'el pago se guardó');
+
   // CSV
+  await A.p.click('.nav button:has-text("Personal")');
   const [dl] = await Promise.all([A.p.waitForEvent('download'), A.p.click('[data-act=percsv]')]);
   assert.ok(/mis-gastos-personales\.csv/.test(dl.suggestedFilename()));
 
