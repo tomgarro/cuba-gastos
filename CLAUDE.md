@@ -26,6 +26,10 @@ App de gastos compartidos de una pareja (PWA). Respondé en español rioplatense
 - Antes de tocar la Sheet real, hacer copia de respaldo.
 - Commits claros. **No subir secretos ni datos reales** (CSV, recibos, nombres completos, montos reales). El repo es público: ejemplos con nombres inventados.
 
+## Cuba (la mascota)
+
+Lleva un **collar de caracoles cauri blancos**, no collar rojo ni medalla. Antes de pedir o dibujar cualquier imagen, leer `context.md`.
+
 ## Dónde mirar
 
 `docs/ARQUITECTURA.md`, `docs/ESQUEMA_SHEET.md`, `docs/ROADMAP.md`, `docs/ASSETS_CUBA.md`.

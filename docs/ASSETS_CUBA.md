@@ -1,12 +1,12 @@
 # Assets de Cuba
 
-Cuba es un doberman negro y fuego, con collar rojo y medalla dorada con una «C».
+Cuba es un doberman negro y fuego (marcas canela). **No lleva collar rojo ni medalla:** lleva un collar de **caracoles cauri blancos** enhebrados, con su abertura central visible. Es un homenaje al Cuba real: ilustración caricaturesca, cálida y respetuosa. Ficha completa en `context.md`.
 
 ## Cómo generarlos (Gemini)
 
-1. Generar primero la **hoja de personaje** (frente, 3/4, perfil y espalda) y usarla como imagen de referencia en cada pedido siguiente, para que no cambie de cara ni de collar.
+1. Generar primero la **hoja de personaje** (frente, 3/4, perfil y espalda) y usarla como imagen de referencia en cada pedido siguiente, para que no cambie de cara ni de collar de caracoles.
 2. Pedir **fondo liso de un solo color** (verde puro o blanco), sin sombras en el piso ni degradés, para recortarlo limpio.
-3. Mismo estilo en todas las imágenes.
+3. Mismo estilo en todas las imágenes: vector plano, formas redondeadas, paleta de 6 colores como máximo.
 
 ## Lista
 
