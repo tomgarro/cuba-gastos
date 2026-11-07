@@ -53,3 +53,7 @@ Privacidad: la plataforma gratuita de Gemini puede usar los datos para mejorar s
 ## Mercado Pago (futuro)
 
 Dos caminos: consultar sus reportes cada cierto tiempo desde Apps Script, o recibir avisos instantáneos (webhooks). Apps Script no permite leer los encabezados de una petición entrante, lo que complica validar la firma de los webhooks: para ese camino conviene una función aparte. Pendiente confirmar que la API de reportes sirva con una cuenta personal.
+
+## Cola de envíos (v0.13)
+
+Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, deshacer, resúmenes) se aplica al instante en el celular y se manda a la Sheet por una cola (`Outbox`) guardada en `localStorage` (`cuba:outbox`). Sale en orden; si no hay señal o el backend está ocupado reintenta solo (cada 6 s y al volver la conexión); si el backend rechaza un pedido avisa y vuelve a leer la Sheet. Los pedidos son idempotentes (mismo id = no se duplica). Mientras hay envíos pendientes no se relee la Sheet (para no pisar lo recién anotado). La lectura usa `rev` (contador de cambios + largo de pestañas): si no cambió nada responde `unchanged` sin bajar la Sheet; cada 10 min se hace una lectura completa.

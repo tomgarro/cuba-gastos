@@ -15,7 +15,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   const sheet = boot();
   const col = n => sheet.TABS.Movimientos.indexOf(n);
   const wire = { posts: 0, options: 0, badType: 0, bodies: [] };
-  const state = { down: false, busy: 0, falla: null };
+  const state = { down: false, busy: 0, falla: null, lat: 15 };
   const errs = [];
   const browser = await chromium.launch();
 
@@ -32,12 +32,12 @@ const J = x => JSON.parse(JSON.stringify(x));
       if (!/^text\/plain/.test(req.headers()['content-type'] || '')) wire.badType++;
       wire.bodies.push(req.postData());
       const out = sheet.ctx.doPost({ postData: { contents: req.postData() } }).getContent();
-      await new Promise(r => setTimeout(r, 15)); // latencia mínima para que haya estados intermedios
+      await new Promise(r => setTimeout(r, state.lat)); // latencia mínima para que haya estados intermedios
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: out });
     });
     const p = await ctx.newPage();
     p.on('pageerror', e => errs.push(name + ' pageerror: ' + e.message));
-    p.on('console', m => { if (m.type() === 'error' && !/fonts|ERR_|net::|Failed to load resource|Error: red|ya fue modificado o eliminado/.test(m.text())) errs.push(name + ' console: ' + m.text()); });
+    p.on('console', m => { if (m.type() === 'error' && !/fonts|ERR_|net::|Failed to load resource|Error: red|ya fue modificado o eliminado|Error interno del backend/.test(m.text())) errs.push(name + ' console: ' + m.text()); });
     return { ctx, p, txt: async () => (await p.locator('#app').innerText()).replace(/\n/g, ' ') };
   }
   const refresh = p => p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -122,21 +122,36 @@ const J = x => JSON.parse(JSON.stringify(x));
   await A.p.waitForSelector('.item >> text=$20.000');
   assert.ok(!(await A.p.locator('#list').innerText()).includes('15.200'), 'A ya no ve el monto viejo');
 
-  // ---- Sin conexión: se ve lo último, no se puede anotar, no se rompe nada ----
+  // ---- Sin conexión: lo anotado queda en una cola guardada en el celular y sale solo cuando vuelve la señal ----
+  const sinPend = p => p.waitForFunction(() => { const e = document.getElementById('pend'); return !e || e.style.display === 'none'; }, null, { timeout: 8000 });
   state.down = true;
   await B.p.click('.fab'); await B.p.fill('#fdesc', 'Fantasma'); await B.p.fill('[data-in=amount]', '500'); await B.p.click('[data-act=save]');
-  await B.p.waitForFunction(() => /No hay conexión con la Sheet/.test((document.querySelector('#toast') || {}).innerText || ''), null, { timeout: 5000 });
-  assert.ok(/Fantasma/.test(await B.p.locator('#toast').innerText()), 'avisa cuál no quedó guardado');
-  await B.p.waitForTimeout(300); if (await B.p.locator('[data-act=close]').count()) await B.p.click('[data-act=close]');
-  await B.p.waitForSelector('.banner >> text=Sin conexión');
+  await B.p.waitForSelector('.item >> text=Fantasma', { timeout: 3000 });                       // se ve al instante
+  await B.p.waitForFunction(() => /Sin señal: 1 cambio espera/.test((document.getElementById('pend') || {}).textContent || ''), null, { timeout: 15000 });
+  assert.strictEqual(sheet.grids.Movimientos.length, 4, 'sin señal no se escribió todavía');
+  await B.p.reload();                                                                            // aunque se cierre la app, la cola sigue ahí
+  await B.p.waitForSelector('.item >> text=Fantasma', { timeout: 5000 });
   assert.ok((await B.txt()).includes('Cena'), 'sigue mostrando lo último');
-  assert.strictEqual(sheet.grids.Movimientos.length, 4, 'nada se escribió');
-  await B.p.reload(); // abrir la app sin red: carga lo último que vio
-  await B.p.waitForSelector('.banner >> text=Sin conexión');
-  assert.ok((await B.txt()).includes('Cena'));
   state.down = false;
   await B.p.evaluate(() => window.dispatchEvent(new Event('online')));
-  await B.p.waitForSelector('.banner', { state: 'detached', timeout: 5000 });
+  await sinPend(B.p);
+  assert.strictEqual(sheet.grids.Movimientos.length, 5, 'al volver la señal se envió, una sola vez');
+  assert.ok(J(sheet.grids.Movimientos).some(r => r[col('descripcion')] === 'Fantasma'));
+  await B.p.locator('.item', { hasText: 'Fantasma' }).first().click(); await B.p.click('[data-act=askdel]'); await B.p.click('[data-act=del]'); await sinPend(B.p);
+  checkAppendOnly('cola sin conexión');
+
+  // ---- Aunque el backend tarde 4 segundos, la pantalla responde al instante ----
+  {
+    state.lat = 4000;
+    const t0 = Date.now();
+    await B.p.click('.fab'); await B.p.fill('#fdesc', 'Lento'); await B.p.fill('[data-in=amount]', '700'); await B.p.click('[data-act=save]');
+    await B.p.waitForSelector('.item >> text=Lento', { timeout: 3000 });
+    const ms = Date.now() - t0; assert.ok(ms < 1500, 'se ve al instante, tardó ' + ms + ' ms');
+    await B.p.locator('.item', { hasText: 'Lento' }).first().click(); await B.p.click('[data-act=askdel]');
+    const t1 = Date.now(); await B.p.click('[data-act=del]'); await B.p.waitForFunction(() => !document.querySelector('.item') || ![...document.querySelectorAll('.item')].some(x => /Lento/.test(x.innerText)), null, { timeout: 3000 });
+    assert.ok(Date.now() - t1 < 1500, 'borrar también es instantáneo');
+    state.lat = 15; await sinPend(B.p);
+  }
 
   // ---- Importar Splitwise = un lote que se puede deshacer en el backend ----
   await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
@@ -199,6 +214,7 @@ const J = x => JSON.parse(JSON.stringify(x));
     await refresh(B.p); await B.p.waitForTimeout(250); await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
     await B.p.click('[data-act=catrun]');
     await B.p.waitForFunction(() => /Para confirmar/i.test(document.querySelector('#app').innerText), null, { timeout: 8000 });
+    await sinPend(B.p);
     assert.strictEqual(sent.length, 1, 'una sola consulta a Gemini para todo el lote');
     assert.ok(!/Tomi|Pau|sueldo/i.test(sent[0]), 'a Gemini no viajan nombres ni sueldos');
     const eti = () => J(sheet.grids.Etiquetas).slice(1);
@@ -207,6 +223,7 @@ const J = x => JSON.parse(JSON.stringify(x));
     assert.ok(/Local Raro Sur/.test(await B.txt()), 'el dudoso se muestra');
     await B.p.selectOption('[data-in=catfix]', 'super');
     await B.p.waitForFunction(() => !/Local Raro Sur/i.test(document.querySelector('#app').innerText), null, { timeout: 5000 });
+    await sinPend(B.p);
     assert.ok(eti().some(r => r[1] === 'cat3' && r[2] === 'super' && r[4] === 'manual' && r[5] === 'aplicada'), 'la corrección queda como etiqueta manual');
     assert.ok(J(sheet.grids.Comercios).slice(1).some(r => /local raro/.test(r[0]) && r[2] === 'super'), 'la corrección se vuelve regla');
     checkAppendOnly('categorías');
@@ -242,6 +259,7 @@ const J = x => JSON.parse(JSON.stringify(x));
     await fila(/AGUA/).locator('.chip').click();                           // y el agua la saco
     await B.p.click('[data-act=rsgo]');
     await B.p.waitForFunction(() => /gastos compartidos cargados/.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+    await sinPend(B.p);
     const movs = J(sheet.grids.Movimientos).slice(antes - 1).filter(r => r[col('origen')] === 'resumen');
     assert.strictEqual(movs.length, 3, 'luz, coto y farmacia: solo lo marcado compartido');
     assert.ok(movs.every(r => !/subte|agua/i.test(r[col('descripcion')])), 'lo personal no se guarda');
@@ -280,6 +298,8 @@ const J = x => JSON.parse(JSON.stringify(x));
     await B.p.locator('.rsrow', { hasText: /Luz/i }).locator('.chip:not(.on)').click().catch(() => {});
     await B.p.click('[data-act=rsgo]');
     await B.p.waitForFunction(() => /gastos? compartidos? cargados?/.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+    await sinPend(B.p);
+    await sinPend(B.p);
     const mv = J(sheet.grids.Movimientos).filter(r => /ZORBAFLIX/i.test(r[col('descripcion')]) && r[col('origen')] === 'resumen')[0];
     assert.strictEqual(mv[col('moneda')], 'ARS'); assert.strictEqual(+mv[col('monto_centavos')], 1000 * 500 * 153 / 100 * 1, 'USD 10 × 500 × 1,53 = $7.650');
     const rep = JSON.parse(mv[col('reparto_json')]); const vals = Array.isArray(rep) ? rep.map(x => x[1]) : Object.values(rep);
@@ -295,6 +315,8 @@ const J = x => JSON.parse(JSON.stringify(x));
     const sel2 = await B.p.locator('.rsrow .chip.on').count(); assert.ok(sel2 >= 1, 'Cuba recuerda lo que marcaste');
     await B.p.click('[data-act=rsgo]');
     await B.p.waitForFunction(() => /gastos? compartidos? cargados?/.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+    await sinPend(B.p);
+    await sinPend(B.p);
     const zs = J(sheet.grids.Movimientos).filter(r => /ZORBAFLIX/i.test(r[col('descripcion')]) && r[col('origen')] === 'resumen');
     assert.strictEqual(zs.length, 2, 'queda el anulado y el nuevo'); assert.deepStrictEqual(zs.map(r => r[col('anulado')]), ['TRUE', 'FALSE']);
     checkAppendOnly('reimportar tras deshacer');
@@ -306,8 +328,8 @@ const J = x => JSON.parse(JSON.stringify(x));
     await B.p.fill('#rspaste', txt2); await B.p.click('[data-act=rsread]'); await B.p.waitForSelector('.rsrow', { timeout: 10000 });
     await B.p.locator('.rsrow', { hasText: /Nuevocomercio/i }).locator('.chip:not(.on)').click();
     await B.p.click('[data-act=rsgo]');
-    await B.p.waitForFunction(() => /no pude guardar lo que Cuba aprendi/i.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
-    state.falla = null;
+    await B.p.waitForFunction(() => /Error interno del backend/i.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+    state.falla = null; await sinPend(B.p); await B.p.waitForTimeout(400);
     const n1 = J(sheet.grids.Movimientos).filter(r => r[col('origen')] === 'resumen').length;
     assert.ok(n1 > n0, 'los gastos quedaron cargados');
     await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);

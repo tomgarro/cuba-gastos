@@ -92,6 +92,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:12p
 .big{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:30px;letter-spacing:-.02em}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;z-index:40;max-width:90%;opacity:0;pointer-events:none;transition:opacity .2s}
 .toast.show{opacity:1}
+.pend{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--card,#2a2a2e);color:var(--text,#eee);border:1px solid var(--line);border-radius:14px;padding:6px 12px;font-size:12.5px;z-index:6;opacity:.92;pointer-events:none}
 .banner{background:var(--accsoft);border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:13px;margin-bottom:12px}
 .ob{min-height:100vh;display:flex;flex-direction:column;justify-content:center;gap:16px;max-width:460px;margin:0 auto;padding:24px 20px}
 .ob .cuba{align-self:center}
@@ -150,7 +151,7 @@ var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'ag
 var mLabel = function (k) { var p = k.split('-'); return MESES[+p[1] - 1] + ' ' + p[0]; };
 var dLabel = function (d) { var p = d.split('-'); return +p[2] + ' ' + MESES[+p[1] - 1].slice(0, 3); };
 var COLORS = ['#c47a35', '#4f7c6d', '#7a5ea8', '#c0504d', '#3f6fa3', '#a68a2e'];
-var LS = 'cuba:v1', LSME = 'cuba:me', LSSH = 'cuba:sheets', LSSNAP = 'cuba:sheetsnap';
+var LS = 'cuba:v1', LSME = 'cuba:me', LSSH = 'cuba:sheets', LSSNAP = 'cuba:sheetsnap', LSOUT = 'cuba:outbox';
 
 // ---------------- estado ----------------
 var S = { reglas: {}, resumenes: [], rs: null, catProg: null, fold: {}, group: null, ledger: {}, entries: [], closings: [], sueldos: [], recs: [], lotes: [], dudosas: [], catBusy: false, catMsg: '', impMap: {}, impCur: '', rf: null, meId: null, tab: 'inicio', mode: 'local', loaded: false, slow: false, readOnly: false, offline: false,
@@ -167,6 +168,30 @@ function rebuild() {
   if (S.mode === 'sheets') S.closings = CubaSheets.deriveClosings(all);
 }
 var clean = function (o) { return JSON.parse(JSON.stringify(o)); };
+
+// ---------------- cola de envíos ----------------
+var Outbox = {
+  q: [], running: false, timer: null,
+  load: function () { try { this.q = JSON.parse(localStorage.getItem(LSOUT) || '[]') || []; } catch (e) { this.q = []; } S.pend = this.q.length; },
+  save: function () { try { localStorage.setItem(LSOUT, JSON.stringify(this.q)); } catch (e) {} S.pend = this.q.length; },
+  push: function (action, body) { this.q.push({ a: action, b: body }); this.save(); },
+  go: function () { render(); this.run(); },
+  run: function () {
+    var self = this; if (this.running || !this.q.length || !Store.cfg) return;
+    this.running = true; clearTimeout(this.timer);
+    var next = function () {
+      var j = self.q[0];
+      if (!j) { self.running = false; S.sync = ''; S.pend = 0; render(); Store.refresh({ full: true }); return; }
+      Store.call(j.a, j.b).then(function () { self.q.shift(); self.save(); S.sync = ''; pill(); next(); }, function (e) {
+        var pasajero = !e || !e.code || e.code === 'red' || e.code === 'ocupado' || e.code === 'respuesta';
+        if (pasajero) { self.running = false; S.sync = 'espera'; pill(); self.timer = setTimeout(function () { self.run(); }, 6000); return; }   // sin señal o backend ocupado: sigue en la cola
+        self.q.shift(); self.save(); fail(e); next();                                         // lo rechazó el backend: se avisa y se vuelve a la Sheet
+      });
+    };
+    next();
+  }
+};
+function pill() { var el = $('#pend'); if (!el) return; el.textContent = S.sync === 'espera' ? 'Sin señal: ' + S.pend + (S.pend === 1 ? ' cambio espera' : ' cambios esperan') + ' para enviarse' : 'Guardando…'; el.style.display = S.pend ? '' : 'none'; }
 
 // ---------------- almacenamiento ----------------
 var Store = {
@@ -208,6 +233,7 @@ var Store = {
   refresh: function (opts) {
     var self = this; opts = opts || {};
     var run = function () {
+      if (Outbox.q.length) return Promise.resolve();   // primero se envía lo pendiente; leer ahora pisaría lo recién anotado
       var gen = self.gen, had = !!S.group, seen = {};
       S.entries.forEach(function (x) { seen[x.id] = 1; });
       var liviano = S.loaded && self.rev && !S.offline && (Date.now() - (self.fullAt || 0) < 600000) && !opts.full;   // casi siempre alcanza con preguntar «¿cambió algo?»
@@ -231,9 +257,11 @@ var Store = {
       var sn = JSON.parse(localStorage.getItem(LSSNAP) || 'null');
       if (sn && sn.u === cfg.u && sn.group) { S.group = sn.group; S.ledger = sn.ledger || {}; S.sueldos = sn.sueldos || []; S.recs = sn.recs || []; S.lotes = sn.lotes || []; S.dudosas = sn.dudosas || []; S.reglas = sn.reglas || {}; S.resumenes = sn.resumenes || []; S.loaded = true; rebuild(); render(); }
     } catch (e) {}
-    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') self.refresh(); });
-    window.addEventListener('online', function () { self.refresh(); });
+    Outbox.load();
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') { Outbox.run(); self.refresh(); } });
+    window.addEventListener('online', function () { Outbox.run(); self.refresh(); });
     setInterval(function () { if (document.visibilityState === 'visible' && !self.busy && !S.form) self.refresh(); }, 60000);
+    Outbox.run();
     return this.refresh();
   },
   disconnect: function () {
@@ -323,60 +351,59 @@ var Store = {
     });
     return p;
   },
-  // Escribir en la Sheet. Con {optimista:true} (guardar/editar/borrar a mano) se ve al instante y el envío sigue en segundo plano, en orden;
-  // si falla, se vuelve a leer la Sheet (queda lo verdadero) y se avisa. Sin eso (importaciones) se espera la confirmación.
+  // Todo lo que se anota se ve al instante y se manda a la Sheet por una cola (Outbox) guardada en el celular:
+  // si no hay señal o se cierra la app, queda pendiente y sale solo. Los pedidos son idempotentes (mismo id = no se duplica).
   putSheets: function (list, opts) {
-    var self = this, known = {};
-    S.entries.forEach(function (x) { known[x.id] = x; });
+    var known = {}; S.entries.forEach(function (x) { known[x.id] = x; });
     var plan = CubaSheets.planWrites(list, known, rid, S.sueldos);
     this.gen++;
-    var enviar = function () {
-      var p = Promise.resolve();
-      for (var i = 0, k = 0; i < plan.add.length; i += 400, k++) {
-        (function (chunk, first) {
-          p = p.then(function () { var b = { movimientos: chunk }; if (opts.lote && first) b.lote = opts.lote; return self.call('addMovimientos', b); });
-        })(plan.add.slice(i, i + 400), k === 0);
-      }
-      if (plan.anular.length) p = p.then(function () { return self.call('anularMovimientos', { ids: plan.anular }); });
-      return p;
-    };
-    var cola = (this.wq || Promise.resolve()).catch(function () {});
-    if (opts.optimista) {
-      var antes = S.ledger; S.ledger = CubaSheets.applyPlan(S.ledger, plan.applied); rebuild(); self.snap(); render();
-      var que = list.length === 1 ? ' «' + (list[0].desc || 'Pago') + '»' : ' (' + list.length + ' movimientos)';
-      this.wq = cola.then(enviar).then(function () { self.refreshLuego(); }, function (e) {
-        S.ledger = antes; rebuild(); self.snap(); render();            // no quedó guardado: vuelve a como estaba
-        self.refresh({ full: true }); e.userMessage = (e.userMessage || 'No se pudo guardar.') + ' Lo que anotaste' + que + ' no quedó guardado.'; fail(e);
-      });
-      return Promise.resolve();
+    S.ledger = CubaSheets.applyPlan(S.ledger, plan.applied); rebuild();
+    if (opts.lote) S.lotes = (S.lotes || []).concat([{ id: opts.lote.id, origen: opts.lote.origen, fecha: opts.lote.fecha, cantidad: opts.lote.cantidad || plan.add.length }]);
+    this.snap();
+    for (var i = 0; i < plan.add.length; i += 400) {
+      var b = { movimientos: plan.add.slice(i, i + 400) }; if (opts.lote && i === 0) b.lote = opts.lote;
+      Outbox.push('addMovimientos', b);
     }
-    var q = cola.then(enviar).then(function () { S.ledger = CubaSheets.applyPlan(S.ledger, plan.applied); rebuild(); self.snap(); render(); self.refreshLuego(); },
-      function (e) { self.refresh({ full: true }); throw e; });
-    this.wq = q; return q;
+    if (plan.anular.length) Outbox.push('anularMovimientos', { ids: plan.anular });
+    Outbox.go();
+    return Promise.resolve();
   },
   refreshLuego: function () { var self = this; clearTimeout(this.rt); this.rt = setTimeout(function () { self.refresh(); }, 2500); },
   categorizar: function (items) { return this.call('categorizar', { items: items }); },
   etiquetar: function (list) {
-    var self = this, p = Promise.resolve(); this.gen++;
-    for (var i = 0; i < list.length; i += 150) (function (chunk) { p = p.then(function () { return self.call('etiquetar', { etiquetas: chunk, creado_por: S.meId }); }); })(list.slice(i, i + 150));
-    return p.then(function () { return self.refresh(); }, function (e) { self.refresh(); throw e; });
+    this.gen++;
+    var porId = {}; list.forEach(function (t) { if (t.estado === 'aplicada') porId[t.movimiento_id] = t.categoria; });
+    Object.keys(S.ledger).forEach(function (mk) {
+      var m = S.ledger[mk], cambio = null;
+      Object.keys(m).forEach(function (id) { if (porId[id] && m[id].cat !== porId[id]) { cambio = cambio || Object.assign({}, m); cambio[id] = Object.assign({}, m[id], { cat: porId[id] }); } });
+      if (cambio) S.ledger[mk] = cambio;
+    });
+    var dud = {}; list.forEach(function (t) { if (t.estado === 'dudosa') { var e = S.entries.filter(function (x) { return x.id === t.movimiento_id; })[0]; if (e) dud[e.id] = { id: e.id, desc: e.desc, cur: e.cur, cents: e.cents, cat: t.categoria, conf: t.confianza }; } });
+    S.dudosas = (S.dudosas || []).filter(function (d) { return !porId[d.id] && !dud[d.id]; }).concat(Object.keys(dud).map(function (k) { return dud[k]; }));
+    S.dudosas = S.dudosas.filter(function (d) { return !porId[d.id]; });
+    rebuild(); this.snap();
+    for (var i = 0; i < list.length; i += 150) Outbox.push('etiquetar', { etiquetas: list.slice(i, i + 150), creado_por: S.meId });
+    Outbox.go(); return Promise.resolve();
   },
   undoLote: function (id) {
-    var self = this; this.gen++;
-    return this.call('undoLote', { lote_id: id }).then(function () { return self.refresh(); }, function (e) { self.refresh(); throw e; });
+    this.gen++;
+    Object.keys(S.ledger).forEach(function (mk) {
+      var m = S.ledger[mk], cambio = null;
+      Object.keys(m).forEach(function (k) { if (m[k].lote === id && !m[k].del) { cambio = cambio || Object.assign({}, m); cambio[k] = Object.assign({}, m[k], { del: true }); } });
+      if (cambio) S.ledger[mk] = cambio;
+    });
+    S.lotes = (S.lotes || []).filter(function (l) { return l.id !== id; });
+    rebuild(); this.snap();
+    Outbox.push('undoLote', { lote_id: id }); Outbox.go(); return Promise.resolve();
   },
   saveSueldo: function (x) {
-    var self = this; this.gen++;
-    return this.call('saveSueldo', { sueldo: { id: x.id, persona_id: x.persona, desde: x.desde, monto_centavos: x.cents, moneda: x.cur, nota: x.note || '', creado_por: x.by || S.meId } }).then(function () {
-      S.sueldos = S.sueldos.concat([x]); self.snap(); render(); self.refresh();
-    }, function (e) { self.refresh(); throw e; });
+    this.gen++; S.sueldos = S.sueldos.concat([x]); this.snap();
+    Outbox.push('saveSueldo', { sueldo: { id: x.id, persona_id: x.persona, desde: x.desde, monto_centavos: x.cents, moneda: x.cur, nota: x.note || '', creado_por: x.by || S.meId } }); Outbox.go(); return Promise.resolve();
   },
   saveRec: function (r) {
-    var self = this; this.gen++;
-    return this.call('saveRecurrente', { recurrente: CubaSheets.recToPayload(r) }).then(function () {
-      var found = false; S.recs = S.recs.map(function (x) { if (x.id === r.id) { found = true; return r; } return x; }); if (!found) S.recs = S.recs.concat([r]);
-      self.snap(); render(); self.refresh();
-    }, function (e) { self.refresh(); throw e; });
+    this.gen++;
+    var found = false; S.recs = S.recs.map(function (x) { if (x.id === r.id) { found = true; return r; } return x; }); if (!found) S.recs = S.recs.concat([r]);
+    this.snap(); Outbox.push('saveRecurrente', { recurrente: CubaSheets.recToPayload(r) }); Outbox.go(); return Promise.resolve();
   },
   saveClosing: function (c) {
     if (this.cfg) return Promise.resolve(); // el pago ya es un movimiento; los cierres salen de ahí
@@ -458,6 +485,7 @@ function render() {
   else if (S.slow) banner = '<div class="banner">No puedo conectar con los datos compartidos. Lo que ves puede estar desactualizado.</div>';
   else if (S.readOnly) banner = '<div class="banner">Tenés acceso de solo lectura: pedí permiso de <b>Contributor</b> para poder anotar gastos.</div>';
   app.innerHTML = '<div class="top"><div class="brand">' + (S.tab === 'inicio' && S.group.members && S.group.members.length ? '' : cuba('idle', 58)) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
+    '<div id="pend" class="pend" style="display:' + (S.pend ? '' : 'none') + '">' + (S.sync === 'espera' ? 'Sin señal: ' + S.pend + (S.pend === 1 ? ' cambio espera' : ' cambios esperan') + ' para enviarse' : 'Guardando…') + '</div>' +
     '<button class="fab" data-act="new" aria-label="Anotar gasto">+</button>' +
     '<nav class="nav"><div>' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['ajustes', '⚙️', 'Ajustes']].map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
 }
@@ -1064,11 +1092,9 @@ var A = {
     var cargar = entries.length ? Store.putEntries(entries, { lote: { id: loteId, origen: 'resumen', archivo: '', fecha: today(), cantidad: entries.length, moneda_original: 'ARS' } }) : Promise.resolve();
     cargar.then(function () {
       // Los gastos ya quedaron. Aprender y registrar el resumen van en un solo viaje y, si fallan, no se pierde ni se repite nada.
-      return Store.call('aprenderResumen', { reglas: reglas, resumen: reg }).then(function () {
-        reglas.forEach(function (r) { var k = CubaResumen.patron(r.descripcion); if (k) S.reglas[k] = { comparte: r.comparte, categoria: r.categoria || (S.reglas[k] || {}).categoria || '' }; });   // al instante, sin esperar otra lectura
-        S.resumenes = (S.resumenes || []).concat([{ id: 'loc' + rid(), tarjeta: reg.tarjeta, persona_id: reg.persona_id, cierre: reg.cierre, vencimiento: reg.vencimiento, proximo_cierre: reg.proximo_cierre, consumos: reg.consumos, compartidos: reg.compartidos }]);
-        return '';
-      }, function () { return ' · No pude guardar lo que Cuba aprendió; los gastos sí quedaron.'; });
+      reglas.forEach(function (r) { var k = CubaResumen.patron(r.descripcion); if (k) S.reglas[k] = { comparte: r.comparte, categoria: r.categoria || (S.reglas[k] || {}).categoria || '' }; });   // al instante
+      S.resumenes = (S.resumenes || []).concat([{ id: 'loc' + rid(), tarjeta: reg.tarjeta, persona_id: reg.persona_id, cierre: reg.cierre, vencimiento: reg.vencimiento, proximo_cierre: reg.proximo_cierre, consumos: reg.consumos, compartidos: reg.compartidos }]);
+      Outbox.push('aprenderResumen', { reglas: reglas, resumen: reg }); Outbox.go(); return '';
     }).then(function (aviso) {
       S.rsBusy = false; S.rs = null;
       toast((entries.length ? entries.length + ' gastos compartidos cargados' : 'Resumen registrado') + (R.items.length >= 25 ? ' · Cuba olfateó ' + R.items.length + ' consumos y trajo solo lo compartido 🦴' : '') + aviso); render();

@@ -1,6 +1,7 @@
 // Sueldos (reparto por defecto proporcional, excepciones marcadas) y recurrentes, de punta a punta con Code.gs real.
 const { chromium } = require('playwright');
 const assert = require('assert');
+const sinPend = p => p.waitForFunction(() => { const e = document.getElementById('pend'); return !e || e.style.display === 'none'; }, null, { timeout: 8000 });
 const openAll = async p => { for (let i = 0; i < 12; i++) { const more = await p.evaluate(() => { const h = document.querySelector('.fold:not(.open)>h3'); if (h) h.click(); return !!h; }); if (!more) break; } };
 const path = require('path');
 const { boot } = require('./fake-sheet.js');
@@ -118,6 +119,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   await A.p.waitForFunction(() => /Subió 8 %/.test((document.querySelector('#toast') || {}).innerText || ''), null, { timeout: 5000 });
   await A.p.waitForFunction(() => !/vence hoy/.test(document.querySelector('#app').innerText));
   assert.ok(await A.p.evaluate(() => document.querySelector('#app').classList.contains('perk')), 'al saldar lo último que vencía, Cuba festeja');
+  await sinPend(A.p);
   const rec = sheet.grids.Recurrentes[1];
   assert.strictEqual(rec[2], 486000, 'el monto del mes pasa a ser la referencia');
   assert.ok(rec[7] > hoy.toISOString().slice(0, 10), 'próximo vencimiento: el mes que viene');

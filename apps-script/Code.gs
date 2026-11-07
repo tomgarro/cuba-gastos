@@ -100,7 +100,10 @@ function handle_(req) {
 }
 
 /** Contador de cambios en Script Properties: permite que el celular pregunte «¿cambió algo?» sin bajar toda la Sheet. */
-function rev_() { return PropertiesService.getScriptProperties().getProperty('CUBA_REV') || '0'; }
+function rev_() {   // contador de cambios + largo de las pestañas principales: también se nota si alguien agrega filas a mano en la Sheet
+  var n = PropertiesService.getScriptProperties().getProperty('CUBA_REV') || '0';
+  return n + '.' + ['Movimientos', 'Sueldos', 'Personas'].map(function (t) { return sheet_(t).getLastRow(); }).join('.');
+}
 function bumpRev_() {
   var pr = PropertiesService.getScriptProperties();
   pr.setProperty('CUBA_REV', String((Number(pr.getProperty('CUBA_REV')) || 0) + 1));
