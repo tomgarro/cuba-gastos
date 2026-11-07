@@ -660,10 +660,10 @@ function viewCierre() {
   return h;
 }
 function foldCards(h) {
-  return h.replace(/<div class="card"><h3>([^<]*)<\/h3>/g, function (m, t) {
+  return h.replace(/<div class="card">((?:<span class="mc">(?:(?!<h3>).)*)?)<h3>([^<]*)<\/h3>/g, function (m, ic, t) {
     var open = S.fold[t] || (/Viajes/.test(t) && S.evId) || (/Splitwise/.test(t) && S.imp) || (/Categor/.test(t) && S.catBusy) || (/tarjeta/i.test(t) && S.rs);
     var badge = /Categor/.test(t) && S.dudosas.length && !open ? ' <span class="mut">(' + dudososGrupos().length + ' para confirmar)</span>' : '';
-    return '<div class="card fold' + (open ? ' open' : '') + '"><h3 data-act="fold" data-t="' + esc(t) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' + t + badge + '<i aria-hidden="true">▾</i></h3>';
+    return '<div class="card fold' + (open ? ' open' : '') + '">' + ic + '<h3 data-act="fold" data-t="' + esc(t) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' + t + badge + '<i aria-hidden="true">▾</i></h3>';
   });
 }
 function viewAjustes() {

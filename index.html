@@ -2445,10 +2445,10 @@ function viewCierre() {
   return h;
 }
 function foldCards(h) {
-  return h.replace(/<div class="card"><h3>([^<]*)<\/h3>/g, function (m, t) {
+  return h.replace(/<div class="card">((?:<span class="mc">(?:(?!<h3>).)*)?)<h3>([^<]*)<\/h3>/g, function (m, ic, t) {
     var open = S.fold[t] || (/Viajes/.test(t) && S.evId) || (/Splitwise/.test(t) && S.imp) || (/Categor/.test(t) && S.catBusy) || (/tarjeta/i.test(t) && S.rs);
     var badge = /Categor/.test(t) && S.dudosas.length && !open ? ' <span class="mut">(' + dudososGrupos().length + ' para confirmar)</span>' : '';
-    return '<div class="card fold' + (open ? ' open' : '') + '"><h3 data-act="fold" data-t="' + esc(t) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' + t + badge + '<i aria-hidden="true">▾</i></h3>';
+    return '<div class="card fold' + (open ? ' open' : '') + '">' + ic + '<h3 data-act="fold" data-t="' + esc(t) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' + t + badge + '<i aria-hidden="true">▾</i></h3>';
   });
 }
 function viewAjustes() {
@@ -2460,7 +2460,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.20.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.20.1</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
