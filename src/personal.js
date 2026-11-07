@@ -185,9 +185,10 @@
     items.forEach(function (it) {
       var d = it.fecha.replace(/-/g, '');
       L.push('BEGIN:VEVENT', 'UID:' + it.id + '@cuba-gastos', 'DTSTAMP:' + stamp, 'DTSTART;VALUE=DATE:' + d, 'DTEND;VALUE=DATE:' + addDias(it.fecha, 1).replace(/-/g, ''),
-        'RRULE:FREQ=MONTHLY', 'SUMMARY:' + icsTxt('💸 ' + it.titulo));
+        'SUMMARY:' + icsTxt((it.icono || '💸') + ' ' + it.titulo));
+      if (!it.unico) L.splice(L.length - 1, 0, 'RRULE:FREQ=MONTHLY');
       if (it.nota) L.push('DESCRIPTION:' + icsTxt(it.nota));
-      L.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsTxt(it.titulo), 'TRIGGER:-P1D', 'END:VALARM', 'END:VEVENT');
+      L.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsTxt(it.titulo), 'TRIGGER:' + (it.aviso || '-P1D'), 'END:VALARM', 'END:VEVENT');
     });
     L.push('END:VCALENDAR');
     return L.map(plegar).join('\r\n') + '\r\n';

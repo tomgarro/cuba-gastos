@@ -1825,9 +1825,10 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     items.forEach(function (it) {
       var d = it.fecha.replace(/-/g, '');
       L.push('BEGIN:VEVENT', 'UID:' + it.id + '@cuba-gastos', 'DTSTAMP:' + stamp, 'DTSTART;VALUE=DATE:' + d, 'DTEND;VALUE=DATE:' + addDias(it.fecha, 1).replace(/-/g, ''),
-        'RRULE:FREQ=MONTHLY', 'SUMMARY:' + icsTxt('💸 ' + it.titulo));
+        'SUMMARY:' + icsTxt((it.icono || '💸') + ' ' + it.titulo));
+      if (!it.unico) L.splice(L.length - 1, 0, 'RRULE:FREQ=MONTHLY');
       if (it.nota) L.push('DESCRIPTION:' + icsTxt(it.nota));
-      L.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsTxt(it.titulo), 'TRIGGER:-P1D', 'END:VALARM', 'END:VEVENT');
+      L.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsTxt(it.titulo), 'TRIGGER:' + (it.aviso || '-P1D'), 'END:VALARM', 'END:VEVENT');
     });
     L.push('END:VCALENDAR');
     return L.map(plegar).join('\r\n') + '\r\n';
@@ -1838,6 +1839,133 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     leer: leer, armarGasto: armarGasto, nuevoId: nuevoId, armar: armar, unir: unir, statsMes: statsMes,
     duplicados: duplicados, rarezas: rarezas, ics: ics, addMes: addMes, addDias: addDias
   };
+});
+</script>
+<script>(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./core.js'), require('./personal.js'));
+  else root.CubaIA = factory(root.CubaCore, root.CubaPersonal);
+})(typeof self !== 'undefined' ? self : this, function (C, P) {
+  'use strict';
+
+  // Lo que Cuba hace con los números antes (y después) de hablar con Gemini. Todo lo de acá es local y se prueba solo:
+  // a Gemini solo viajan descripciones y montos agregados, nunca nombres ni sueldos.
+
+  var fold = function (s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); };
+  var MESES = { enero: 1, febrero: 1, marzo: 1, abril: 1, mayo: 1, junio: 1, julio: 1, agosto: 1, septiembre: 1, setiembre: 1, octubre: 1, noviembre: 1, diciembre: 1, ene: 1, feb: 1, mar: 1, abr: 1, may: 1, jun: 1, jul: 1, ago: 1, sep: 1, set: 1, oct: 1, nov: 1, dic: 1, de: 1, del: 1, y: 1 };
+  var NUM = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19,
+    veinte: 20, veintiuno: 21, veintidos: 22, veintitres: 23, veinticuatro: 24, veinticinco: 25, treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, setenta: 70, ochenta: 80, noventa: 90,
+    cien: 100, ciento: 100, doscientos: 200, trescientos: 300, cuatrocientos: 400, quinientos: 500, seiscientos: 600, setecientos: 700, ochocientos: 800, novecientos: 900 };
+  var UNIDAD = { mil: 1000, luca: 1000, lucas: 1000, palo: 1e6, palos: 1e6, millon: 1e6, millones: 1e6 };
+
+  /* ------- voz libre: «el súper 15 mil, un café 3 lucas y ayer la farmacia 8000» ------- */
+  // «15 mil», «quince mil», «3 lucas», «un palo», «1,5 palos» → números; el resto queda igual.
+  function numerosHablados(texto) {
+    var tk = String(texto).toLowerCase().replace(/(\d)k\b/g, '$1 mil').replace(/([,;+])(?!\d)/g, ' $1 ').split(/\s+/).filter(Boolean), out = [], i = 0;
+    var ft = tk.map(function (w) { return w.normalize('NFD').replace(/[̀-ͯ]/g, ''); });   // para buscar sin tildes; se devuelve el texto original
+    while (i < tk.length) {
+      var j = i, suma = 0, hubo = false;
+      var dig = /^\d+(?:[.,]\d+)?$/.test(ft[i]) && !/^\d{1,3}(?:\.\d{3})+$/.test(ft[i]);   // «15.200» ya es un monto escrito: no se toca
+      if (dig) { suma = parseFloat(ft[i].replace(',', '.')); hubo = true; j = i + 1; }
+      else {
+        while (j < tk.length && (NUM[ft[j]] != null || (ft[j] === 'y' && hubo && NUM[ft[j + 1]] != null))) { if (ft[j] !== 'y') { suma += NUM[ft[j]]; hubo = true; } j++; }
+      }
+      var u = UNIDAD[ft[j]];
+      if (u && (hubo || !dig)) { out.push(String(Math.round((hubo ? suma : 1) * u))); i = j + 1; continue; }
+      if (!hubo && UNIDAD[ft[i]]) { out.push(String(UNIDAD[ft[i]])); i++; continue; }   // «mil pesos»
+      out.push(tk[i]); i++;
+    }
+    return out.filter(function (w) { return w !== 'pesos' && w !== 'peso'; }).join(' ');
+  }
+  function trozos(texto, hoy) {
+    var t = numerosHablados(String(texto || '')), fecha = hoy, ft = function (x) { return x.normalize('NFD').replace(/[̀-ͯ]/g, ''); };
+    if (/\banteayer\b/.test(t)) { fecha = P.addDias(hoy, -2); t = t.replace(/\banteayer\b/g, ' '); }
+    else if (/\bayer\b/.test(t)) { fecha = P.addDias(hoy, -1); t = t.replace(/\bayer\b/g, ' '); }
+    t = t.replace(/\bhoy\b/g, ' ');
+    var partes = ft(t).length ? t.split(/\s+(?:[,;+]|y|mas|más|despues|después|luego)\s+/) : [], chunks = [], pend = '';
+    partes.forEach(function (p) {
+      p = p.trim(); if (!p) return;
+      if (!/\d/.test(p)) { pend += (pend ? ' ' : '') + p; return; }   // «pizza y birra 8000»: lo que no trae monto se pega al siguiente
+      chunks.push((pend ? pend + ' ' : '') + p); pend = '';
+    });
+    var rel = /^(?:(?:fue|fueron|gasté|gaste|pagué|pague|compré|compre|puse|pagamos|gastamos|compramos|despues|y)\s+)*(?:(?:el|la|los|las|un|una|unos|unas)\s+)?/;
+    return chunks.map(function (c) { return P.leer(c.replace(rel, ''), fecha); }).filter(Boolean);
+  }
+
+  /* ------- detective de suscripciones ------- */
+  var NO_FIJOS = { super: 1, comida: 1, transporte: 1, ocio: 1, ropa: 1, regalo: 1, viaje: 1, mascota: 1, salud: 1 };
+  function clave(desc) { return fold(desc).split(' ').filter(function (w) { return w.length > 1 && !MESES[w] && !/^\d/.test(w); }).slice(0, 2).join(' '); }
+  function mediana(l) { var s = l.slice().sort(function (a, b) { return a - b; }); return s[Math.floor(s.length / 2)]; }
+  // Gastos que se repiten todos los meses con un monto parecido y que todavía no están como recurrentes.
+  function suscripciones(entries, recs, hoy) {
+    var desde = P.addMes(hoy.slice(0, 7) + '-01', -6).slice(0, 7), ult2 = [hoy.slice(0, 7), P.addMes(hoy.slice(0, 7) + '-01', -1).slice(0, 7)], g = {};
+    C.live(entries || []).forEach(function (e) {
+      if (e.type !== 'expense' || e.ev || NO_FIJOS[e.cat]) return;
+      var k = clave(e.desc), m = C.monthKey(e.date); if (!k || m < desde || m > hoy.slice(0, 7)) return;
+      var x = g[k + '|' + (e.cur || 'ARS')] = g[k + '|' + (e.cur || 'ARS')] || { k: k, cur: e.cur || 'ARS', meses: {}, n: 0, montos: [], ult: null, cat: e.cat };
+      x.meses[m] = 1; x.n++; x.montos.push(e.cents); if (!x.ult || e.date > x.ult.date) x.ult = e;
+    });
+    var yaRec = (recs || []).map(function (r) { return clave(r.desc || r.descripcion || ''); }).filter(Boolean);
+    return Object.keys(g).map(function (k) { return g[k]; }).filter(function (x) {
+      var nm = Object.keys(x.meses).length, med = mediana(x.montos);
+      if (nm < 3 || x.n > nm * 1.5 || !ult2.some(function (m) { return x.meses[m]; })) return false;
+      if (!x.montos.every(function (c) { return c >= med * 0.7 && c <= med * 1.35; })) return false;
+      return !yaRec.some(function (r) { return r === x.k || r.indexOf(x.k) >= 0 || x.k.indexOf(r) >= 0; });
+    }).map(function (x) {
+      return { clave: x.k, desc: x.ult.desc, cents: x.ult.cents, cur: x.cur, cat: x.cat || 'otros', meses: Object.keys(x.meses).length, anual: x.ult.cents * 12, fecha: x.ult.date, paga: x.ult.paidBy };
+    }).sort(function (a, b) { return b.anual - a.anual; });
+  }
+
+  /* ------- ¿es caro? contra tu propia historia ------- */
+  function esCaro(entries, q) {
+    var vivos = C.live(entries || []).filter(function (e) { return e.type === 'expense' && !e.ev && (e.cur || 'ARS') === q.cur && e.id !== q.id; }), k = clave(q.desc);
+    var propios = k ? vivos.filter(function (e) { return clave(e.desc) === k; }) : [], base = 'comercio';
+    if (propios.length < 3) { propios = q.cat && q.cat !== 'otros' ? vivos.filter(function (e) { return e.cat === q.cat; }) : []; base = 'categoria'; if (propios.length < 5) return null; }
+    var med = mediana(propios.map(function (e) { return e.cents; })), pct = Math.round((q.cents / med - 1) * 100);
+    return { pct: pct, n: propios.length, base: base, mediana: med, nivel: pct >= 15 ? 'caro' : pct <= -15 ? 'barato' : 'normal' };
+  }
+
+  /* ------- antes de comprar ------- */
+  // gastoMensual: lo que suele gastar al mes; libre y diasRestantes: de los números del mes (pueden ser null)
+  function compra(cents, cuotas, gastoMensual, libre, diasRestantes) {
+    var n = Math.max(1, cuotas || 1), cuota = Math.ceil(cents / n);
+    var r = { cuota: cuota, cuotas: n, pctMes: gastoMensual > 0 ? Math.round(cuota * 100 / gastoMensual) : null, libreDespues: libre == null ? null : libre - cuota, porDiaDespues: null };
+    if (r.libreDespues != null && diasRestantes) r.porDiaDespues = Math.max(0, Math.floor(r.libreDespues / diasRestantes));
+    r.nivel = r.pctMes == null ? 'sin datos' : r.pctMes >= 40 ? 'pesada' : r.pctMes >= 15 ? 'mediana' : 'liviana';
+    return r;
+  }
+
+  /* ------- datos agregados del mes para Gemini (sin nombres, sin sueldos) ------- */
+  function datosMes(entries, mes, prevMes, cur) {
+    var agg = function (m) {
+      var r = { total: 0, n: 0, cats: {}, dias: {} };
+      C.live(entries || []).forEach(function (e) {
+        if (e.type !== 'expense' || e.ev || C.monthKey(e.date) !== m || (e.cur || 'ARS') !== cur) return;
+        r.total += e.cents; r.n++; r.cats[e.cat || 'otros'] = (r.cats[e.cat || 'otros'] || 0) + e.cents;
+        var d = new Date(Date.parse(e.date + 'T00:00:00Z')).getUTCDay(); r.dias[d] = (r.dias[d] || 0) + e.cents;
+      });
+      return r;
+    };
+    var a = agg(mes), b = agg(prevMes), DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    var top = Object.keys(a.cats).sort(function (x, y) { return a.cats[y] - a.cats[x]; }).slice(0, 6);
+    var fuerte = Object.keys(a.dias).sort(function (x, y) { return a.dias[y] - a.dias[x]; })[0];
+    return {
+      mes: mes, moneda: cur, gastado: Math.round(a.total / 100), gastos: a.n, mes_anterior: Math.round(b.total / 100),
+      variacion_pct: b.total ? Math.round((a.total / b.total - 1) * 100) : null,
+      categorias: top.map(function (k) { var c = C.catInfo(k); return { categoria: c.n, monto: Math.round(a.cats[k] / 100), antes: Math.round((b.cats[k] || 0) / 100) }; }),
+      dia_de_mas_gasto: fuerte != null ? DIAS[+fuerte] : ''
+    };
+  }
+
+  /* ------- ticket por ítems ------- */
+  // asign[i]: 'ambos' | 'yo' | 'otro'. Lo que se reparte suma exacto el ticket.
+  function repartirTicket(items, asign) {
+    var r = { ambos: 0, yo: 0, otro: 0, items: { ambos: [], yo: [], otro: [] } };
+    items.forEach(function (it, i) { var k = asign[i] === 'yo' || asign[i] === 'otro' ? asign[i] : 'ambos'; r[k] += it.cents; r.items[k].push(it); });
+    r.total = r.ambos + r.yo + r.otro;
+    return r;
+  }
+
+  return { numerosHablados: numerosHablados, trozos: trozos, suscripciones: suscripciones, esCaro: esCaro, compra: compra, datosMes: datosMes, repartirTicket: repartirTicket, clave: clave };
 });
 </script>
 <script>
@@ -1921,7 +2049,7 @@ var Store = {
   },
   call1: function (action, body) {
     var cfg = this.cfg, ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    var to = setTimeout(function () { if (ctl) ctl.abort(); }, action === 'categorizar' ? 90000 : 30000);
+    var to = setTimeout(function () { if (ctl) ctl.abort(); }, action === 'categorizar' || action === 'leerTicket' ? 90000 : 30000);
     var netErr = function () { var er = new Error('red'); er.code = 'red'; er.userMessage = 'No hay conexión con la Sheet. Probá de nuevo.'; return er; };
     return fetch(cfg.u, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', signal: ctl ? ctl.signal : undefined,
       body: JSON.stringify(Object.assign({ token: cfg.t, action: action }, body || {})) })
@@ -2299,7 +2427,7 @@ function viewCierre() {
     }).join('') + '<button class="btn ghost sm full" style="margin-top:10px" data-act="copysum">Copiar resumen para WhatsApp</button>';
   }
   h += '</div>';
-  h += '<div class="card"><h3>Resumen del mes</h3><select data-in="closemonth" style="margin-bottom:8px">' + ms.map(function (m) { return '<option value="' + m + '"' + (m === mk ? ' selected' : '') + '>' + mLabel(m) + '</option>'; }).join('') + '</select>';
+  h += '<div class="card"><h3>Resumen del mes</h3><select data-in="closemonth" style="margin-bottom:8px">' + ms.map(function (m) { return '<option value="' + m + '"' + (m === mk ? ' selected' : '') + '>' + mLabel(m) + '</option>'; }).join('') + '</select>' + (S.mode === 'sheets' ? '<div class="chips" style="margin-bottom:8px"><button class="chip" data-act="iacarta">✉️ Carta del mes</button><button class="chip" data-act="iaexplica">🔎 ¿Qué pasó este mes?</button></div>' : '');
   var any = false;
   curs(C.balances(S.entries, [])).forEach(function (cur) {
     var s = C.monthStats(S.entries, mk, cur); if (!s.count) return; any = true;
@@ -2332,7 +2460,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.19.3</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.20.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
@@ -2363,11 +2491,15 @@ function viewRecs() {
   h += S.recs.length ? S.recs.map(function (r) {
     return '<div class="stat" style="align-items:center"><span>' + C.catInfo(r.cat).e + ' ' + esc(r.desc) + '<br><span class="mut" style="font-size:13px">día ' + r.day + ' · ≈ ' + C.fmt(r.cents, r.cur, { noDecimals: true }) + ' · ' + (r.active ? 'paga ' + esc(firstName(r.paidBy)) : 'en pausa') + (r.adj ? ' · ajusta cada ' + r.adj + ' meses (próx. ' + dLabel(r.adjNext) + ')' : '') + '</span></span><span><button class="btn ghost sm" data-act="recedit" data-id="' + esc(r.id) + '">Editar</button></span></div>';
   }).join('') : '<div class="mut" style="font-size:14px;margin-bottom:8px">Todavía no hay ninguno: sumá alquiler, luz, agua, internet, streaming…</div>';
+  S.subs = IA.suscripciones(S.entries, S.recs, today()).slice(0, 5);
+  if (S.subs.length && !S.readOnly) h += '<div class="preview" style="margin-top:10px"><b>🕵️ Cuba encontró pagos que se repiten</b> y todavía no son recurrentes:' + S.subs.map(function (x, i) {
+    return '<div class="stat" style="align-items:center"><span>' + C.catInfo(x.cat).e + ' ' + esc(x.desc) + '<br><span class="mut" style="font-size:13px">≈ ' + C.fmt(x.cents, x.cur, { noDecimals: true }) + ' al mes · ' + x.meses + ' meses · ' + C.fmt(x.anual, x.cur, { noDecimals: true }) + ' al año</span></span><button class="chip" data-act="subadd" data-i="' + i + '">Agregar</button></div>';
+  }).join('') + '</div>';
   return h + '<button class="btn sm full" style="margin-top:8px" data-act="recnew">+ Agregar recurrente</button>' + (S.recs.some(function (r) { return r.active && r.next; }) ? '<button class="btn ghost sm full" style="margin-top:6px" data-act="recics">📅 Llevar vencimientos al calendario (.ics)</button>' : '') + '</div>';
 }
-function openRecForm(r) {
+function openRecForm(r, pre) {
   var ms = activeMembers();
-  S.rf = r ? { id: r.id, desc: r.desc, amount: String(C.centsDot(r.cents)).replace('.', ','), cur: r.cur, day: String(r.day), cat: r.cat, paid: r.paidBy, active: r.active, catAuto: false, adj: r.adj ? String(r.adj) : '', adjNext: r.adjNext || '' }
+  S.rf = pre ? { id: null, desc: pre.desc, amount: String(C.centsDot(pre.cents)).replace('.', ','), cur: pre.cur, day: String(+pre.fecha.slice(8)), cat: pre.cat, paid: pre.paga || S.meId, active: true, catAuto: false, adj: '', adjNext: '' } : r ? { id: r.id, desc: r.desc, amount: String(C.centsDot(r.cents)).replace('.', ','), cur: r.cur, day: String(r.day), cat: r.cat, paid: r.paidBy, active: r.active, catAuto: false, adj: r.adj ? String(r.adj) : '', adjNext: r.adjNext || '' }
     : { id: null, desc: '', amount: '', cur: 'ARS', day: '10', cat: 'otros', paid: S.meId || (ms[0] && ms[0].id), active: true, catAuto: true, adj: '', adjNext: '' };
   var F = S.rf;
   var h = '<div class="sh-head"><h2>' + (r ? 'Editar recurrente' : 'Nuevo recurrente') + '</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div>';
@@ -2819,6 +2951,7 @@ function viewPersonal() {
     return '<div class="rsrow"><span class="emoji" style="width:34px;height:34px;font-size:17px">' + C.catInfo(g.k).e + '</span><span class="grow"><div class="t">' + esc(g.d) + '</div><div class="s">' + dLabel(g.f) + '</div></span><span class="a" style="font-weight:700">' + perMonto(g.c, g.m) + '</span>' +
       '<button class="chip" data-act="perpasar" data-id="' + esc(g.id) + '" aria-label="Pasar a compartido" title="Pasar a compartido">🤝</button><button class="chip" data-act="perdel" data-id="' + esc(g.id) + '" aria-label="Anular">✕</button></div>';
   }).join('') + (del.length > (S.perN || 20) ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="permas">Ver más</button>' : '') + '</div>';
+  h += '<div class="card"><h3>🐾 Con Cuba</h3><div class="quick"><input id="precomp" data-in="precomp" placeholder="Antes de comprar: «tele 600000 en 6 cuotas»" autocomplete="off"><button data-act="precompra">¿Me conviene?</button></div>' + (S.mode === 'sheets' ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="rgabrir">🎁 Ideas de regalo con presupuesto</button>' : '') + '</div>';
   h += '<div class="card"><h3>Metas de ahorro</h3>' + (st.metas.length ? st.metas.map(function (m) {
     var pct = Math.min(100, Math.round(m.aportado * 100 / m.c));
     return '<div style="margin:8px 0"><div class="stat" style="padding:0;align-items:center"><span>🎯 ' + esc(m.n) + '</span><button class="chip" data-act="peraporte" data-id="' + esc(m.id) + '">+ Aportar</button></div><div class="bar"><i style="width:' + pct + '%"></i></div>' +
@@ -2850,7 +2983,7 @@ function renderForm() {
   var evv = F.ev ? S.eventos.filter(function (x) { return x.id === F.ev; })[0] : null;
   var h = '<div class="sh-head"><h2>' + (F.id ? 'Editar' : isPay ? 'Registrar un pago' : 'Nuevo gasto') + (evv ? ' · ✈️ ' + esc(evv.name) : '') + '</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div>';
   if (!F.id) h += '<div class="seg"><button class="' + (!isPay ? 'on' : '') + '" data-act="kind" data-v="expense">Gasto</button><button class="' + (isPay ? 'on' : '') + '" data-act="kind" data-v="payment">Pago entre nosotros</button></div>';
-  if (!F.id && !isPay) h += '<label class="chip" style="display:inline-block;margin:0 0 8px;cursor:pointer">📎 Leer un comprobante<input type="file" id="shfile" accept="image/*,application/pdf" hidden></label>';
+  if (!F.id && !isPay) h += '<label class="chip" style="display:inline-block;margin:0 0 8px;cursor:pointer">📎 Leer un comprobante<input type="file" id="shfile" accept="image/*,application/pdf" hidden></label>' + (S.mode === 'sheets' ? ' <label class="chip" style="display:inline-block;margin:0 0 8px;cursor:pointer">🧾 Ticket por ítems<input type="file" id="tkfile" accept="image/*" hidden></label>' : '');
   if (!F.id) h += '<div class="quick"><input id="quick" data-in="quick" placeholder="' + (isPay ? 'Decilo: «le pagué 20.000»' : 'Anotá rápido: «super 15.200»') + '" value="' + esc(F.quick) + '" autocomplete="off"><button data-act="quick">Cuba, anotá</button>' + (SRec ? '<button data-act="quickvoz" aria-label="Dictar">🎤</button>' : '') + '</div>';
   h += '<label class="f">' + (isPay ? 'Nota' : 'Descripción') + '</label><input data-in="desc" id="fdesc" value="' + esc(F.desc) + '" placeholder="' + (isPay ? 'Transferencia, efectivo…' : '¿Qué fue?') + '" maxlength="80" autocomplete="off">';
   h += '<div class="two"><div><label class="f">Monto</label><input data-in="amount" inputmode="decimal" value="' + esc(F.amount) + '" placeholder="0,00" autocomplete="off"></div><div><label class="f">Moneda</label><select data-in="cur"' + (evv ? ' disabled' : '') + '><option value="ARS"' + (F.cur === 'ARS' ? ' selected' : '') + '>ARS</option><option value="USD"' + (F.cur === 'USD' ? ' selected' : '') + '>USD</option></select></div></div>';
@@ -2900,7 +3033,7 @@ function updatePreview() {
   if (r.soft) el.innerHTML = '<span class="mut">' + r.soft + '</span>';
   else if (r.error) el.innerHTML = '<span class="neg">' + esc(r.error) + '</span>';
   else if (F.kind === 'payment') el.innerHTML = '<b>' + esc(firstName(F.paidBy)) + '</b> le paga <b>' + C.fmt(r.total, F.cur) + '</b> a <b>' + esc(firstName(F.to)) + '</b>.';
-  else el.innerHTML = r.sp.map(function (x) { return esc(firstName(x[0])) + ': <b>' + C.fmt(x[1], F.cur) + '</b>' + (r.pct && r.total ? ' <span class="mut">(' + Math.round(x[1] / r.total * 100) + ' %)</span>' : ''); }).join(' · ');
+  else el.innerHTML = r.sp.map(function (x) { return esc(firstName(x[0])) + ': <b>' + C.fmt(x[1], F.cur) + '</b>' + (r.pct && r.total ? ' <span class="mut">(' + Math.round(x[1] / r.total * 100) + ' %)</span>' : ''); }).join(' · ') + caroHtml();
 }
 function openEdit(id) {
   var e = S.all.filter(function (x) { return x.id === id; })[0]; if (!e) return;
@@ -3063,7 +3196,10 @@ var A = {
   },
   cat: function (el) { S.form.cat = el.dataset.v; S.form.catAuto = false; renderForm(); },
   quick: function () {
-    var F = S.form, q = C.quickParse(F.quick);
+    var F = S.form, q = null;
+    if (F.kind !== 'payment') { var ts = IA.trozos(F.quick, today()); if (ts.length >= 2) { multiAbrir(ts, false); return; } if (ts.length === 1) q = ts[0]; }
+    q = q || C.quickParse(F.quick);
+    if (!q && F.kind === 'expense' && S.mode === 'sheets' && CONMONTO.test(F.quick)) { multiGemini(F.quick, false); return; }
     if (!q) { toast('No encontré un monto. Probá ' + (F.kind === 'payment' ? '«le pagué 20.000».' : '«super 15.200».')); return; }
     if (F.kind === 'payment') { F.amount = String(C.centsDot(q.cents)).replace('.', ','); F.cur = q.cur; if (!F.desc) F.desc = /transf/i.test(F.quick) ? 'Transferencia' : /efectivo/i.test(F.quick) ? 'Efectivo' : ''; renderForm(); return; }
     F.desc = q.desc; F.amount = String(C.centsDot(q.cents)).replace('.', ','); F.cur = q.cur; F.cat = q.cat; F.catAuto = true; renderForm(); sugerirCategoria(q.desc);
@@ -3200,7 +3336,10 @@ var A = {
     S.perTengo = false; Per.loaded = null; Per.load(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); Per.remoto(Per.rows); render(); toast('Código aceptado');
   },
   perpon: function () {
-    var i = $('#perq'), l = P.leer(i && i.value, today());
+    var i = $('#perq'), txt = i && i.value, ts = IA.trozos(txt, today());
+    if (ts.length >= 2) { var ev2 = []; ts.forEach(function (x) { ev2 = ev2.concat(P.armarGasto(x)); }); if (i) i.value = ''; Per.add(ev2).then(function () { var q2 = $('#perq'); if (q2) q2.focus(); toast(ts.length + ' gastos anotados'); }); return; }
+    var l = ts[0] || P.leer(txt, today());
+    if (!l && S.mode === 'sheets' && CONMONTO.test(txt || '')) { multiGemini(txt, true); if (i) i.value = ''; return; }
     if (!l) { toast('No encontré el monto: probá «almuerzo 4500».'); return; }
     var evs = P.armarGasto(l);
     if (i) i.value = '';
@@ -3387,6 +3526,201 @@ var A = {
   copyexp: function () { copyText(S.exportText, 'CSV copiado'); }
 };
 
+// ---------------- ideas con Gemini (v0.20) ----------------
+// Todo lo que sale a Gemini va sin nombres ni sueldos; si el Apps Script es viejo o no hay clave, se avisa y se sigue a mano.
+var IA = CubaIA, CONMONTO = /\d|\b(mil|luca|lucas|palo|palos|pesos|dolares|dólares|usd)\b/i;   // solo se le pregunta a Gemini si hay algo parecido a un monto
+function iaErr(m) { var e = new Error(m); e.userMessage = m; return e; }
+function iaLlamar(action, body) {
+  if (S.mode !== 'sheets') return Promise.reject(iaErr('Esto necesita la Sheet conectada.'));
+  return Store.call(action, body).then(function (d) {
+    if (d && d.sin_clave) throw iaErr('Falta cargar la clave de Gemini en el Apps Script.');
+    if (d && d.error) throw iaErr('Gemini no respondió ahora. Probá en un rato.');
+    return d;
+  }, function (e) { if (e && e.code === 'accion_desconocida') throw iaErr('Primero hay que publicar el Code.gs nuevo en Apps Script.'); throw e; });
+}
+function iaHoja(titulo, cuerpo) { openSheet('<div class="sh-head"><h2>' + titulo + '</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div>' + cuerpo); }
+function iaPensando(msg) { return '<div class="empty">' + cuba('idle', 90) + '<br>' + msg + '</div>'; }
+function sinNombres(t) {   // saca los nombres de las personas, pero deja los montos
+  t = String(t || '').slice(0, 300);
+  members().forEach(function (m) {
+    [String(m.name || '').split(' ')[0]].concat(m.alias ? String(m.alias).split(/[,;]/) : []).forEach(function (n) {
+      n = String(n).trim(); if (n.length < 2) return;
+      t = t.replace(new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), 'PERSONA');
+    });
+  });
+  return t;
+}
+function iaTexto(tipo, datos, titulo, extra) {
+  var tk = S.iaTk = Date.now();
+  iaHoja(titulo, iaPensando('Cuba está pensando…'));
+  iaLlamar('iaTexto', { tipo: tipo, datos: datos }).then(function (d) {
+    if (S.iaTk !== tk || !$('#sheet').innerHTML) return;
+    iaHoja(titulo, '<div class="preview" style="white-space:pre-wrap;line-height:1.5">' + esc(d.texto) + '</div>' + (extra || '') + '<button class="btn ghost full" style="margin-top:10px" data-act="close">Listo</button>');
+  }).catch(function (e) { if (S.iaTk === tk) closeSheet(); fail(e); });
+}
+function otroId() { var o = activeMembers().filter(function (m) { return m.id !== S.meId; }); return o.length === 1 ? o[0].id : null; }
+function repartoDe(cents, date) {
+  var ids = activeMembers().map(function (m) { return m.id; });
+  if (salaryOk(date)) { var s = C.salarySplit(cents, ids, S.sueldos, date); if (s.sp) return s.sp; }
+  return C.splitEqual(cents, ids, 0);
+}
+
+// --- varios gastos en una sola frase ---
+function multiAbrir(items, per) { S.multi = { per: !!per, items: items.map(function (l) { return Object.assign({ on: true }, l); }) }; multiVer(); }
+function multiVer() {
+  var M = S.multi, n = M.items.filter(function (x) { return x.on; }).length;
+  var h = '<p class="mut" style="margin:0 0 8px;font-size:14px">Entendí ' + M.items.length + ' gastos. Destildá los que no sean.</p>' + M.items.map(function (x, i) {
+    var c = C.catInfo(x.cat);
+    return '<label class="rsrow" style="cursor:pointer"><input type="checkbox" data-act="multick" data-i="' + i + '"' + (x.on ? ' checked' : '') + '><span class="grow"><div class="t">' + esc(C.prolija(x.desc, x.fecha)) + '</div><div class="s">' + c.e + ' ' + esc(c.n) + ' · ' + dLabel(x.fecha) + (x.cuotas ? ' · ' + x.cuotas + ' cuotas' : '') + '</div></span><span class="a" style="font-weight:700">' + perMonto(x.cents, x.cur) + '</span></label>';
+  }).join('');
+  h += '<div class="mut" style="font-size:13px;margin:8px 0">' + (M.per ? 'Van a tu Personal (solo vos).' : 'Los pagaste vos y se reparten como siempre (por sueldo si está cargado, si no a partes iguales).') + '</div>';
+  iaHoja('Varios gastos de una', h + '<button class="btn acc full" data-act="multisave"' + (n ? '' : ' disabled') + '>Anotar ' + n + '</button>');
+}
+function multiGemini(texto, per) {
+  var tk = S.iaTk = Date.now();
+  iaHoja('Varios gastos de una', iaPensando('Cuba está escuchando…'));
+  iaLlamar('entenderGastos', { texto: sinNombres(texto), hoy: today() }).then(function (d) {
+    if (S.iaTk !== tk) return;
+    var its = (d.gastos || []).map(function (g) { return { desc: g.descripcion, cents: g.monto_centavos, cur: g.moneda, cat: C.CATS.some(function (c) { return c.k === g.categoria; }) ? g.categoria : C.guessCategory(g.descripcion), fecha: g.fecha || today() }; });
+    if (!its.length) { closeSheet(); toast('No pude separar gastos de esa frase.'); return; }
+    multiAbrir(its, per);
+  }).catch(function (e) { if (S.iaTk === tk) closeSheet(); fail(e); });
+}
+
+// --- ticket por ítems ---
+function tkLeer(f) {
+  var ev = S.form && S.form.ev, tk = S.iaTk = Date.now();
+  iaHoja('🧾 Ticket por ítems', iaPensando('Leyendo el ticket…'));
+  Share.achicar(f, 1600).then(function (b64) { return iaLlamar('leerTicket', { imagen: b64, mime: 'image/jpeg' }); }).then(function (d) {
+    if (S.iaTk !== tk) return;
+    var its = (d.items || []).filter(function (i) { return i.monto_centavos > 0; }).map(function (i) { return { d: i.descripcion, cents: i.monto_centavos, a: 'ambos' }; });
+    if (!its.length) throw iaErr('No pude separar los ítems de esa foto: cargalo a mano.');
+    var sum = its.reduce(function (a, i) { return a + i.cents; }, 0);
+    if (d.total_centavos > sum) its.push({ d: 'Propina e impuestos', cents: d.total_centavos - sum, a: 'ambos' });
+    var evv = ev ? S.eventos.filter(function (x) { return x.id === ev; })[0] : null;
+    S.tk = { ev: ev || null, cur: evv ? evv.cur : d.moneda, date: d.fecha || today(), name: d.comercio || '', items: its };
+    tkVer();
+  }).catch(function (e) { if (S.iaTk === tk) closeSheet(); fail(e && e.message === 'img' ? iaErr('No pude abrir esa imagen.') : e); });
+}
+function tkVer() {
+  var T = S.tk, otro = otroId(), yo = Per.ready();
+  var opts = [['ambos', 'Los dos']].concat(yo ? [['yo', 'Yo']] : []).concat(otro ? [['otro', firstName(otro)]] : []);
+  var h = '<label class="f">Comercio</label><input data-in="tkname" value="' + esc(T.name) + '" placeholder="Parrilla, súper…" maxlength="60" autocomplete="off">' +
+    '<p class="mut" style="font-size:13px;margin:8px 0">¿De quién es cada cosa? «Los dos» se reparte como siempre.' + (yo ? ' «Yo» va a tu Personal.' : '') + '</p>';
+  h += T.items.map(function (it, i) {
+    return '<div class="rsrow" style="flex-wrap:wrap"><span class="grow"><div class="t">' + esc(it.d) + '</div><div class="s">' + perMonto(it.cents, T.cur) + '</div></span><span class="chips">' + opts.map(function (o) {
+      return '<button class="chip' + (it.a === o[0] ? ' on' : '') + '" data-act="tkas" data-i="' + i + '" data-v="' + o[0] + '">' + esc(o[1]) + '</button>';
+    }).join('') + '</span></div>';
+  }).join('');
+  var r = IA.repartirTicket(T.items.map(function (i) { return { cents: i.cents }; }), T.items.map(function (i) { return i.a; }));
+  h += '<div class="preview" style="margin-top:8px">Los dos: <b>' + perMonto(r.ambos, T.cur) + '</b>' + (r.yo ? ' · Yo: <b>' + perMonto(r.yo, T.cur) + '</b>' : '') + (r.otro ? ' · ' + esc(firstName(otro)) + ': <b>' + perMonto(r.otro, T.cur) + '</b>' : '') + '<br><span class="mut">Total del ticket ' + perMonto(r.total, T.cur) + ' · pagaste vos</span></div>';
+  iaHoja('🧾 Ticket por ítems', h + '<button class="btn acc full" style="margin-top:10px" data-act="tksave">Guardar</button>');
+}
+
+// --- ¿es caro? ---
+function caroKey() { var F = S.form, r = calcForm(); return F.desc + '|' + (r.total || 0) + '|' + F.cur; }
+function caroHtml() {
+  var F = S.form; if (!F || F.kind !== 'expense' || !F.desc.trim()) return '';
+  var r = calcForm(); if (r.soft || r.error || !r.total) return '';
+  var ec = IA.esCaro(S.entries, { desc: F.desc, cents: r.total, cur: F.cur, cat: F.cat, id: F.id }), h = '';
+  if (ec && ec.nivel !== 'normal') h += '<div style="margin-top:6px">' + (ec.nivel === 'caro' ? '📈 ' : '📉 ') + 'Sale ' + Math.abs(ec.pct) + ' % ' + (ec.nivel === 'caro' ? 'más' : 'menos') + ' que lo que sueles pagar' + (ec.base === 'comercio' ? ' en ' + esc(F.desc.trim()) : ' en ' + esc(C.catInfo(F.cat).n.toLowerCase())) + '.</div>';
+  if (S.mode === 'sheets') h += S.caro && S.caro.k === caroKey() ? '<div class="mut" style="margin-top:6px;font-size:13px;white-space:pre-wrap">🐕 ' + esc(S.caro.txt) + '</div>' : '<div style="margin-top:6px"><button class="chip" data-act="iacaro">🐕 ¿Es caro? Preguntale a Cuba</button></div>';
+  return h;
+}
+
+// --- antes de comprar ---
+function compraCalc(l) {
+  var st = Per.state(), hoy = today(), mes = C.monthKey(hoy), cur = l.cur, sal = C.salaryAt(S.sueldos, S.meId, hoy), sueldo = sal && sal.cur === cur ? sal.cents : 0;
+  var s = P.statsMes(st, mes, cur, sueldo, hoy), prev = [1, 2, 3].map(function (k) { return P.statsMes(st, P.addMes(mes + '-01', -k).slice(0, 7), cur, 0, hoy).total; }).filter(function (t) { return t > 0; });
+  var gasto = prev.length ? Math.round(prev.reduce(function (a, b) { return a + b; }, 0) / prev.length) : (s.proyeccion || s.total || 0);
+  var dias = new Date(+hoy.slice(0, 4), +hoy.slice(5, 7), 0).getDate() - +hoy.slice(8) + 1;
+  return IA.compra(l.cents, l.cuotas || 1, gasto, sueldo > 0 ? s.libre : null, dias);
+}
+function compraVer() {
+  var K = S.compra, c = K.cp, cur = K.cur, niv = { liviana: 'liviana 🙂', mediana: 'mediana 🤔', pesada: 'pesada 😬', 'sin datos': 'todavía sin datos para comparar' };
+  var h = '<div class="stat"><span>' + (c.cuotas > 1 ? c.cuotas + ' cuotas de' : 'Pago único de') + '</span><b>' + perMonto(c.cuota, cur) + '</b></div>';
+  if (c.pctMes != null) h += '<div class="stat"><span>Pesa sobre lo que gastás al mes</span><b>' + c.pctMes + ' %</b></div>';
+  h += '<div class="stat"><span>Carga</span><b>' + niv[c.nivel] + '</b></div>';
+  if (c.libreDespues != null) h += '<div class="stat"><span>Te quedan este mes</span><b class="' + (c.libreDespues < 0 ? 'neg' : 'pos') + '">' + perMonto(c.libreDespues, cur) + '</b></div>' + (c.porDiaDespues != null ? '<div class="stat"><span>Para gastar por día</span><b>' + perMonto(c.porDiaDespues, cur) + '</b></div>' : '');
+  if (S.mode === 'sheets') h += '<button class="btn ghost full" style="margin-top:10px" data-act="compraia">🐕 Que Cuba opine</button>';
+  iaHoja('🤔 ¿Me conviene?', h + '<button class="btn ghost full" style="margin-top:8px" data-act="close">Cerrar</button>');
+}
+
+Object.assign(A, {
+  multick: function (el) { if (S.multi) { S.multi.items[+el.dataset.i].on = !!el.checked; multiVer(); } },
+  multisave: function () {
+    var M = S.multi; if (!M || S.readOnly) return;
+    var sel = M.items.filter(function (x) { return x.on; }); if (!sel.length) return;
+    if (M.per) {
+      var evs = []; sel.forEach(function (l) { evs = evs.concat(P.armarGasto(l)); });
+      Per.add(evs).then(function () { S.multi = null; closeSheet(); toast(sel.length + ' gastos anotados en Personal'); render(); });
+      return;
+    }
+    var list = sel.map(function (l) {
+      var d = C.prolija(l.desc, l.fecha);
+      return { id: rid(), type: 'expense', desc: d, cents: l.cents, cur: l.cur, date: l.fecha, paidBy: S.meId, sp: repartoDe(l.cents, l.fecha), cat: l.cat || 'otros', note: '', by: S.meId, at: new Date().toISOString() };
+    });
+    for (var i = 0; i < list.length; i++) { var bad = C.validate(list[i]); if (bad) { toast(bad); return; } }
+    Store.putEntries(list, { optimista: true }).then(function () { S.multi = null; closeSheet(); toast(list.length + ' gastos anotados. Guau.'); render(); }).catch(fail);
+  },
+  tkas: function (el) { if (S.tk) { S.tk.items[+el.dataset.i].a = el.dataset.v; tkVer(); } },
+  tksave: function () {
+    var T = S.tk; if (!T || S.readOnly) return;
+    var r = IA.repartirTicket(T.items.map(function (i) { return { cents: i.cents, d: i.d }; }), T.items.map(function (i) { return i.a; })), otro = otroId();
+    var name = C.prolija(T.name || 'Ticket', T.date), cat = C.guessCategory(name), list = [], at = new Date().toISOString();
+    var base = function (desc, cents, sp, nota) { var e = { id: rid(), type: 'expense', desc: desc, cents: cents, cur: T.cur, date: T.date, paidBy: S.meId, sp: sp, cat: cat, note: nota, by: S.meId, at: at }; if (T.ev) e.ev = T.ev; return e; };
+    var nota = function (a) { return T.items.filter(function (i) { return i.a === a; }).map(function (i) { return i.d; }).join(', ').slice(0, 150); };
+    if (r.ambos > 0) list.push(base(name, r.ambos, T.ev ? C.splitEqual(r.ambos, activeMembers().map(function (m) { return m.id; }), 0) : repartoDe(r.ambos, T.date), nota('ambos')));
+    if (r.otro > 0 && otro) list.push(base(name + ' (de ' + firstName(otro) + ')', r.otro, [[otro, r.otro]], nota('otro')));
+    for (var i = 0; i < list.length; i++) { var bad = C.validate(list[i]); if (bad) { toast(bad); return; } }
+    var pend = [];
+    if (list.length) pend.push(Store.putEntries(list, { optimista: true }));
+    if (r.yo > 0 && Per.ready()) pend.push(Per.add(P.armarGasto({ desc: name, cents: r.yo, cur: T.cur, cat: cat, fecha: T.date })));
+    var asado = T.items.some(function (i) { return /hueso|asado|chorip|vac[ií]o|costilla|parrilla/i.test(i.d); });
+    Promise.all(pend).then(function () { S.tk = null; closeSheet(); toast('Ticket repartido' + (asado ? ' · + detalle sorpresa 🥚' : '. Guau.')); if (asado) { var pa = $('#app'); pa.classList.add('perk'); setTimeout(function () { pa.classList.remove('perk'); }, 2800); } render(); }).catch(fail);
+  },
+  subadd: function (el) { var s = (S.subs || [])[+el.dataset.i]; if (s) openRecForm(null, s); },
+  iacaro: function () {
+    var F = S.form; if (!F) return; var r = calcForm(); if (r.soft || r.error) return;
+    S.caro = { k: caroKey(), txt: 'Cuba está pensando…' }; updatePreview();
+    var k = S.caro.k;
+    iaLlamar('iaTexto', { tipo: 'caro', datos: { concepto: sinNombres(F.desc).slice(0, 60), monto: Math.round(r.total / 100), moneda: F.cur, categoria: C.catInfo(F.cat).n } }).then(function (d) { S.caro = { k: k, txt: d.texto }; if (S.form) updatePreview(); })
+      .catch(function (e) { S.caro = null; if (S.form) updatePreview(); fail(e); });
+  },
+  precompra: function () {
+    var i = $('#precomp'), l = P.leer(i && i.value, today());
+    if (!l) { toast('Decime qué y cuánto: «tele 600000 en 6 cuotas».'); return; }
+    S.compra = { cp: compraCalc(l), cur: l.cur, desc: l.desc }; compraVer();
+  },
+  compraia: function () {
+    var K = S.compra; if (!K) return;
+    iaTexto('compra', { compra: sinNombres(K.desc).slice(0, 40), cuotas: K.cp.cuotas, peso_de_la_cuota_en_el_gasto_mensual_pct: K.cp.pctMes, carga: K.cp.nivel, queda_alcanzando_el_mes: K.cp.libreDespues == null ? null : K.cp.libreDespues >= 0 }, '🐕 Lo que opina Cuba');
+  },
+  iacarta: function () { iaCierre('carta', '✉️ Carta del mes'); },
+  iaexplica: function () { iaCierre('explica', '🔎 ¿Qué pasó este mes?'); },
+  rgabrir: function () {
+    S.rg = { q: '', m: '', f: '' };
+    iaHoja('🎁 Ideas de regalo', '<label class="f">¿Para qué ocasión?</label><input data-in="rgq" placeholder="Cumple de mamá, aniversario…" maxlength="60" autocomplete="off"><div class="two"><div><label class="f">Presupuesto (ARS)</label><input data-in="rgm" inputmode="decimal" placeholder="50000" autocomplete="off"></div><div><label class="f">Fecha (opcional)</label><input type="date" data-in="rgf"></div></div><button class="btn acc full" style="margin-top:12px" data-act="rgideas">Pedir ideas</button>');
+  },
+  rgideas: function () {
+    var R = S.rg; if (!R) return;
+    var cents = C.parseAmount(R.m);
+    if (!R.q.trim() || !cents) { toast('Poné la ocasión y el presupuesto.'); return; }
+    iaTexto('regalos', { ocasion: sinNombres(R.q).slice(0, 60), presupuesto: Math.round(cents / 100), moneda: 'ARS' }, '🎁 Ideas de regalo', R.f ? '<button class="btn ghost full" style="margin-top:10px" data-act="rgics">📅 Recordármelo en el calendario</button>' : '');
+  },
+  rgics: function () {
+    var R = S.rg; if (!R || !R.f) return;
+    var f = R.f > P.addDias(today(), 7) ? P.addDias(R.f, -7) : R.f;
+    bajar('regalo-cuba.ics', P.ics([{ id: 'rg' + Date.now(), titulo: 'Regalo: ' + R.q.trim() + ' (presupuesto ' + R.m + ')', fecha: f, nota: 'La ocasión es el ' + R.f, unico: true, icono: '🎁', aviso: '-PT9H' }]), 'text/calendar'); toast('Abrilo y se agrega a tu calendario');
+  }
+});
+function iaCierre(tipo, titulo) {
+  var mk = S.closeMonth, prev = P.addMes(mk + '-01', -1).slice(0, 7), cur = curs(C.balances(S.entries, [])).filter(function (c) { return C.monthStats(S.entries, mk, c).count; })[0];
+  if (!cur) { toast('Ese mes no tiene gastos.'); return; }
+  iaTexto(tipo, IA.datosMes(S.entries, mk, prev, cur), titulo);
+}
+
+
 // Descripción prolija y, en cada gasto nuevo, categoría sugerida por la memoria de Cuba y Gemini.
 function sugerirCategoria(d) {
   if (S.mode !== 'sheets' || !S.form || S.form.kind !== 'expense' || !S.form.catAuto || S.readOnly || d.length < 3) return;
@@ -3471,6 +3805,8 @@ document.addEventListener('change', function (ev) {
   if (el.type === 'checkbox' && el.dataset.act === 'toggle') { A.toggle(el); return; }
   if (el.type === 'checkbox' && el.dataset.act === 'rsper') { A.rsper(el); return; }
   if ((el.id === 'rstc' || el.id === 'rspct') && S.rs) { S.rs.dolar[el.id === 'rstc' ? 'tc' : 'pct'] = el.value; render(); return; }
+  if (el.type === 'file' && el.id === 'tkfile') { var ft = el.files && el.files[0]; el.value = ''; if (ft) tkLeer(ft); return; }
+  if (el.type === 'checkbox' && el.dataset.act === 'multick') { A.multick(el); return; }
   if (el.type === 'file' && el.id === 'shfile') { var evq = S.form && S.form.ev, fq = el.files && el.files[0]; el.value = ''; if (fq) Share.archivo(fq, evq); return; }
   if (el.type === 'file' && el.id === 'rsfile') {
     var fr = el.files && el.files[0]; if (!fr) return;
@@ -3492,6 +3828,7 @@ document.addEventListener('change', function (ev) {
   else if (k === 'catfix') { if (el.value) confirmarGrupo(+el.dataset.i, el.value); }
   else if (k === 'catf') { S.cat = el.value; render(); }
   else if (k === 'closemonth') { S.closeMonth = el.value; render(); }
+  else if (S.rg && k === 'rgf') { S.rg.f = el.value; }
   else if (k === 'me') { Store.setMe(el.value).then(render); }
   else if (k === 'impmap') { S.impMap[el.dataset.id] = el.value; render(); }
   else if (k === 'impcur') { S.impCur = el.value; render(); }
@@ -3508,6 +3845,8 @@ document.addEventListener('input', function (ev) {
   if (k === 'obname') { S.ob.names[+el.dataset.i] = el.value; }
   else if (k === 'search') { S.q = el.value; var l = $('#list'); if (l) l.innerHTML = listHtml(); }
   else if (S.ef && k === 'evname') { S.ef.name = el.value; }
+  else if (S.tk && k === 'tkname') { S.tk.name = el.value; }
+  else if (S.rg && (k === 'rgq' || k === 'rgm' || k === 'rgf')) { S.rg[k.slice(2)] = el.value; }
   else if (k === 'calcamt') { S.calcAmt = el.value; var co = $('#calcout'); if (co) co.innerHTML = calcRepartoHtml(el.value); }
   else if (S.rf && (k === 'radj' || k === 'radjn')) { S.rf[k === 'radj' ? 'adj' : 'adjNext'] = el.value; }
   else if (k === 'ajpct') {
@@ -3530,6 +3869,7 @@ document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape') closeSheet();
   if (ev.key === 'Enter' && ev.target.id === 'quick') { ev.preventDefault(); A.quick(); }
   if (ev.key === 'Enter' && ev.target.id === 'perq') { ev.preventDefault(); A.perpon(); }
+  if (ev.key === 'Enter' && ev.target.id === 'precomp') { ev.preventDefault(); A.precompra(); }
   if (ev.key === 'Enter' && ev.target.id === 'askq') { ev.preventDefault(); A.askgo(); }
 });
 

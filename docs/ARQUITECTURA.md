@@ -77,3 +77,7 @@ Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, desha
 - La Sheet guarda eventos cifrados en la pestaña `Personal`; el modo local no sincroniza. Si se pierde la clave, los datos de la Sheet no se pueden recuperar: es a propósito.
 - `src/personal.js` (cifrado, carga rápida, cuotas exactas, estadísticas, duplicados, rarezas, `.ics`) tiene `tests/personal.test.js`; el flujo completo con dos celulares está en `tests/e2e-personal.js`.
 - Lo que Gemini ve no cambia: nada de Personal se manda afuera.
+
+## Ideas con Gemini (v0.20)
+
+`src/ia.js` (CubaIA) hace lo local: separar gastos dictados, suscripciones, ¿es caro?, cuota de una compra, agregados del mes y reparto de un ticket. Gemini solo entra por tres acciones del Apps Script: `leerTicket` (foto → ítems), `entenderGastos` (frase → gastos) e `iaTexto` (carta, explica, regalos, compra, caro). A `iaTexto` solo viajan números agregados y conceptos: nunca nombres, sueldos ni movimientos sueltos de Personal.

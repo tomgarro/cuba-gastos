@@ -45,3 +45,11 @@ Orden por dependencia. Marcar a medida que se completa.
 
 - v0.19: pestaña Personal. Cada uno lleva su economía propia, cifrada con AES-GCM en el celular (la clave nunca sale; código de recuperación de 13 grupos). A la Sheet llegan bloques ilegibles en la pestaña `Personal`. Incluye carga rápida (voz, «ayer», «u$s», cuotas), topes con semáforo, «¿me alcanza?» con el sueldo vigente, metas, duplicados y rarezas, pasar a compartido, CSV y los consumos no compartidos de un resumen de tarjeta.
 - Pendiente por depender de datos o permisos tuyos: Mercado Pago (reportes/credenciales), PDF del cierre a Drive con doble confirmación y recibos de sueldo en Drive (piden permisos de Drive en el Apps Script), notificaciones web (las cubre ntfy), resumen semanal.
+
+## v0.20 · Ideas con Gemini (hecho)
+
+- Voz libre con varios gastos en una frase («café 3 mil, taxi 4500»): primero lo entiende la app sola; si no puede, Gemini (sin nombres). Hoja de confirmación; en Personal entra directo.
+- Ticket por ítems (🧾): cada ítem va a «los dos», «yo» (a Personal) o «el otro» (gasto 100 % suyo). Sirve también dentro de un evento (modo asado/viaje). Con 2 personas es esto; los grupos y el link de pago no aplican.
+- Detective de suscripciones en Recurrentes, ¿es caro? (contra tu historial + opinión de Cuba), antes de comprar (Personal), carta del mes y «¿qué pasó?» (Cierre), regalos con presupuesto y recordatorio .ics.
+- Descartada a pedido: «Cuba negocia».
+- Necesita republicar `Code.gs` (acciones `leerTicket`, `entenderGastos`, `iaTexto`). Con el Apps Script viejo la app avisa y sigue a mano.

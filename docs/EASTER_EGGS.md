@@ -38,3 +38,8 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 - **Se activa:** en «Preguntale a Cuba», preguntar por «vacaciones» o «valija» (aparece con la valija lista) o por «asado» o «parrilla» (aparece cuidando la parrilla), siempre que no sea una pregunta de cuentas. Salen corazones y no se le pregunta nada a Gemini.
 - **Se apaga:** borrar la línea `if (/\b(vacaciones|asado|parrilla|valija)\b/.test(…)) {…}` en `Ask.go` (`src/app.html`). Sin corazones con «reducir movimiento».
 
+
+## v0.20 · El hueso del asado
+
+- **Se activa:** guardar un ticket por ítems (🧾 en «Nuevo gasto») que tenga algo de parrilla (asado, chorizo, vacío, costilla…). La app mueve la cola y avisa que Cuba se queda con el hueso. No se le pregunta nada extra a Gemini.
+- **Se apaga:** borrar la variable `asado` y su uso en `A.tksave` (`src/app.html`). Sin movimiento con «reducir movimiento».
