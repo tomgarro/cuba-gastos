@@ -111,7 +111,7 @@
       var nombre = nombreGasto(l), p = patron(limpiar(l.bruto)), sv = C.servicioDesc(limpiar(l.bruto), l.fecha);
       var cat = (sv && sv.cat) || C.guessCategory(limpiar(l.bruto));
       var o = { id: l.id, fecha: l.fecha, bruto: l.bruto, cuota: l.cuota, cents: l.cents, cur: l.cur, nombre: nombre, patron: p, cat: cat, estado: 'nuevo', comparte: false, why: '' };
-      var ex = (entries || []).filter(function (e) { return e.id === l.id || (!usados[e.id] && e.cents === l.cents && e.cur === l.cur && Math.abs(Date.parse(e.date) - Date.parse(l.fecha)) <= 7 * 86400000); })[0];
+      var ex = (entries || []).filter(function (e) { return e.id === l.id || e.id.indexOf(l.id + '-r') === 0 || (!usados[e.id] && e.cents === l.cents && e.cur === l.cur && Math.abs(Date.parse(e.date) - Date.parse(l.fecha)) <= 7 * 86400000); })[0];
       if (ex) { usados[ex.id] = true; o.estado = 'ya'; return o; }
       var r = reglas && reglas[p];
       if (r) { o.estado = 'regla'; o.comparte = r.comparte === 'si'; if (r.categoria) o.cat = r.categoria; o.why = o.comparte ? 'lo marcaste compartido' : 'lo marcaste personal'; return o; }

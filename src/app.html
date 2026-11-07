@@ -1030,7 +1030,8 @@ var A = {
       var q = rsPesos(x), sr = C.salarySplit(q.cents, ids, S.sueldos, repartoFecha(ids, x.fecha)), sp = sr.sp;
       if (!sp && !(S.sueldos || []).length) sp = C.splitEqual(q.cents, ids, x.cents);   // nadie cargó sueldos: partes iguales
       if (!sp) { problema = sr.mixed ? 'Los sueldos están en monedas distintas.' : 'Falta el sueldo de ' + (sr.missing || []).map(firstName).join(' y ') + ' (Ajustes → Mi sueldo).'; return null; }
-      return { id: x.id, type: 'expense', desc: x.nombre, cents: q.cents, cur: q.cur, date: x.fecha, paidBy: S.meId, sp: sp, cat: x.cat || 'otros',
+      var yaFue = (S.entries || []).some(function (e) { return e.id === x.id; });   // se deshizo antes: el backend ignoraría el mismo id
+      return { id: yaFue ? x.id + '-r' + rid().slice(-4) : x.id, type: 'expense', desc: x.nombre, cents: q.cents, cur: q.cur, date: x.fecha, paidBy: S.meId, sp: sp, cat: x.cat || 'otros',
         note: R.tarjeta + ' · cierre ' + R.cierre + q.nota, by: S.meId, at: now, src: 'resumen', lote: loteId };
     });
     if (problema || entries.indexOf(null) >= 0) { toast(problema || 'No pude calcular el reparto.'); return; }

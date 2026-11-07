@@ -426,7 +426,8 @@ function sheet_(name) {
   var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(name);
   if (!sh && (name === 'Etiquetas' || name === 'Comercios' || name === 'ReglasResumen' || name === 'Resumenes')) {  // pestañas agregadas después de v0.2: se crean solas con sus encabezados
     sh = ss.insertSheet(name); sh.getRange(1, 1, 1, TABS[name].length).setValues([TABS[name]]).setFontWeight('bold'); sh.setFrozenRows(1);
-    sh.getRange(2, 1, 1998, TABS[name].length).setNumberFormat('@');
+    if (sh.getMaxRows() < 2000) sh.insertRowsAfter(sh.getMaxRows(), 2000 - sh.getMaxRows());   // una pestaña nueva trae 1000 filas
+    sh.getRange(2, 1, 1999, TABS[name].length).setNumberFormat('@');
   }
   if (!sh) fail_('esquema', 'Falta la pestaña ' + name + '.');
   return sh;

@@ -26,24 +26,35 @@ function boot(opts) {
     }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ s, setMimeType() { return this; }, getContent() { return this.s; } }) },
     ScriptApp: { getService: () => ({ getUrl: () => opts.url === undefined ? 'https://script.google.com/macros/s/ABC/dev' : opts.url }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: name => grids[name] ? sheetOf(grids[name]) : null }) }
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({
+      getSheetByName: name => grids[name] ? sheetOf(grids[name]) : null,
+      insertSheet: name => { grids[name] = []; return sheetOf(grids[name], 1000); }   // como Google: una pestaña nueva trae 1000 filas
+    }) }
   };
   const ctx = vm.createContext(sandbox);
   vm.runInContext(CODE, ctx);
   const TABS = JSON.parse(JSON.stringify(ctx.TABS));
-  Object.keys(TABS).forEach(k => { grids[k] = [TABS[k].slice()]; });
+  const NUEVAS = ['Etiquetas', 'Comercios', 'ReglasResumen', 'Resumenes'];
+  Object.keys(TABS).forEach(k => { if (opts.lazyTabs && NUEVAS.indexOf(k) >= 0) return; grids[k] = [TABS[k].slice()]; });
 
-  function sheetOf(grid) {
+  function sheetOf(grid, maxRows0) {
+    let maxRows = maxRows0;
     const lastRow = () => { let l = grid.length; while (l > 0 && grid[l - 1].every(c => c === '' || c == null)) l--; return l; };
     return {
       getLastRow: lastRow,
+      getMaxRows: () => maxRows || 1e6,
+      setFrozenRows() {},
+      insertRowsAfter(pos, n) { if (maxRows) maxRows += n; },
       getRange(r, c, nr, nc) {
         nr = nr || 1; nc = nc || 1;
+        if (maxRows && r - 1 + nr > maxRows) throw new Error('The coordinates or dimensions of the range are invalid.');
         return {
+          setFontWeight() { return this; }, setNumberFormat() { return this; },
           getValues() { const out = []; for (let i = 0; i < nr; i++) { const row = []; for (let j = 0; j < nc; j++) { const v = (grid[r - 1 + i] || [])[c - 1 + j]; row.push(v === undefined ? '' : v); } out.push(row); } return out; },
           setValues(vals) {
             assert.strictEqual(vals.length, nr, 'filas'); vals.forEach(v => assert.strictEqual(v.length, nc, 'columnas'));
             vals.forEach((v, i) => { const gi = r - 1 + i; grid[gi] = grid[gi] || []; v.forEach((x, j) => { grid[gi][c - 1 + j] = x; }); });
+            return this;
           },
           setValue(v) { grid[r - 1] = grid[r - 1] || []; grid[r - 1][c - 1] = v; }
         };

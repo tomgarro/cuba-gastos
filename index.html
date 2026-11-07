@@ -1019,7 +1019,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
       var nombre = nombreGasto(l), p = patron(limpiar(l.bruto)), sv = C.servicioDesc(limpiar(l.bruto), l.fecha);
       var cat = (sv && sv.cat) || C.guessCategory(limpiar(l.bruto));
       var o = { id: l.id, fecha: l.fecha, bruto: l.bruto, cuota: l.cuota, cents: l.cents, cur: l.cur, nombre: nombre, patron: p, cat: cat, estado: 'nuevo', comparte: false, why: '' };
-      var ex = (entries || []).filter(function (e) { return e.id === l.id || (!usados[e.id] && e.cents === l.cents && e.cur === l.cur && Math.abs(Date.parse(e.date) - Date.parse(l.fecha)) <= 7 * 86400000); })[0];
+      var ex = (entries || []).filter(function (e) { return e.id === l.id || e.id.indexOf(l.id + '-r') === 0 || (!usados[e.id] && e.cents === l.cents && e.cur === l.cur && Math.abs(Date.parse(e.date) - Date.parse(l.fecha)) <= 7 * 86400000); })[0];
       if (ex) { usados[ex.id] = true; o.estado = 'ya'; return o; }
       var r = reglas && reglas[p];
       if (r) { o.estado = 'regla'; o.comparte = r.comparte === 'si'; if (r.categoria) o.cat = r.categoria; o.why = o.comparte ? 'lo marcaste compartido' : 'lo marcaste personal'; return o; }
@@ -2082,7 +2082,8 @@ var A = {
       var q = rsPesos(x), sr = C.salarySplit(q.cents, ids, S.sueldos, repartoFecha(ids, x.fecha)), sp = sr.sp;
       if (!sp && !(S.sueldos || []).length) sp = C.splitEqual(q.cents, ids, x.cents);   // nadie cargó sueldos: partes iguales
       if (!sp) { problema = sr.mixed ? 'Los sueldos están en monedas distintas.' : 'Falta el sueldo de ' + (sr.missing || []).map(firstName).join(' y ') + ' (Ajustes → Mi sueldo).'; return null; }
-      return { id: x.id, type: 'expense', desc: x.nombre, cents: q.cents, cur: q.cur, date: x.fecha, paidBy: S.meId, sp: sp, cat: x.cat || 'otros',
+      var yaFue = (S.entries || []).some(function (e) { return e.id === x.id; });   // se deshizo antes: el backend ignoraría el mismo id
+      return { id: yaFue ? x.id + '-r' + rid().slice(-4) : x.id, type: 'expense', desc: x.nombre, cents: q.cents, cur: q.cur, date: x.fecha, paidBy: S.meId, sp: sp, cat: x.cat || 'otros',
         note: R.tarjeta + ' · cierre ' + R.cierre + q.nota, by: S.meId, at: now, src: 'resumen', lote: loteId };
     });
     if (problema || entries.indexOf(null) >= 0) { toast(problema || 'No pude calcular el reparto.'); return; }

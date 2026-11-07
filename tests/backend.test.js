@@ -507,3 +507,10 @@ t('resúmenes de tarjeta: registrar es idempotente, las reglas se comparten y av
   assert.strictEqual(b.ctx.avisarResumenes_('2026-12-20'), 0, 'subido el siguiente, no avisa');
 });
 console.log(n + ' pruebas del backend');
+
+t('pestañas nuevas (ReglasResumen, Resumenes…) se crean solas aunque Google las traiga con 1000 filas', () => {
+  const b = boot({ lazyTabs: true }); b.call('savePersonas', { personas: P });
+  assert.strictEqual(b.call('aprenderResumen', { reglas: [{ descripcion: 'COTO', comparte: 'si', categoria: 'super' }] }).nuevas, 1);
+  assert.strictEqual(b.call('registrarResumen', { tarjeta: 'VISA', persona_id: 'm1', cierre: '2026-10-29', proximo_cierre: '2026-11-26', consumos: 3, compartidos: 1, creado_por: 'm1' }).ok, true);
+  assert.deepStrictEqual(J(b.grids.ReglasResumen[0]), J(b.TABS.ReglasResumen)); assert.strictEqual(b.grids.Resumenes.length, 2);
+});

@@ -283,6 +283,19 @@ const J = x => JSON.parse(JSON.stringify(x));
     const rep = JSON.parse(mv[col('reparto_json')]); const vals = Array.isArray(rep) ? rep.map(x => x[1]) : Object.values(rep);
     assert.deepStrictEqual(vals.slice().sort((a, b) => a - b), [191250, 573750], 'reparto 25/75 por sueldo, no mitad y mitad');
     assert.ok(/USD 10,00 × 500/.test(mv[col('nota')]), 'la nota guarda cómo se convirtió');
+    // deshacer el lote y volver a subir el mismo resumen: tiene que cargar de nuevo (mismo id determinístico ≠ ignorado)
+    B.p.once('dialog', d => d.accept());
+    await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
+    await B.p.locator('[data-act=undolote][data-id="' + mv[col('lote_id')] + '"]').click(); await B.p.waitForTimeout(400);
+    await B.p.fill('#rspaste', txt); await B.p.click('[data-act=rsread]');
+    await B.p.waitForSelector('.rsrow', { timeout: 10000 });
+    assert.ok(!/ya estaban cargados/.test(await B.txt()), 'lo deshecho no cuenta como cargado');
+    const sel2 = await B.p.locator('.rsrow .chip.on').count(); assert.ok(sel2 >= 1, 'Cuba recuerda lo que marcaste');
+    await B.p.click('[data-act=rsgo]');
+    await B.p.waitForFunction(() => /gastos? compartidos? cargados?/.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+    const zs = J(sheet.grids.Movimientos).filter(r => /ZORBAFLIX/i.test(r[col('descripcion')]) && r[col('origen')] === 'resumen');
+    assert.strictEqual(zs.length, 2, 'queda el anulado y el nuevo'); assert.deepStrictEqual(zs.map(r => r[col('anulado')]), ['TRUE', 'FALSE']);
+    checkAppendOnly('reimportar tras deshacer');
   }
 
   // ---- Borrar desde A ----
