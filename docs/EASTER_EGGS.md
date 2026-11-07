@@ -32,3 +32,9 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 
 - **Se activa:** en «Preguntale a Cuba», preguntar «¿quién es la mejor perra?» (o «buena perra», «buena nena»…): contesta «¡Yo! 🐾» y salen corazones.
 - **Se apaga:** borrar la línea `if (/\b(buena|la mejor|linda)…/.test(…)) { fin(…, true); return; }` en `Ask.go` (`src/app.html`). Sin corazones con «reducir movimiento».
+
+## v0.18 · La valija y la parrilla
+
+- **Se activa:** en «Preguntale a Cuba», preguntar por «vacaciones» o «valija» (aparece con la valija lista) o por «asado» o «parrilla» (aparece cuidando la parrilla), siempre que no sea una pregunta de cuentas. Salen corazones y no se le pregunta nada a Gemini.
+- **Se apaga:** borrar la línea `if (/\b(vacaciones|asado|parrilla|valija)\b/.test(…)) {…}` en `Ask.go` (`src/app.html`). Sin corazones con «reducir movimiento».
+

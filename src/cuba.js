@@ -4,7 +4,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
   // Cuba, la doberman (hembra; homenaje a la Cuba real). Ilustración vectorial propia, estilo plano de contornos suaves.
-  // Moods: idle | happy | alert | sleepy. Paleta: pelaje #242528, fuego #BE6C35, caracoles cauri #F2F0E7, contorno #4a4a4d.
+  // Moods básicos: idle | happy | alert | sleepy. Con sus imágenes también: surprised | sad | party | mail | calc | gift | phone | trip | bbq | piggy | receipt | detective. Paleta: pelaje #242528, fuego #BE6C35, caracoles cauri #F2F0E7, contorno #4a4a4d.
   var FUR = '#242528', TAN = '#be6c35', LINE = '#4a4a4d', INK = '#141416', SHELL = '#f2f0e7', EYE = '#3a2418';
 
   // Cada oreja se dibuja a la izquierda y se espeja para la derecha (x → 200 − x).
@@ -56,16 +56,45 @@
   }
 
   // Poses ilustradas (assets/cuba/*.webp, embebidas por build.py en CUBA_IMG). Sin ellas (tests, versiones viejas) se usa el dibujo vectorial.
-  var POSE = { idle: 'tranquilo', happy: 'feliz', alert: 'alerta', sleepy: 'durmiendo' };
-  function sprite(mood, size) {
+  var POSE = { idle: 'tranquilo', happy: 'feliz', alert: 'alerta', sleepy: 'durmiendo',
+    surprised: 'sorprendida', sad: 'triste', party: 'festejando', mail: 'sobre', calc: 'calculadora', gift: 'regalo',
+    phone: 'celular', trip: 'valija', bbq: 'parrilla', piggy: 'alcancia', receipt: 'ticket', detective: 'lupa' };
+  // Si falta la imagen de una pose nueva, se usa la de un humor básico (y sin imágenes, el vector).
+  var FALLBACK = { surprised: 'alert', sad: 'sleepy', party: 'happy', mail: 'idle', calc: 'idle', gift: 'happy', phone: 'alert', trip: 'happy', bbq: 'happy', piggy: 'idle', receipt: 'idle', detective: 'alert' };
+
+  // Aventuras: lo que Cuba hace de vez en cuando en Inicio. «solo» limita cuándo puede salir.
+  var AVENTURAS = [
+    { mood: 'trip', texto: '¡Me voy de viaje! Ya tengo la valija lista 🧳' },
+    { mood: 'bbq', texto: 'Domingo de asado: yo cuido la parrilla 🔥' },
+    { mood: 'detective', texto: 'Investigando gastos sospechosos 🔎' },
+    { mood: 'piggy', texto: 'Guardando una moneda para el mes que viene 🐷' },
+    { mood: 'phone', texto: '¡Ding! Te aviso apenas llegue un gasto 🔔' },
+    { mood: 'gift', texto: 'Shhh… estoy preparando una sorpresa 🎁' },
+    { mood: 'receipt', texto: 'Olfateando un ticket larguísimo 🧾' },
+    { mood: 'mail', texto: 'Llegó correo: me fijo los vencimientos ✉️' },
+    { mood: 'calc', texto: 'Sacando cuentas, centavo por centavo 🧮' },
+    { mood: 'surprised', texto: '¡Guau! Eso no lo vi venir 😮' },
+    { mood: 'party', texto: '¡Todo saldado! Hay fiesta 🎉', solo: 'amano' }
+  ];
+  // Elige una aventura distinta de la anterior (ult = índice o -1). r en [0,1). Las de «solo» salen únicamente si se cumple la condición.
+  function elegir(ult, r, cond) {
+    var ok = [];
+    AVENTURAS.forEach(function (a, i) { if (i !== ult && (!a.solo || (cond && cond[a.solo]))) ok.push(i); });
+    var i = ok[Math.min(ok.length - 1, Math.floor((r || 0) * ok.length))];
+    return { i: i, mood: AVENTURAS[i].mood, texto: AVENTURAS[i].texto };
+  }
+  function hay(k) { return typeof CUBA_IMG !== 'undefined' && CUBA_IMG && CUBA_IMG[k]; }
+  function sprite(mood, size, key) {
     var w = size, h = Math.round(size * 1.05), z = mood === 'sleepy' ? '<i class="zz" style="font-size:' + Math.max(10, Math.round(size * 0.17)) + 'px" aria-hidden="true">z<b>z</b></i>' : '';
     return '<span class="cuba pose-' + mood + '" style="display:inline-block;line-height:0;position:relative;width:' + w + 'px;height:' + h + 'px">' +
-      '<img src="' + CUBA_IMG[POSE[mood]] + '" alt="Cuba, la doberman" draggable="false" style="width:100%;height:100%;object-fit:contain;object-position:50% 100%">' + z + '</span>';
+      '<img src="' + CUBA_IMG[key] + '" alt="Cuba, la doberman" draggable="false" style="width:100%;height:100%;object-fit:contain;object-position:50% 100%">' + z + '</span>';
   }
   function cuba(mood, size) {
     mood = mood || 'idle';
     if (!POSE[mood]) mood = 'idle';
-    if (typeof CUBA_IMG !== 'undefined' && CUBA_IMG && CUBA_IMG[POSE[mood]]) return sprite(mood, size);
+    if (hay(POSE[mood])) return sprite(mood, size, POSE[mood]);
+    mood = FALLBACK[mood] || mood;   // pose nueva sin imagen: la de un humor básico
+    if (hay(POSE[mood])) return sprite(mood, size, POSE[mood]);
     var lift = mood === 'alert' ? 5 : 0, turn = mood === 'sleepy' ? 9 : mood === 'alert' ? -3 : 0;
     var leftEar = ear(lift, turn), rightEar = mirror(ear(lift, turn));
     return '<span class="cuba" style="display:inline-block;line-height:0"><svg width="' + size + '" height="' + Math.round(size * 1.05) + '" viewBox="0 0 200 210" role="img" aria-label="Cuba, la doberman">' +
@@ -83,5 +112,5 @@
       '</svg></span>';
   }
 
-  return { cuba: cuba };
+  return { cuba: cuba, aventuras: AVENTURAS, elegir: elegir, imagen: function (m) { return POSE[m] || POSE.idle; }, moods: Object.keys(POSE) };
 });

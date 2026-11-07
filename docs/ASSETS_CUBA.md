@@ -8,34 +8,32 @@ Cuba es una **perra** doberman pinscher (hembra) negra y fuego (marcas canela). 
 2. Pedir **fondo liso de un solo color** (verde puro o blanco), sin sombras en el piso ni degradés, para recortarlo limpio.
 3. Mismo estilo en todas las imágenes: vector plano, formas redondeadas, paleta de 6 colores como máximo.
 
-## Lista
+## Lista (hecho ✅ = ya está en `assets/cuba/` y conectado)
 
-| Archivo | Qué es | Dónde se usa |
+| Archivo | Qué es | Dónde se usa en la app |
 |---|---|---|
-| `cuba_hoja.png` | Frente, 3/4, perfil, espalda | Referencia |
-| `cuba_feliz.png` | Contenta | Saldos a mano |
-| `cuba_tranquilo.png` | Sentado | Inicio |
-| `cuba_alerta.png` | Ladrando | Cierre cerca, vencimientos |
-| `cuba_durmiendo.png` | Durmiendo | Cargando, modo noche |
-| `cuba_olfateando.png` | Con un ticket | Leyendo comprobantes, categorizando |
-| `cuba_pensando.png` | Cabeza ladeada | Gasto dudoso |
-| `cuba_sorprendido.png` | Sorprendida | Gasto raro |
-| `cuba_triste.png` | Orejas caídas | Deuda o presupuesto pasado |
-| `cuba_festejando.png` | Confeti | Meta cumplida, mes saldado |
-| `cuba_sobre.png` | Sobre en el hocico | Vencimientos |
-| `cuba_calculadora.png` | Lentes y calculadora | Sueldos y reparto |
-| `cuba_regalo.png` | Regalo y gesto de «shh» | Gasto sorpresa |
-| `cuba_celular.png` | Con celular | Notificaciones |
-| `cuba_valija.png` | Con valija | Modo viaje |
-| `cuba_parrilla.png` | Con parrilla | Modo asado |
-| `cuba_alcancia.png` | Con alcancía | Metas |
-| `cuba_cara.png` | Cara sola, de frente, con margen | Ícono de la app |
+| `tranquilo`, `feliz`, `alerta`, `durmiendo`, `frente_alerta` ✅ | Poses base | Inicio, cargando, errores, vacíos |
+| `mimado_a/b` ✅ | Dos poses al acariciarla | Tocar a Cuba |
+| `escucha_a/b`, `olfatea_a/b`, `responde_a/b`, `no_encuentra` ✅ | Animación de «Preguntarle a Cuba» | Escucha → olfatea → responde |
+| `festejando` ✅ | Confeti | Están a mano (Inicio y Saldar), «Preguntale»: a mano |
+| `sorprendida` ✅ | Boquiabierta | Aventura |
+| `triste` ✅ | Orejas caídas | «No llego a la Sheet» |
+| `sobre` ✅ | Sobre en el hocico | Tarjeta «Por pagar» |
+| `calculadora` ✅ | Lentes y calculadora | «Mi sueldo»; «Preguntale»: deudas |
+| `regalo` ✅ | Regalo y «shh» | Aventura |
+| `celular` ✅ | Celular con campanita | Aventura |
+| `valija` ✅ | Valija de viaje | «Viajes y eventos»; aventura |
+| `parrilla` ✅ | Parrilla | «Viajes y eventos» si hay un asado; aventura |
+| `alcancia` ✅ | Chanchito con moneda | Aventura |
+| `ticket` ✅ | Olfateando un ticket | «Resumen de tarjeta»; «Preguntale»: lo último |
+| `lupa` ✅ | Detective con lupa | «Para revisar», sin resultados en Gastos; «Preguntale»: lo que más se va |
 
-**Escenas de fondo** (sin personajes ni marcas reales), en 9:16 y 16:9: `escena_hogar`, `escena_super`, `escena_calle`, `escena_noche`, `escena_viaje`, `escena_parrilla`.
+**Aventuras:** en Inicio, cada 20 a 45 segundos, Cuba se va a una aventura (valija, parrilla, lupa…), el globo lo cuenta y vuelve. Tocar el globo la manda a otra. No salen con «reducir movimiento», con una hoja abierta ni en navegadores automatizados. La lista está en `AVENTURAS` (`src/cuba.js`).
 
-**Onboarding:** 4 viñetas: `onb_1_llega`, `onb_2_saluda`, `onb_3_senala`, `onb_4_listo`.
+**Pendientes (ideas):** escenas de fondo (`escena_hogar`, `escena_super`…), viñetas de onboarding y ícono `cuba_cara`.
 
-**Para animar:** de las poses principales, 2 o 3 variantes mínimas de la misma imagen: ojos cerrados, boca abierta y cola en dos posiciones. Se combinan para parpadeo, ladrido y cola.
+**Hojas de sprites:** se piden varias poses en una sola hoja (grilla) con fondo verde puro y se cortan con
+`python3 tools/procesar_cuba.py --hoja hoja.png COLUMNAS nombre1 nombre2 …` (nombres en orden de lectura). Conviene subir la hoja con un upscaler: Gemini la entrega chica (~1000 px).
 
 ## Formato
 
@@ -43,4 +41,4 @@ PNG de 1024×1024 para poses. Se procesan (recorte de fondo, optimización a Web
 
 ## Mientras tanto
 
-La app usa la ilustración vectorial de `src/cuba.js` con cuatro humores. Los assets definitivos la reemplazan pose por pose.
+Sin imágenes embebidas (tests, versiones viejas) la app usa el dibujo vectorial de `src/cuba.js`; las poses nuevas sin imagen caen a un humor básico.

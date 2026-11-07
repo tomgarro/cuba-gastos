@@ -55,6 +55,13 @@ t('lo que más se va', () => {
   assert.ok(/^En este mes lo que más se va es luz/.test(r.texto), r.texto);
 });
 
+t('cada respuesta trae la pose de Cuba que le toca', () => {
+  assert.strictEqual(P.responder(q('cuándo fue el último gasto de luz'), E, ctx).sprite, 'ticket');
+  assert.strictEqual(P.responder(q('cuánto me debe Pau'), E, ctx).sprite, 'calculadora');
+  assert.strictEqual(P.responder(q('en qué gastamos más este mes'), E, ctx).sprite, 'lupa');
+  assert.strictEqual(P.responder(q('estamos a mano'), [g('X', '2026-11-01', 1000, 'super', { sp: [['a', 1000]] })], ctx).sprite, 'festejando');
+});
+
 t('lo que no entiende devuelve null; la consulta de Gemini se valida sola', () => {
   assert.strictEqual(q('hola cuba'), null);
   assert.strictEqual(q('cuándo fue el último'), null, 'sin categoría no hay "último"');

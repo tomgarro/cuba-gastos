@@ -1,4 +1,6 @@
-# Sprites de Cuba pendientes (para cuando se renueve el límite de Gemini)
+# Sprites de Cuba: pedidos (histórico)
+
+> ✅ Hecho en v0.18: los 5 sprites de «Preguntarle a Cuba» y 12 poses más ya están en `assets/cuba/` y conectados. Queda como referencia de los prompts.
 
 Animación «Preguntarle a Cuba»: escucha → olfatea → responde. Ya están `escucha_a` y `escucha_b`.
 Faltan 5 imágenes. Mientras tanto la app usa poses existentes (feliz, alerta, tranquilo, mimado_a/b).

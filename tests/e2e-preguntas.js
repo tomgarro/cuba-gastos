@@ -89,6 +89,10 @@ const J = x => JSON.parse(JSON.stringify(x));
   // --- Detalle escondido ---
   await preguntar('¿quién es la mejor perra?'); assert.ok(/¡Yo!/.test(await respuesta(/¡Yo!/)));
   await A.p.waitForSelector('.heart');
+  const llamadas = calls.entenderPregunta;
+  await preguntar('¿adónde vamos de vacaciones?'); assert.ok(/valija lista/.test(await respuesta(/valija lista/)));
+  await preguntar('¿hacemos un asado?'); assert.ok(/parrilla/.test(await respuesta(/parrilla/)));
+  assert.strictEqual(calls.entenderPregunta, llamadas, 'el detalle no le pregunta nada a Gemini');
 
   // --- No guardó ni cambió nada en la Sheet; cerrar frena todo ---
   assert.strictEqual(sheet.grids.Movimientos.length, 4);

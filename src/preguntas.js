@@ -108,7 +108,7 @@
   function catNombre(k) { var c = C.CATS.filter(function (x) { return x.k === k; })[0]; return c ? c.n.toLowerCase() : k; }
   function enRango(e, c) { var m = C.monthKey(e.date); return m >= c.desde && m <= c.hasta; }
 
-  // Respuesta: { texto, sprite: 'responde' | 'no_encuentra', filas?: [[etiqueta, monto]] }
+  // Respuesta: { texto, sprite: 'responde' | 'no_encuentra' | 'ticket' | 'lupa' | 'calculadora' | 'festejando', filas?: [[etiqueta, monto]] }
   function responder(c, entries, ctx) {
     var live = C.live(entries).filter(function (e) { return !e.ev && e.type !== 'payment'; });
     var nombre = function (id) { var p = (ctx.personas || []).filter(function (x) { return x.id === id; })[0]; return p ? String(p.name).split(' ')[0] : 'alguien'; };
@@ -123,8 +123,8 @@
           lineas.push(nombre(t.from) + ' le debe ' + fmt(t.cents, cur) + ' a ' + nombre(t.to));
         });
       });
-      if (!lineas.length) return { texto: c.quien ? 'Con ' + nombre(c.quien) + ' están a mano: no se debe nada.' : 'Están a mano: no se debe nada.', sprite: 'responde' };
-      return { texto: lineas.join('. ') + '.', sprite: 'responde' };
+      if (!lineas.length) return { texto: c.quien ? 'Con ' + nombre(c.quien) + ' están a mano: no se debe nada.' : 'Están a mano: no se debe nada.', sprite: 'festejando' };
+      return { texto: lineas.join('. ') + '.', sprite: 'calculadora' };
     }
 
     var rows = live.filter(function (e) { return enRango(e, c) && (!c.cat || e.cat === c.cat); });
@@ -134,7 +134,7 @@
       var todos = live.filter(function (e) { return e.cat === c.cat; }).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
       if (!todos.length) return { texto: 'No encuentro ningún gasto de ' + catNombre(c.cat) + '.', sprite: 'no_encuentra' };
       var u = todos[0];
-      return { texto: 'Lo último en ' + catNombre(c.cat) + ': ' + u.desc + ', ' + fmt(u.cents, u.cur || 'ARS') + ' el ' + u.date.slice(8, 10) + '/' + u.date.slice(5, 7) + '/' + u.date.slice(0, 4) + '.', sprite: 'responde' };
+      return { texto: 'Lo último en ' + catNombre(c.cat) + ': ' + u.desc + ', ' + fmt(u.cents, u.cur || 'ARS') + ' el ' + u.date.slice(8, 10) + '/' + u.date.slice(5, 7) + '/' + u.date.slice(0, 4) + '.', sprite: 'ticket' };
     }
 
     if (!rows.length) return { texto: 'No encuentro gastos' + quien + ' en ' + c.etiqueta + '.', sprite: 'no_encuentra' };
@@ -145,7 +145,7 @@
 
     if (c.tipo === 'top') {
       var m0 = monedas[0], cats = porMoneda[m0].cats, orden = Object.keys(cats).sort(function (a, b) { return cats[b] - cats[a]; }).slice(0, 3);
-      return { texto: 'En ' + c.etiqueta + ' lo que más se va es ' + orden.map(function (k) { return catNombre(k) + ' (' + fmt(cats[k], m0) + ')'; }).join(', ') + '.', sprite: 'responde' };
+      return { texto: 'En ' + c.etiqueta + ' lo que más se va es ' + orden.map(function (k) { return catNombre(k) + ' (' + fmt(cats[k], m0) + ')'; }).join(', ') + '.', sprite: 'lupa' };
     }
 
     out = monedas.map(function (cur) { return fmt(porMoneda[cur].total, cur) + ' (' + porMoneda[cur].n + (porMoneda[cur].n === 1 ? ' gasto' : ' gastos') + ')'; }).join(' y ');

@@ -2,6 +2,7 @@
 """Recorta las poses de Cuba de las hojas generadas con Gemini y arma assets/cuba/*.webp y los íconos.
 Uso: python3 tools/procesar_cuba.py hoja_poses.jpg hoja_frente.jpg icono.jpg
      python3 tools/procesar_cuba.py --mimado hoja_mimado.jpg   (2 poses para "acariciar a Cuba")
+     python3 tools/procesar_cuba.py --hoja hoja.jpg COLUMNAS nombre1 nombre2 ...   (hoja con grilla: nombres en orden de lectura, izquierda→derecha y arriba→abajo)
 (Las hojas originales pesan mucho y no se suben al repo; salen WebP chicos con fondo transparente.)"""
 import sys, pathlib
 import numpy as np
@@ -80,6 +81,53 @@ def mimado(hoja_path):
         save(canvas, name, 460)
 
 
+def cutout_verde(img):
+    """Para hojas con fondo verde puro #00FF00: transparencia por color (también los huecos entre patas) y se le quita el verde al borde suavizado."""
+    a = np.asarray(img.convert('RGB')).astype(float)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    verde = g - np.maximum(r, b)            # ~255 en el fondo, ~0 o negativo en el dibujo
+    alpha = np.clip(1 - (verde - 35) / 50, 0, 1)   # también borra la sombra verde oscura del piso
+    spill = np.maximum(g - np.maximum(r, b), 0) * (alpha > 0)
+    a[..., 1] = g - spill * 0.9             # el verde sobrante del borde se apaga
+    a = np.clip(a, 0, 255)
+    return alpha, a
+
+
+def hoja(path, cols, nombres):
+    """Hoja de sprites en grilla: corta cada dibujo y lo guarda con el nombre que le toca por orden de lectura (celdas vacías no cuentan)."""
+    img = Image.open(path)
+    alpha, a = cutout_verde(img)
+    sol = alpha > .5
+    lab, k = ndi.label(ndi.binary_dilation(sol, iterations=max(4, round(img.size[0] * 0.009))))  # une partes de un dibujo sin juntar vecinos (escala con la hoja)
+    sizes = ndi.sum(sol, lab, range(1, k + 1))
+    ps = []
+    keep = [j + 1 for j in np.argsort(sizes)[::-1][:len(nombres)]]
+    masks = {i: (lab == i) for i in keep}
+    # Pedacitos sueltos (confeti, notas, monedas): van con el dibujo más cercano si están a menos del 6% del ancho de la hoja.
+    resto = sol & ~np.isin(lab, keep)
+    bl, nb = ndi.label(ndi.binary_dilation(resto, iterations=3))
+    for j, sl in enumerate(ndi.find_objects(bl), 1):
+        ys, xs = np.where((bl == j) & resto)
+        if not len(xs): continue
+        cx, cy = xs.mean(), ys.mean(); best, bd = None, img.size[0] * 0.06
+        for i in keep:
+            yy, xx = np.where(masks[i] & sol)
+            d = np.sqrt((np.clip(cx, xx.min(), xx.max()) - cx) ** 2 + (np.clip(cy, yy.min(), yy.max()) - cy) ** 2)
+            if d < bd: best, bd = i, d
+        if best: masks[best] = masks[best] | ((bl == j) & resto)
+    for i in keep:
+        m = masks[i]
+        ys, xs = np.where(m & sol)
+        box = (max(xs.min() - 6, 0), max(ys.min() - 6, 0), xs.max() + 7, ys.max() + 7)
+        al = Image.fromarray((alpha * m * 255).astype(np.uint8))
+        rgba = Image.fromarray(a.astype(np.uint8)).convert('RGBA'); rgba.putalpha(al)
+        ps.append((box, rgba.crop(box)))
+    ps.sort(key=lambda p: (p[0][1] + p[0][3]) / 2)
+    filas = [sorted(ps[i:i + cols], key=lambda p: p[0][0]) for i in range(0, len(ps), cols)]
+    for (box, im), name in zip([p for f in filas for p in f], nombres):
+        save(im, name)
+
+
 def principal():
     hoja, frente, icono = [Image.open(x) for x in sys.argv[1:4]]
     W, H = hoja.size
@@ -111,5 +159,7 @@ def principal():
 if __name__ == '__main__':
     if len(sys.argv) == 3 and sys.argv[1] == '--mimado':
         mimado(sys.argv[2])
+    elif len(sys.argv) > 4 and sys.argv[1] == '--hoja':
+        hoja(sys.argv[2], int(sys.argv[3]), sys.argv[4:])
     else:
         principal()

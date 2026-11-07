@@ -34,7 +34,7 @@ Orden por dependencia. Marcar a medida que se completa.
 - [ ] Gastos sorpresa y gastos privados por persona
 - [ ] Modo asado o viaje: grupos temporales, link de pago, cotización al día del gasto
 - [ ] Guardar recibos de sueldo y datos en Drive
-- [ ] Animaciones de Cuba con los assets de `ASSETS_CUBA.md`
+- [x] Animaciones de Cuba con los assets de `ASSETS_CUBA.md` (poses por pantalla y aventuras en Inicio, v0.18)
 
 ## Fase 4 · Integraciones
 - [ ] Mercado Pago
