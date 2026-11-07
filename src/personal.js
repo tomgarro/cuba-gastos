@@ -92,7 +92,7 @@
 
   /* ---------------- estado a partir de los eventos ---------------- */
   function armar(eventos) {
-    var gastos = {}, anula = {}, presup = {}, metas = {}, aportes = [], vistos = {};
+    var gastos = {}, anula = {}, presup = {}, metas = {}, aportes = [], vistos = {}, deu = {}, cobros = [], alias = null;
     (eventos || []).forEach(function (e) {
       if (!e || !e.id) return;
       if (e.t === 'g') gastos[e.id] = e;
@@ -100,6 +100,9 @@
       else if (e.t === 'p') { if (!presup[e.k] || presup[e.k].ts <= (e.ts || 0)) presup[e.k] = { c: e.c, m: e.m || 'ARS', ts: e.ts || 0 }; }
       else if (e.t === 'm') metas[e.id] = e;
       else if (e.t === 'a') aportes.push(e);
+      else if (e.t === 'd') deu[e.id] = e;
+      else if (e.t === 'r') cobros.push(e);
+      else if (e.t === 'h') { if (!alias || alias.ts <= (e.ts || 0)) alias = { v: String(e.v || ''), ts: e.ts || 0 }; }
       else if (e.t === 'o') vistos[e.ref] = true;   // «está bien»: no vuelve a aparecer en Para revisar
     });
     var lista = Object.keys(gastos).filter(function (k) { return !anula[k]; }).map(function (k) { return gastos[k]; })
@@ -109,7 +112,13 @@
       var m = metas[k], hechos = aportes.filter(function (a) { return a.meta === k && !anula[a.id]; });
       return { id: k, n: m.n, c: m.c, m: m.m || 'ARS', aportado: hechos.reduce(function (s, a) { return s + a.c; }, 0), aportes: hechos };
     });
-    return { gastos: lista, presup: presup, metas: ms, vistos: vistos };
+    var amigos = [], vistoN = {};
+    var deudas = Object.keys(deu).filter(function (k) { return !anula[k]; }).map(function (k) {
+      var d = deu[k], pag = cobros.filter(function (r) { return r.ref === k && !anula[r.id]; }).reduce(function (a, r) { return a + r.c; }, 0);
+      return { id: k, f: d.f, d: d.d, w: d.w, c: d.c, m: d.m || 'ARS', cp: d.cp, det: d.det || [], pagado: Math.min(pag, d.c), pend: Math.max(0, d.c - pag) };
+    }).sort(function (a, b) { return a.f < b.f ? 1 : a.f > b.f ? -1 : a.id < b.id ? 1 : -1; });
+    deudas.forEach(function (d) { var k = String(d.w).toLowerCase(); if (!vistoN[k]) { vistoN[k] = 1; amigos.push(d.w); } });
+    return { gastos: lista, presup: presup, metas: ms, vistos: vistos, deudas: deudas, amigos: amigos, alias: alias ? alias.v : '' };
   }
 
   // Une lo que hay en el celular con lo que bajó de la Sheet (mismo id = mismo evento).
@@ -175,6 +184,50 @@
     return out;
   }
 
+  /* ---------------- compras con amigos ---------------- */
+  var YO = '__yo';
+  // items: [{ d, cents, w: [claves] }]. Cada ítem se reparte parejo entre quienes lo comparten y siempre suma exacto.
+  function repartirCompra(items) {
+    var tot = {}, det = {};
+    items.forEach(function (it, i) {
+      var w = it.w && it.w.length ? it.w : [YO], n = w.length, base = Math.floor(it.cents / n), rem = it.cents - base * n, start = i % n;
+      w.forEach(function (k, j) {
+        var c = base + (((j - start + n) % n) < rem ? 1 : 0);
+        tot[k] = (tot[k] || 0) + c; (det[k] = det[k] || []).push({ d: it.d, c: c, n: n });
+      });
+    });
+    return { tot: tot, det: det };
+  }
+  // c: { id, comercio, fecha, cur, cat, items, nombres:{clave:nombre}, pagados:{clave:true} } -> eventos para Personal
+  function armarCompra(c) {
+    var r = repartirCompra(c.items), ev = [], total = c.items.reduce(function (a, i) { return a + i.cents; }, 0), n = 0;
+    if (r.tot[YO] > 0) ev.push({ id: c.id + '-g', t: 'g', f: c.fecha, d: c.comercio, c: r.tot[YO], m: c.cur, k: c.cat || 'otros', tot: total, cp: c.id });
+    Object.keys(r.tot).forEach(function (k) {
+      if (k === YO || !(r.tot[k] > 0)) return; n++;
+      var id = c.id + '-d-' + n;
+      ev.push({ id: id, t: 'd', f: c.fecha, d: c.comercio, w: c.nombres[k], c: r.tot[k], m: c.cur, cp: c.id, det: r.det[k].map(function (x) { return { d: x.d, c: x.c, n: x.n }; }) });
+      if (c.pagados && c.pagados[k]) ev.push({ id: c.id + '-r-' + n, t: 'r', ref: id, c: r.tot[k], f: c.fecha });
+    });
+    return { eventos: ev, tot: r.tot, total: total };
+  }
+  function dm(f) { var p = String(f).split('-'); return +p[2] + '/' + +p[1]; }
+  function plata(c, cur) { return C.fmt(c, cur, { noDecimals: cur === 'ARS' }); }
+  // Mensaje para WhatsApp. lineas: [{ d, c, n?, comercio?, f? }]
+  function textoWA(o) {
+    var L = ['Hola ' + o.nombre + '! 👋 ' + (o.comercio ? 'Lo de ' + o.comercio + (o.fecha ? ' del ' + dm(o.fecha) : '') + ':' : 'Lo que me debés:')];
+    o.lineas.forEach(function (x) { L.push('• ' + (x.comercio ? x.comercio + ' ' + dm(x.f) + ': ' : x.d + (x.n > 1 ? ' (entre ' + x.n + ')' : '') + ': ') + plata(x.c, o.cur)); });
+    var tot = o.lineas.reduce(function (a, x) { return a + x.c; }, 0);
+    L.push('Total: ' + plata(tot, o.cur));
+    L.push(o.alias ? 'Pasámelo por Mercado Pago al alias ' + o.alias + ' 🙏' : 'Cuando puedas me lo pasás 🙏');
+    return L.join('\n');
+  }
+  function textoGrupo(o) {
+    var L = [o.comercio + (o.fecha ? ' ' + dm(o.fecha) : '') + ' 🧾 Cuentas:'];
+    o.personas.forEach(function (p) { L.push('• ' + p.nombre + ': ' + plata(p.c, o.cur)); });
+    if (o.alias) L.push('Alias de Mercado Pago: ' + o.alias);
+    return L.join('\n');
+  }
+
   /* ---------------- calendario ---------------- */
   function icsTxt(s) { return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
   function plegar(l) { var o = []; while (l.length > 74) { o.push(l.slice(0, 74)); l = ' ' + l.slice(74); } o.push(l); return o.join('\r\n'); }
@@ -197,6 +250,6 @@
   return {
     nuevaClave: nuevaClave, codigoDe: codigoDe, claveDeCodigo: claveDeCodigo, cifrar: cifrar, descifrar: descifrar,
     leer: leer, armarGasto: armarGasto, nuevoId: nuevoId, armar: armar, unir: unir, statsMes: statsMes,
-    duplicados: duplicados, rarezas: rarezas, ics: ics, addMes: addMes, addDias: addDias
+    duplicados: duplicados, rarezas: rarezas, ics: ics, YO: YO, repartirCompra: repartirCompra, armarCompra: armarCompra, textoWA: textoWA, textoGrupo: textoGrupo, addMes: addMes, addDias: addDias
   };
 });

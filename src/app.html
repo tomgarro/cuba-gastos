@@ -1166,6 +1166,8 @@ function viewPersonal() {
     return '<div class="rsrow"><span class="emoji" style="width:34px;height:34px;font-size:17px">' + C.catInfo(g.k).e + '</span><span class="grow"><div class="t">' + esc(g.d) + '</div><div class="s">' + dLabel(g.f) + '</div></span><span class="a" style="font-weight:700">' + perMonto(g.c, g.m) + '</span>' +
       '<button class="chip" data-act="perpasar" data-id="' + esc(g.id) + '" aria-label="Pasar a compartido" title="Pasar a compartido">🤝</button><button class="chip" data-act="perdel" data-id="' + esc(g.id) + '" aria-label="Anular">✕</button></div>';
   }).join('') + (del.length > (S.perN || 20) ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="permas">Ver más</button>' : '') + '</div>';
+  h += '<div class="card"><h3>🧾 Compra con amigos</h3><p class="mut" style="margin:0 0 8px;font-size:14px">Pagaste vos y los demás te devuelven: en Personal queda solo tu parte y lo otro como «me deben», con el mensaje listo para WhatsApp.</p><div class="row">' +
+    (S.mode === 'sheets' ? '<label class="btn acc sm grow" style="text-align:center;cursor:pointer">📷 Escanear ticket<input type="file" id="cmfile" accept="image/*" hidden></label>' : '') + '<button class="btn ghost sm grow" data-act="cmmanual">✍️ Cargar a mano</button></div></div>' + viewDeben();
   h += '<div class="card"><h3>🐾 Con Cuba</h3><div class="quick"><input id="precomp" data-in="precomp" placeholder="Antes de comprar: «tele 600000 en 6 cuotas»" autocomplete="off"><button data-act="precompra">¿Me conviene?</button></div>' + (S.mode === 'sheets' ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="rgabrir">🎁 Ideas de regalo con presupuesto</button>' : '') + '</div>';
   h += '<div class="card"><h3>Metas de ahorro</h3>' + (st.metas.length ? st.metas.map(function (m) {
     var pct = Math.min(100, Math.round(m.aportado * 100 / m.c));
@@ -1803,7 +1805,7 @@ function multiGemini(texto, per) {
 }
 
 // --- ticket por ítems ---
-function tkLeer(f) {
+function tkLeer(f, cm) {
   var ev = S.form && S.form.ev, tk = S.iaTk = Date.now();
   iaHoja('🧾 Ticket por ítems', iaPensando('Leyendo el ticket…'));
   Share.achicar(f, 1600).then(function (b64) { return iaLlamar('leerTicket', { imagen: b64, mime: 'image/jpeg' }); }).then(function (d) {
@@ -1812,6 +1814,7 @@ function tkLeer(f) {
     if (!its.length) throw iaErr('No pude separar los ítems de esa foto: cargalo a mano.');
     var sum = its.reduce(function (a, i) { return a + i.cents; }, 0);
     if (d.total_centavos > sum) its.push({ d: 'Propina e impuestos', cents: d.total_centavos - sum, a: 'ambos' });
+    if (cm) { cmAbrir({ comercio: d.comercio, fecha: d.fecha || today(), cur: d.moneda, items: its.map(function (i) { return { d: i.d, cents: i.cents }; }) }); return; }
     var evv = ev ? S.eventos.filter(function (x) { return x.id === ev; })[0] : null;
     S.tk = { ev: ev || null, cur: evv ? evv.cur : d.moneda, date: d.fecha || today(), name: d.comercio || '', items: its };
     tkVer();
@@ -1929,6 +1932,113 @@ Object.assign(A, {
     bajar('regalo-cuba.ics', P.ics([{ id: 'rg' + Date.now(), titulo: 'Regalo: ' + R.q.trim() + ' (presupuesto ' + R.m + ')', fecha: f, nota: 'La ocasión es el ' + R.f, unico: true, icono: '🎁', aviso: '-PT9H' }]), 'text/calendar'); toast('Abrilo y se agrega a tu calendario');
   }
 });
+// ---------------- compra con amigos (v0.21): queda en Personal, solo tu parte; el resto es «me deben» ----------------
+var YO = P.YO;
+function cmKey(n) { return String(n).trim().toLowerCase(); }
+function cmAbrir(o) {
+  var st = Per.state(), otro = otroId(), gente = [], vistos = {};
+  var suma = function (n) { var k = cmKey(n); if (n && k !== 'yo' && !vistos[k]) { vistos[k] = 1; gente.push(String(n).trim()); } };
+  if (otro) suma(firstName(otro));
+  st.amigos.forEach(suma);
+  S.cm = { comercio: o.comercio || '', fecha: o.fecha || today(), cur: o.cur || 'ARS', items: o.items.map(function (i) { return { d: i.d, cents: i.cents, w: [YO] }; }), gente: gente, pagados: {}, alias: st.alias || '' };
+  if (otro) S.cm.pagados[cmKey(firstName(otro))] = true;   // Odi suele pagar en el momento
+  cmVer();
+}
+function cmVer() {
+  var M = S.cm, sc = $('#sheet').scrollTop, parts = [[YO, 'Yo']].concat(M.gente.map(function (n) { return [cmKey(n), n]; })), nom = {};
+  parts.forEach(function (p) { nom[p[0]] = p[1]; });
+  var h = '<label class="f">Comercio</label><input data-in="cmname" value="' + esc(M.comercio) + '" placeholder="Coto, carnicería…" maxlength="60" autocomplete="off">' +
+    '<div class="quick" style="margin-top:8px"><input id="cmnew" data-in="cmnew" placeholder="Sumar a alguien: Nacho, Fede…" maxlength="30" autocomplete="off"><button data-act="cmadd">Sumar</button></div>' +
+    '<p class="mut" style="font-size:13px;margin:8px 0">Tocá quiénes comparten cada cosa. Si son varios, se divide parejo.</p>';
+  h += M.items.map(function (it, i) {
+    return '<div class="rsrow" style="flex-wrap:wrap"><span class="grow"><div class="t">' + esc(it.d) + '</div><div class="s">' + perMonto(it.cents, M.cur) + '</div></span><span class="chips">' +
+      parts.map(function (p) { return '<button class="chip' + (it.w.indexOf(p[0]) >= 0 ? ' on' : '') + '" data-act="cmtog" data-i="' + i + '" data-k="' + esc(p[0]) + '">' + esc(p[1]) + '</button>'; }).join('') +
+      '<button class="chip" data-act="cmall" data-i="' + i + '">Todos</button></span></div>';
+  }).join('');
+  var r = P.repartirCompra(M.items), total = M.items.reduce(function (a, i) { return a + i.cents; }, 0);
+  h += '<div class="preview" style="margin-top:8px"><b>Ticket ' + perMonto(total, M.cur) + '</b>' + parts.filter(function (p) { return r.tot[p[0]] > 0; }).map(function (p) {
+    return '<div class="stat" style="padding:4px 0;align-items:center"><span>' + (p[0] === YO ? 'Tu parte <span class="mut">(va a Personal)</span>' : esc(p[1]) + ' te debe') + '</span><span><b>' + perMonto(r.tot[p[0]], M.cur) + '</b>' +
+      (p[0] === YO ? '' : ' <button class="chip' + (M.pagados[p[0]] ? ' on' : '') + '" data-act="cmpaid" data-k="' + esc(p[0]) + '">' + (M.pagados[p[0]] ? 'Ya pagó ✓' : 'Ya pagó') + '</button>') + '</span></div>';
+  }).join('') + '</div>';
+  h += '<label class="f">Mi alias de Mercado Pago</label><input data-in="cmalias" value="' + esc(M.alias) + '" placeholder="tu.alias.mp" maxlength="40" autocomplete="off" autocapitalize="off">';
+  iaHoja('🧾 Compra con amigos', h + '<button class="btn acc full" style="margin-top:12px" data-act="cmsave">Guardar y armar mensajes</button>');
+  $('#sheet').scrollTop = sc;
+}
+function cmMsgs(deudas, alias) {   // mensajes de WhatsApp para lo que sigue pendiente
+  var por = {}, orden = [];
+  deudas.filter(function (d) { return d.pend > 0; }).forEach(function (d) { var k = cmKey(d.w); if (!por[k]) { por[k] = []; orden.push(k); } por[k].push(d); });
+  return orden.map(function (k) {
+    var ds = por[k], uno = ds.length === 1 && ds[0].det.length;
+    var txt = P.textoWA({ nombre: ds[0].w, cur: ds[0].m, alias: alias, comercio: uno ? ds[0].d : '', fecha: uno ? ds[0].f : '',
+      lineas: uno ? ds[0].det : ds.map(function (d) { return { comercio: d.d, f: d.f, c: d.pend }; }) });
+    return { n: ds[0].w, txt: txt, c: ds.reduce(function (a, d) { return a + d.pend; }, 0), cur: ds[0].m };
+  });
+}
+function cmMsgVer(msgs, titulo, grupo) {
+  S.cmmsg = msgs.map(function (m) { return m.txt; });
+  var h = '<p class="mut" style="margin:0 0 8px;font-size:14px">Listo. Copialo o mandalo directo por WhatsApp.</p>' + msgs.map(function (m, i) {
+    return '<div class="preview" style="margin-bottom:8px"><div style="white-space:pre-wrap;font-size:14px">' + esc(m.txt) + '</div><div class="row" style="margin-top:8px"><button class="btn ghost sm grow" data-act="cmcopy" data-i="' + i + '">Copiar</button><a class="btn acc sm grow" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(m.txt) + '">WhatsApp</a></div></div>';
+  }).join('');
+  if (grupo) { S.cmmsg.push(grupo); h += '<button class="btn ghost full" data-act="cmcopy" data-i="' + (S.cmmsg.length - 1) + '">Copiar uno para el grupo</button>'; }
+  iaHoja(titulo, h + '<button class="btn ghost full" style="margin-top:8px" data-act="close">Listo</button>');
+}
+function viewDeben() {
+  var st = Per.state(), pend = st.deudas.filter(function (d) { return d.pend > 0; }); if (!pend.length) return '';
+  var por = {}, orden = []; pend.forEach(function (d) { var k = cmKey(d.w); if (!por[k]) { por[k] = []; orden.push(k); } por[k].push(d); });
+  return '<div class="card"><h3>Me deben</h3>' + orden.map(function (k) {
+    var ds = por[k], tot = {}; ds.forEach(function (d) { tot[d.m] = (tot[d.m] || 0) + d.pend; });
+    return '<div style="margin:8px 0"><div class="stat" style="padding:0;align-items:center"><span><b>' + esc(ds[0].w) + '</b></span><b>' + Object.keys(tot).map(function (m) { return perMonto(tot[m], m); }).join(' + ') + '</b></div>' +
+      ds.map(function (d) { return '<div class="rsrow"><span class="grow"><div class="t">' + esc(d.d) + '</div><div class="s">' + dLabel(d.f) + (d.pagado ? ' · ya pagó ' + perMonto(d.pagado, d.m) : '') + '</div></span><span class="a">' + perMonto(d.pend, d.m) + '</span><button class="chip" data-act="cobro" data-id="' + esc(d.id) + '">Me pagó</button></div>'; }).join('') +
+      '<div class="row" style="margin-top:6px"><button class="chip" data-act="cmrecordar" data-n="' + esc(k) + '">💬 Recordar</button>' + (ds.length > 1 ? '<button class="chip" data-act="cobrotodo" data-n="' + esc(k) + '">Me pagó todo</button>' : '') + '</div></div>';
+  }).join('') + '</div>';
+}
+
+Object.assign(A, {
+  cmmanual: function () {
+    S.cmm = { t: '', n: '' };
+    iaHoja('🧾 Compra con amigos', '<label class="f">Comercio</label><input data-in="cmmname" placeholder="Coto" maxlength="60" autocomplete="off"><label class="f">Qué compraste (uno por renglón)</label><textarea data-in="cmmtxt" rows="6" placeholder="fernet 12000&#10;coca 3500&#10;detergente 2800" style="width:100%"></textarea><button class="btn acc full" style="margin-top:10px" data-act="cmarmar">Armar el reparto</button>');
+  },
+  cmarmar: function () {
+    var M = S.cmm; if (!M) return;
+    var its = String(M.t).split(/\n/).map(function (l) { return P.leer(l, today()); }).filter(Boolean), cur = its[0] ? its[0].cur : 'ARS';
+    if (!its.length) { toast('Escribí cada cosa con su monto: «fernet 12000».'); return; }
+    cmAbrir({ comercio: M.n, cur: cur, items: its.filter(function (l) { return l.cur === cur; }).map(function (l) { return { d: l.desc, cents: l.cents }; }) });
+  },
+  cmtog: function (el) { var it = S.cm && S.cm.items[+el.dataset.i]; if (!it) return; var k = el.dataset.k, j = it.w.indexOf(k); if (j >= 0) it.w.splice(j, 1); else it.w.push(k); if (!it.w.length) it.w = [YO]; cmVer(); },
+  cmall: function (el) { var M = S.cm, it = M && M.items[+el.dataset.i]; if (it) { it.w = [YO].concat(M.gente.map(cmKey)); cmVer(); } },
+  cmpaid: function (el) { if (S.cm) { S.cm.pagados[el.dataset.k] = !S.cm.pagados[el.dataset.k]; cmVer(); } },
+  cmadd: function () {
+    var i = $('#cmnew'), n = i && i.value.trim(), M = S.cm; if (!M || !n) return;
+    if (cmKey(n) === 'yo' || M.gente.some(function (g) { return cmKey(g) === cmKey(n); })) { toast('Ya está en la lista.'); return; }
+    M.gente.push(n); cmVer(); var j = $('#cmnew'); if (j) j.focus();
+  },
+  cmsave: function () {
+    var M = S.cm; if (!M) return;
+    var nombres = {}; M.gente.forEach(function (g) { nombres[cmKey(g)] = g; });
+    var total = M.items.reduce(function (a, i) { return a + i.cents; }, 0), id = 'cp' + P.nuevoId();
+    var c = P.armarCompra({ id: id, comercio: C.prolija(M.comercio.trim() || 'Compra', M.fecha), fecha: M.fecha, cur: M.cur, cat: C.guessCategory(M.comercio), items: M.items, nombres: nombres, pagados: M.pagados });
+    var evs = c.eventos.slice(), alias = M.alias.trim();
+    if (alias && alias !== Per.state().alias) evs.push({ id: P.nuevoId(), t: 'h', v: alias, ts: Date.now() });
+    Per.add(evs).then(function () {
+      var st = Per.state(), nuevas = st.deudas.filter(function (d) { return d.cp === id; }), msgs = cmMsgs(nuevas, st.alias);
+      S.cm = null;
+      if (!msgs.length) { closeSheet(); toast('Anotado en Personal. Nadie te debe nada de esta compra.'); return; }
+      var grupo = msgs.length > 1 ? P.textoGrupo({ comercio: C.prolija(M.comercio.trim() || 'Compra', M.fecha), fecha: M.fecha, cur: M.cur, alias: st.alias, personas: msgs.map(function (m) { return { nombre: m.n, c: m.c }; }) }) : '';
+      cmMsgVer(msgs, 'Mensajes para tus amigos', grupo);
+    });
+  },
+  cmcopy: function (el) { var t = (S.cmmsg || [])[+el.dataset.i]; if (t) copyText(t, 'Copiado: pegalo en WhatsApp'); },
+  cobro: function (el) { var d = Per.state().deudas.filter(function (x) { return x.id === el.dataset.id; })[0]; if (d && d.pend > 0) Per.add([{ id: P.nuevoId(), t: 'r', ref: d.id, c: d.pend, f: today() }]).then(function () { toast(d.w + ' te pagó ' + perMonto(d.pend, d.m)); }); },
+  cobrotodo: function (el) {
+    var ds = Per.state().deudas.filter(function (d) { return cmKey(d.w) === el.dataset.n && d.pend > 0; });
+    if (ds.length) Per.add(ds.map(function (d) { return { id: P.nuevoId(), t: 'r', ref: d.id, c: d.pend, f: today() }; })).then(function () { toast('Anotado: ' + ds[0].w + ' te pagó todo'); });
+  },
+  cmrecordar: function (el) {
+    var st = Per.state(), msgs = cmMsgs(st.deudas.filter(function (d) { return cmKey(d.w) === el.dataset.n; }), st.alias);
+    if (msgs.length) cmMsgVer(msgs, 'Recordatorio para ' + msgs[0].n);
+  }
+});
+
 function iaCierre(tipo, titulo) {
   var mk = S.closeMonth, prev = P.addMes(mk + '-01', -1).slice(0, 7), cur = curs(C.balances(S.entries, [])).filter(function (c) { return C.monthStats(S.entries, mk, c).count; })[0];
   if (!cur) { toast('Ese mes no tiene gastos.'); return; }
@@ -2020,6 +2130,7 @@ document.addEventListener('change', function (ev) {
   if (el.type === 'checkbox' && el.dataset.act === 'toggle') { A.toggle(el); return; }
   if (el.type === 'checkbox' && el.dataset.act === 'rsper') { A.rsper(el); return; }
   if ((el.id === 'rstc' || el.id === 'rspct') && S.rs) { S.rs.dolar[el.id === 'rstc' ? 'tc' : 'pct'] = el.value; render(); return; }
+  if (el.type === 'file' && el.id === 'cmfile') { var fc = el.files && el.files[0]; el.value = ''; if (fc) tkLeer(fc, true); return; }
   if (el.type === 'file' && el.id === 'tkfile') { var ft = el.files && el.files[0]; el.value = ''; if (ft) tkLeer(ft); return; }
   if (el.type === 'checkbox' && el.dataset.act === 'multick') { A.multick(el); return; }
   if (el.type === 'file' && el.id === 'shfile') { var evq = S.form && S.form.ev, fq = el.files && el.files[0]; el.value = ''; if (fq) Share.archivo(fq, evq); return; }
@@ -2061,6 +2172,8 @@ document.addEventListener('input', function (ev) {
   else if (k === 'search') { S.q = el.value; var l = $('#list'); if (l) l.innerHTML = listHtml(); }
   else if (S.ef && k === 'evname') { S.ef.name = el.value; }
   else if (S.tk && k === 'tkname') { S.tk.name = el.value; }
+  else if (S.cm && (k === 'cmname' || k === 'cmalias')) { S.cm[k === 'cmname' ? 'comercio' : 'alias'] = el.value; }
+  else if (S.cmm && (k === 'cmmname' || k === 'cmmtxt')) { S.cmm[k === 'cmmname' ? 'n' : 't'] = el.value; }
   else if (S.rg && (k === 'rgq' || k === 'rgm' || k === 'rgf')) { S.rg[k.slice(2)] = el.value; }
   else if (k === 'calcamt') { S.calcAmt = el.value; var co = $('#calcout'); if (co) co.innerHTML = calcRepartoHtml(el.value); }
   else if (S.rf && (k === 'radj' || k === 'radjn')) { S.rf[k === 'radj' ? 'adj' : 'adjNext'] = el.value; }
@@ -2084,6 +2197,7 @@ document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape') closeSheet();
   if (ev.key === 'Enter' && ev.target.id === 'quick') { ev.preventDefault(); A.quick(); }
   if (ev.key === 'Enter' && ev.target.id === 'perq') { ev.preventDefault(); A.perpon(); }
+  if (ev.key === 'Enter' && ev.target.id === 'cmnew') { ev.preventDefault(); A.cmadd(); }
   if (ev.key === 'Enter' && ev.target.id === 'precomp') { ev.preventDefault(); A.precompra(); }
   if (ev.key === 'Enter' && ev.target.id === 'askq') { ev.preventDefault(); A.askgo(); }
 });

@@ -98,3 +98,27 @@ const HOY = '2026-11-10';
   });
   console.log(n + ' pruebas de Personal');
 })();
+
+// ---- compras con amigos ----
+{
+  const P = require('../src/personal.js'), assert = require('assert');
+  const items = [{ d: 'Fernet', cents: 1000001, w: ['__yo', 'odi', 'nacho'] }, { d: 'Detergente', cents: 300000, w: ['__yo', 'odi'] }, { d: 'Coca', cents: 250000, w: ['nacho'] }, { d: 'Bolsas', cents: 1, w: [] }];
+  const r = P.repartirCompra(items), suma = Object.keys(r.tot).reduce((a, k) => a + r.tot[k], 0);
+  assert.strictEqual(suma, 1000001 + 300000 + 250000 + 1, 'el reparto suma exacto al ticket');
+  assert.strictEqual(r.tot.odi, 333334 + 150000 || r.tot.odi, 'odi');
+  const c = P.armarCompra({ id: 'cp1', comercio: 'Coto', fecha: '2026-11-07', cur: 'ARS', cat: 'super', items, nombres: { odi: 'Odi', nacho: 'Nacho' }, pagados: { odi: true } });
+  const g = c.eventos.find(e => e.t === 'g'), ds = c.eventos.filter(e => e.t === 'd'), rs = c.eventos.filter(e => e.t === 'r');
+  assert.strictEqual(g.c + ds.reduce((a, d) => a + d.c, 0), c.total, 'mi parte + lo que me deben = ticket');
+  assert.strictEqual(ds.length, 2); assert.strictEqual(rs.length, 1, 'Odi ya pagó');
+  const st = P.armar(c.eventos.concat([{ id: 'h1', t: 'h', v: 'tom.mp', ts: 1 }]));
+  assert.strictEqual(st.gastos.length, 1); assert.strictEqual(st.gastos[0].c, g.c, 'Personal cuenta solo mi parte');
+  const nacho = st.deudas.find(d => d.w === 'Nacho'), odi = st.deudas.find(d => d.w === 'Odi');
+  assert.strictEqual(odi.pend, 0); assert.strictEqual(nacho.pend, nacho.c); assert.strictEqual(st.alias, 'tom.mp');
+  const st2 = P.armar(c.eventos.concat([{ id: 'r9', t: 'r', ref: nacho.id, c: 100000 }]));
+  assert.strictEqual(st2.deudas.find(d => d.w === 'Nacho').pend, nacho.c - 100000, 'cobro parcial');
+  assert.deepStrictEqual(P.armar(c.eventos.concat(c.eventos)).deudas.length, 2, 'idempotente por id');
+  const wa = P.textoWA({ nombre: 'Nacho', comercio: 'Coto', fecha: '2026-11-07', cur: 'ARS', lineas: nacho.det, alias: 'tom.mp' });
+  assert.ok(/Hola Nacho/.test(wa) && /Fernet/.test(wa) && /alias tom\.mp/.test(wa) && /7\/11/.test(wa), wa);
+  assert.ok(/Nacho: /.test(P.textoGrupo({ comercio: 'Coto', fecha: '2026-11-07', cur: 'ARS', personas: [{ nombre: 'Nacho', c: nacho.c }], alias: 'tom.mp' })));
+  console.log('ok  compras con amigos: reparto exacto, deudas, cobros parciales y mensajes');
+}

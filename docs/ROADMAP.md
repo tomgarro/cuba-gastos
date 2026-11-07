@@ -53,3 +53,9 @@ Orden por dependencia. Marcar a medida que se completa.
 - Detective de suscripciones en Recurrentes, ¿es caro? (contra tu historial + opinión de Cuba), antes de comprar (Personal), carta del mes y «¿qué pasó?» (Cierre), regalos con presupuesto y recordatorio .ics.
 - Descartada a pedido: «Cuba negocia».
 - Necesita republicar `Code.gs` (acciones `leerTicket`, `entenderGastos`, `iaTexto`). Con el Apps Script viejo la app avisa y sigue a mano.
+
+## v0.21 · Compra con amigos (hecho)
+
+- En Personal: escanear el ticket (o cargarlo a mano), marcar quién comparte cada ítem (yo, Odi, amigos con nombre libre) y guardar. Personal registra solo **tu parte**; lo demás queda en «Me deben», sin tocar los gastos compartidos con Odi.
+- Odi aparece como una persona más pero viene marcada «Ya pagó» (te paga en el momento): no queda deuda. Los amigos se recuerdan para la próxima.
+- Mensaje de WhatsApp por persona (con tu alias de Mercado Pago, que se recuerda) y uno para el grupo; recordatorios y «Me pagó» total o parcial.

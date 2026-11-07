@@ -81,3 +81,7 @@ Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, desha
 ## Ideas con Gemini (v0.20)
 
 `src/ia.js` (CubaIA) hace lo local: separar gastos dictados, suscripciones, ¿es caro?, cuota de una compra, agregados del mes y reparto de un ticket. Gemini solo entra por tres acciones del Apps Script: `leerTicket` (foto → ítems), `entenderGastos` (frase → gastos) e `iaTexto` (carta, explica, regalos, compra, caro). A `iaTexto` solo viajan números agregados y conceptos: nunca nombres, sueldos ni movimientos sueltos de Personal.
+
+## Compra con amigos (v0.21)
+
+Todo vive en Personal, cifrado: eventos nuevos `d` (deuda de un amigo, con el detalle de sus ítems), `r` (cobro, total o parcial) y `h` (alias de Mercado Pago). El gasto `g` lleva solo tu parte (`tot` guarda el total del ticket). Los ids se derivan de la compra, así que reintentar no duplica. Nada de esto toca la Sheet compartida ni a Gemini más allá de leer el ticket.
