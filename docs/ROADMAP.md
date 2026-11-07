@@ -66,3 +66,7 @@ Orden por dependencia. Marcar a medida que se completa.
 - Al abrir Personal (cada 2 h como máximo) o con «Traer ahora»: los cobros de amigos se marcan solos como «me pagó» (por nombre y monto), si solo coincide el monto se pregunta; tus pagos entran a Personal sin duplicar lo ya cargado; las transferencias se revisan una por una.
 - Lo que se trae se guarda cifrado en Personal; la Sheet no ve nada legible. Tests: `secretos.test.js` verifica que no haya claves en el repo ni en la app y que Mercado Pago solo se llame con GET.
 - Pendiente de comprobar con tu cuenta real: qué devuelve la API para una cuenta personal (la API está pensada para vendedores). La primera sincronización muestra cuántos movimientos trajo.
+
+## v0.22.1
+- Mercado Pago: la sincronización informa cuántos cobros/pagos vio la API y muestra el saldo si la cuenta lo permite.
+- Avisos: el menú «Probar avisos» manda una prueba a cada celu y muestra el resultado del último aviso real (`AVISO_ULTIMO`).

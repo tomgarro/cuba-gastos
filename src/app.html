@@ -2075,7 +2075,9 @@ function mpSync(auto) {
     if (r.cobros.length) partes.push(r.cobros.length + (r.cobros.length === 1 ? ' cobro marcado' : ' cobros marcados') + ' (' + r.cobros.map(function (c) { return c.persona; }).join(', ') + ')');
     if (r.gastos.length) partes.push(r.gastos.length + (r.gastos.length === 1 ? ' gasto nuevo' : ' gastos nuevos') + ' en Personal');
     if (r.sug.length + r.rev.length) partes.push(r.sug.length + r.rev.length + ' para revisar');
-    M.msg = partes.length ? partes.join(' · ') : 'Todo al día. Mercado Pago trajo ' + (d.movimientos || []).length + ' movimientos y no hay nada nuevo.';
+    M.saldo = d.saldo_centavos == null ? null : d.saldo_centavos; var dg = d.diag || {};
+    M.msg = partes.length ? partes.join(' · ') : (d.movimientos || []).length ? 'Todo al día. Mercado Pago trajo ' + d.movimientos.length + ' movimientos y no hay nada nuevo.'
+      : 'Mercado Pago está conectado pero informó ' + ((dg.recibido || {}).total || 0) + ' cobros y ' + ((dg.pagado || {}).total || 0) + ' pagos desde ' + dLabel(desde) + '. La API solo muestra lo que pasa por una integración (ventas, QR de cobro): la actividad común de la billetera puede no estar.';
     return Per.add(ev).then(function () { if (partes.length || !auto) toast('Mercado Pago: ' + M.msg); });
   }).catch(function (e) {
     M.msg = e && e.code === 'accion_desconocida' ? 'Primero hay que publicar el Code.gs nuevo en Apps Script.' : e && e.code === 'no_autorizado' ? 'Ese código de enlace no es el de tu Apps Script. Desconectá y probá de nuevo.' : 'No pude hablar con tu Sheet ahora.';
@@ -2090,6 +2092,7 @@ function viewMP() {
     '<p class="mut" style="font-size:13px;margin:8px 0 0">El código sale del menú 🐕 Cuba → Conectar Mercado Pago, en tu Sheet.</p></div>';
   var u = mpUltima(), hace = u ? Math.max(1, Math.round((Date.now() - Date.parse(u)) / 60000)) : 0;
   h += '<div class="mut" style="font-size:13px;margin-bottom:6px">' + (u ? 'Última vez: hace ' + (hace < 90 ? hace + ' min' : Math.round(hace / 60) + ' h') : 'Todavía no se trajo nada.') + '</div>';
+  if (M.saldo != null) h += '<div class="stat"><span>Saldo en Mercado Pago</span><b>' + perMonto(M.saldo, 'ARS') + '</b></div>';
   if (M.msg) h += '<div class="preview" style="margin-bottom:8px">' + esc(M.msg) + '</div>';
   (M.sug || []).forEach(function (x, i) {
     h += '<div class="rsrow"><span class="grow"><div class="t">¿Te pagó ' + esc(x.persona) + '?</div><div class="s">' + dLabel(x.mov.fecha) + ' · ' + perMonto(x.mov.monto_centavos, x.mov.moneda) + ' recibidos</div></span><button class="chip" data-act="mpsi" data-i="' + i + '">Sí</button><button class="chip" data-act="mpno" data-i="' + i + '" data-k="sug">No</button></div>';

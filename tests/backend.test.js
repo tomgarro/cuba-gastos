@@ -745,8 +745,9 @@ t('Mercado Pago: solo lectura, necesita código de enlace, no devuelve datos sen
   assert.deepStrictEqual([m1.sentido, m1.monto_centavos, m1.fecha, m1.contraparte], ['recibido', 516667, '2026-11-07', 'Nacho P']);
   assert.deepStrictEqual([m3.sentido, m3.tipo, m3.monto_centavos], ['pagado', 'money_transfer', 230050]);
   assert.ok(!/\u0000|@|30111222|APP_USR/.test(JSON.stringify(r)), 'ni emails, ni documentos, ni el token');
+  assert.deepStrictEqual(J(r.diag), { recibido: { total: 2 }, pagado: { total: 2 } }); assert.strictEqual(r.saldo_centavos, null, 'sin saldo si la API no lo da');
   assert.ok(pedidos.every(p => p.o.method === 'get' && !p.o.payload), 'solo GET');
-  assert.ok(pedidos.every(p => p.u.indexOf('https://api.mercadopago.com/v1/payments/search?') === 0 && !/TOKEN|APP_USR/.test(p.u)), 'el token va en el encabezado, no en la URL');
+  assert.ok(pedidos.every(p => /^https:\/\/api\.mercadopago\.com\/(v1\/payments\/search\?|users\/[^/?]+\/mercadopago_account\/balance$)/.test(p.u) && !/TOKEN|APP_USR/.test(p.u)), 'solo esas dos consultas, con el token en el encabezado y no en la URL');
   assert.ok(/begin_date=2026-11-01T00%3A00%3A00\.000-03%3A00/.test(pedidos[0].u));
   b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 401, getContentText: () => '{}' }) };
   assert.strictEqual(b.call('mpMovimientos', { clave: 'AAAA-BBBB-CCCC' }).error, 'mp_token');

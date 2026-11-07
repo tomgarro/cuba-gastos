@@ -697,6 +697,7 @@ function onOpen() {
     .addItem('Conectar Mercado Pago', 'conectarMercadoPago')
     .addItem('Desconectar Mercado Pago', 'desconectarMercadoPago')
     .addItem('Activar avisos de vencimientos', 'activarAvisos')
+    .addItem('Probar avisos (qué pasa con cada celu)', 'probarAvisos')
     .addItem('Mandarme un resumen de ejemplo', 'resumenDeEjemplo')
     .addItem('Activar resumen mensual', 'activarResumenMensual')
     .addItem('Desactivar avisos', 'desactivarAvisos')
@@ -1044,7 +1045,7 @@ function actionMpMovimientos_(req) {
   var hoy = new Date().toISOString().slice(0, 10), tope = new Date(Date.now() - 92 * 86400000).toISOString().slice(0, 10);
   var desde = isDate_(req.desde) ? req.desde : new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   if (desde < tope) desde = tope;
-  var out = [], vistos = {};
+  var out = [], vistos = {}, diag = {};
   var tipos = [['recibido', 'collector.id'], ['pagado', 'payer.id']];
   for (var t = 0; t < tipos.length; t++) {
     for (var pg = 0; pg < MP.PAGINAS; pg++) {
@@ -1053,6 +1054,7 @@ function actionMpMovimientos_(req) {
       if (r.code === 401 || r.code === 403) return { ok: true, error: 'mp_token' };
       if (r.code !== 200 || !r.body) return { ok: true, error: 'mp_http' };
       var res = Array.isArray(r.body.results) ? r.body.results : [];
+      if (pg === 0) diag[tipos[t][0]] = { total: Number(r.body.paging && r.body.paging.total) || res.length };
       res.forEach(function (p) {
         var id = String(p && p.id || ''), cents = centavosDe_(p && p.transaction_amount), fecha = mpFecha_(p && (p.date_approved || p.date_created));
         if (!id || vistos[id] || !cents || !fecha || p.status !== 'approved') return;
@@ -1063,7 +1065,10 @@ function actionMpMovimientos_(req) {
       if (res.length < MP.PAGINA) break;
     }
   }
-  return { ok: true, movimientos: out.slice(0, 400), hasta: hoy };
+  var saldo = null;   // la API de saldo es restringida: si no responde, simplemente no se muestra
+  var sd = mpGet_('/users/' + encodeURIComponent(props.getProperty(MP.USER) || 'me') + '/mercadopago_account/balance', token);
+  if (sd.code === 200 && sd.body && isFinite(Number(sd.body.available_balance))) saldo = Math.round(Number(sd.body.available_balance) * 100);
+  return { ok: true, movimientos: out.slice(0, 400), hasta: hoy, diag: diag, saldo_centavos: saldo };
 }
 
 function conectarMercadoPago() {
@@ -1186,10 +1191,26 @@ function avisarMovimientos_(nuevos) {
   var que = nuevos.length === 1
     ? (nuevos[0].tipo === 'pago' ? 'anotó un pago: ' : 'anotó ') + String(nuevos[0].descripcion).slice(0, 60)
     : 'anotó ' + nuevos.length + ' movimientos';
+  var estado = { t: new Date().toISOString(), de: quien.nombre, para: {} };
   Object.keys(topics).forEach(function (pid) {
     if (pid === String(quien.id) || !personas[pid] || String(personas[pid].estado) === 'archivada') return;
-    ntfy_(topics[pid], '🐕 ' + quien.nombre, quien.nombre + ' ' + que, 3);
+    estado.para[personas[pid].nombre] = ntfy_(topics[pid], '🐕 ' + quien.nombre, quien.nombre + ' ' + que, 3);
   });
+  if (!Object.keys(estado.para).length) estado.para = { aviso: 'nadie para avisar: falta el tema de la otra persona (reactivá los avisos)' };
+  try { PropertiesService.getScriptProperties().setProperty('AVISO_ULTIMO', JSON.stringify(estado)); } catch (e) {}
+}
+
+/** Menú: manda una prueba a cada persona y cuenta qué pasó con el último aviso real. */
+function probarAvisos() {
+  var ui = SpreadsheetApp.getUi(), topics = topicsOf_(), L = [];
+  readTab_('Personas').forEach(function (p) {
+    if (String(p.estado) === 'archivada') return;
+    if (!topics[p.id]) { L.push('• ' + p.nombre + ': NO tiene tema de aviso. Corré «Activar avisos de vencimientos» de nuevo.'); return; }
+    var r = ntfy_(topics[p.id], '🐕 Cuba', 'Prueba de aviso para ' + p.nombre + '. ¡Guau!', 3);
+    L.push('• ' + p.nombre + ': ' + (r === true ? 'prueba enviada (tiene que sonar en su celu)' : 'falló: ' + r));
+  });
+  var u = ''; try { var e = JSON.parse(PropertiesService.getScriptProperties().getProperty('AVISO_ULTIMO') || 'null'); if (e) u = '\n\nÚltimo aviso de un gasto (' + e.t.slice(0, 16).replace('T', ' ') + ' UTC), de ' + e.de + ':\n' + Object.keys(e.para).map(function (k) { return '• ' + k + ': ' + (e.para[k] === true ? 'enviado' : e.para[k]); }).join('\n'); else u = '\n\nTodavía no se envió ningún aviso de un gasto nuevo.'; } catch (x) {}
+  ui.alert('Prueba de avisos', L.join('\n') + u, ui.ButtonSet.OK);
 }
 
 function activarAvisos() {
