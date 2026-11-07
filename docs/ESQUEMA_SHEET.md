@@ -55,6 +55,11 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 - Viajes y eventos (v0.14). `estado` = `abierto` o `cerrado`. Es configuración: se edita en el lugar. La moneda no se cambia si ya tiene gastos.
 - Sus gastos y pagos son movimientos normales con `evento_id` completo (última columna de `Movimientos`). La app los deja afuera del mes, de «Quién le debe a quién», del Cierre y del mail mensual; el evento tiene sus propios saldos.
 
+## Personal (cifrada, v0.19)
+`id | persona_id | blob | creado_en`
+- Solo se agrega. `blob` = evento cifrado en el celular (AES-GCM, IV de 12 bytes + texto cifrado, en base64). El backend rechaza todo lo que no parezca base64 y a cada persona le devuelve únicamente sus filas (`read` con `persona`). La clave nunca llega a la Sheet ni a Google: sin el código de recuperación nadie puede leerla.
+- Eventos (ya descifrados): `g` gasto, `x` anula, `p` tope por categoría, `m` meta, `a` aporte, `o` «está bien». Una cuota en N pagos son N gastos con `gr` en común.
+
 ## Cierres
 `id | mes | transferencias_json | confirmado_a | confirmado_b | pdf_drive_id | creado_en`
 - Cierre con doble confirmación: cada persona confirma y queda registrada la fecha.

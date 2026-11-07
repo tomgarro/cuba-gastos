@@ -35,7 +35,7 @@ function boot(opts) {
   const ctx = vm.createContext(sandbox);
   vm.runInContext(CODE, ctx);
   const TABS = JSON.parse(JSON.stringify(ctx.TABS));
-  const NUEVAS = ['Etiquetas', 'Comercios', 'ReglasResumen', 'Resumenes', 'Eventos'];
+  const NUEVAS = ['Etiquetas', 'Comercios', 'ReglasResumen', 'Resumenes', 'Eventos', 'Personal'];
   Object.keys(TABS).forEach(k => { if (opts.lazyTabs && NUEVAS.indexOf(k) >= 0) return; grids[k] = [TABS[k].slice()]; });
 
   function sheetOf(grid, maxRows0) {

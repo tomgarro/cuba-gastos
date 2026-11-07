@@ -61,7 +61,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
 .item.pay{padding:8px 0;background:linear-gradient(90deg,transparent,var(--accsoft) 160%)}.item.pay .coin{width:28px;height:28px;border-radius:50%;background:var(--pos);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;flex:none;margin:0 7px}.item.pay .s{white-space:normal;line-height:1.35}.item.pay .s b{color:var(--ink);font-weight:600}.item.pay .a{font-size:15px}.item.pay .a.in{color:var(--pos)}.item.pay .a.out{color:var(--acc)}
 .item .r .b{font-size:12px}
 .nav{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
-.nav div{max-width:520px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.nav div{max-width:520px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
 .nav button{background:none;border:0;padding:8px 4px;border-radius:12px;font-size:12px;font-weight:600;color:var(--mut);display:flex;flex-direction:column;align-items:center;gap:2px}
 .nav button span{font-size:20px}
 .nav button.on{color:var(--ink);background:var(--accsoft)}
@@ -181,10 +181,11 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 <script>/*AVISOS*/</script>
 <script>/*COMPARTIR*/</script>
 <script>/*PREGUNTAS*/</script>
+<script>/*PERSONAL*/</script>
 <script>
 (function () {
 'use strict';
-var C = CubaCore;
+var C = CubaCore, P = CubaPersonal;
 var $ = function (s) { return document.querySelector(s); };
 var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
 var rid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); };
@@ -282,12 +283,12 @@ var Store = {
       var gen = self.gen, had = !!S.group, seen = {};
       S.entries.forEach(function (x) { seen[x.id] = 1; });
       var liviano = S.loaded && self.rev && !S.offline && (Date.now() - (self.fullAt || 0) < 600000) && !opts.full;   // casi siempre alcanza con preguntar «¿cambió algo?»
-      return self.call('read', liviano ? { rev: self.rev } : {}).then(function (d) {
+      return self.call('read', liviano ? { rev: self.rev, persona: S.meId } : { persona: S.meId }).then(function (d) {
         if (gen !== self.gen) return; // hubo una escritura en el medio: este snapshot ya quedó viejo
         if (d.unchanged) { if (S.offline || S.authErr) { S.offline = false; S.authErr = false; render(); } return; }
         self.rev = d.rev || null; self.fullAt = Date.now();
         var st = CubaSheets.snapshotToState(d);
-        S.group = st.group; S.ledger = st.ledger; S.sueldos = st.sueldos || []; S.recs = st.recs || []; S.eventos = st.eventos || []; S.lotes = st.lotes || []; S.dudosas = st.dudosas || []; S.reglas = st.reglas || {}; S.resumenes = st.resumenes || []; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); render();
+        S.group = st.group; S.ledger = st.ledger; S.sueldos = st.sueldos || []; S.recs = st.recs || []; S.eventos = st.eventos || []; S.lotes = st.lotes || []; S.dudosas = st.dudosas || []; S.reglas = st.reglas || {}; S.resumenes = st.resumenes || []; S.offline = false; S.authErr = false; S.loaded = true; rebuild(); self.snap(); Per.remoto(d.personal); render();
         if (had && S.entries.some(function (x) { return !x.del && !seen[x.id] && x.by && x.by !== S.meId; })) { var a = $('#app'); a.classList.add('perk'); clearTimeout(self.pt); self.pt = setTimeout(function () { a.classList.remove('perk'); }, 2800); }
       }).catch(function (e) { S.loaded = true; S.offline = true; S.authErr = !!(e && (e.code === 'no_autorizado' || e.code === 'sin_token')); render(); });
     };
@@ -369,6 +370,7 @@ var Store = {
   setMe: function (id) {
     S.meId = id;
     try { localStorage.setItem(LSME, id); } catch (e) {}
+    if (this.cfg) { var self = this; setTimeout(function () { self.refresh({ full: true }); }, 0); }   // con otra persona elegida, Personal se baja de nuevo
     if (this.db && this.uid) { return this.db.doc('data/users/' + this.uid + '/me').set({ memberId: id }).catch(function () {}); }
     return Promise.resolve();
   },
@@ -521,7 +523,7 @@ function catBars(cats, total, cur) {
 var pendingRender = false;
 function render() {
   var a = document.activeElement;
-  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && $('#app').contains(a)) { pendingRender = true; return; }
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && $('#app').contains(a) && !(a.id === 'perq' && !a.value)) { pendingRender = true; return; }   // la carga rápida de Personal, ya vacía, se puede redibujar
   pendingRender = false;
   var app = $('#app');
   if (!S.loaded) { app.innerHTML = '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('sleepy', 150) + '</div><p>Cuba está despertándose…</p></div>'; return; }
@@ -529,7 +531,7 @@ function render() {
   if (!S.group) { app.innerHTML = viewOnboarding(); return; }
   if (!S.meId || memIdx(S.meId) < 0) { app.innerHTML = viewWho(); return; }
   var ev = S.evId ? S.eventos.filter(function (x) { return x.id === S.evId; })[0] : null; if (S.evId && !ev) S.evId = null;
-  var v = ev ? viewEvento(ev) : S.tab === 'gastos' ? viewGastos() : S.tab === 'cierre' ? viewCierre() : S.tab === 'ajustes' ? viewAjustes() : viewInicio();
+  var v = ev ? viewEvento(ev) : S.tab === 'gastos' ? viewGastos() : S.tab === 'cierre' ? viewCierre() : S.tab === 'personal' ? viewPersonal() : S.tab === 'ajustes' ? viewAjustes() : viewInicio();
   var banner = '';
   if (S.mode === 'local') banner = '<div class="banner">Modo local: tus datos viven solo en este navegador. Abrí la app desde claude.ai con sesión iniciada para compartirla con tu pareja.</div>';
   else if (S.mode === 'sheets' && S.offline) banner = S.authErr ? '<div class="banner">La Sheet no reconoce este celular (¿cambiaron el token?). Pedí el link nuevo desde el menú Cuba de la Sheet.</div>' : '<div class="banner">Sin conexión con la Sheet: veo lo último que guardé y no puedo anotar hasta que vuelva.</div>';
@@ -537,8 +539,8 @@ function render() {
   else if (S.readOnly) banner = '<div class="banner">Tenés acceso de solo lectura: pedí permiso de <b>Contributor</b> para poder anotar gastos.</div>';
   app.innerHTML = '<div class="top"><div class="brand">' + (S.tab === 'inicio' && S.group.members && S.group.members.length ? '' : cuba('idle', 58)) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
     '<div id="pend" class="pend" style="display:' + (S.pend ? '' : 'none') + '">' + (S.sync === 'espera' ? 'Sin señal: ' + S.pend + (S.pend === 1 ? ' cambio espera' : ' cambios esperan') + ' para enviarse' : 'Guardando…') + '</div>' +
-    '<button class="fab" data-act="new" aria-label="Anotar gasto">+</button>' +
-    '<nav class="nav"><div>' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['ajustes', '⚙️', 'Ajustes']].map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
+    '<button class="fab" data-act="' + (S.tab === 'personal' ? 'perfoco' : 'new') + '" aria-label="' + (S.tab === 'personal' ? 'Anotar gasto personal' : 'Anotar gasto') + '">+</button>' +
+    '<nav class="nav"><div>' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['personal', '🔒', 'Personal'], ['ajustes', '⚙️', 'Ajustes']].map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
 }
 function viewSheetsError() {
   return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('sad', 140) + '</div><h1>No llego a la Sheet</h1><p>' + (S.authErr ? 'La Sheet no reconoce este celular. Abrí el link de emparejado nuevo (menú Cuba de la Sheet).' : 'Revisá la conexión y probá de nuevo.') + '</p>' +
@@ -702,7 +704,7 @@ function viewRecs() {
   h += S.recs.length ? S.recs.map(function (r) {
     return '<div class="stat" style="align-items:center"><span>' + C.catInfo(r.cat).e + ' ' + esc(r.desc) + '<br><span class="mut" style="font-size:13px">día ' + r.day + ' · ≈ ' + C.fmt(r.cents, r.cur, { noDecimals: true }) + ' · ' + (r.active ? 'paga ' + esc(firstName(r.paidBy)) : 'en pausa') + (r.adj ? ' · ajusta cada ' + r.adj + ' meses (próx. ' + dLabel(r.adjNext) + ')' : '') + '</span></span><span><button class="btn ghost sm" data-act="recedit" data-id="' + esc(r.id) + '">Editar</button></span></div>';
   }).join('') : '<div class="mut" style="font-size:14px;margin-bottom:8px">Todavía no hay ninguno: sumá alquiler, luz, agua, internet, streaming…</div>';
-  return h + '<button class="btn sm full" style="margin-top:8px" data-act="recnew">+ Agregar recurrente</button></div>';
+  return h + '<button class="btn sm full" style="margin-top:8px" data-act="recnew">+ Agregar recurrente</button>' + (S.recs.some(function (r) { return r.active && r.next; }) ? '<button class="btn ghost sm full" style="margin-top:6px" data-act="recics">📅 Llevar vencimientos al calendario (.ics)</button>' : '') + '</div>';
 }
 function openRecForm(r) {
   var ms = activeMembers();
@@ -1004,12 +1006,16 @@ function viewResumen() {
     h += '<div class="preview" style="margin-top:10px"><b>Dólar tarjeta</b> (solo para los consumos en USD)<div class="row" style="display:flex;gap:8px;margin-top:6px;align-items:center"><label class="grow" style="font-size:13px">Cotización<input id="rstc" inputmode="decimal" value="' + esc(dz2.tc) + '" placeholder="TC vendedor"></label><label style="width:90px;font-size:13px">Percepción %<input id="rspct" inputmode="decimal" value="' + esc(dz2.pct) + '"></label></div>' +
       '<div class="mut" style="font-size:12px;margin-top:4px">' + (dz2.det ? 'Leído del resumen: ' + esc(dz2.det) + '.' : 'No pude leerlo del resumen: poné la cotización.') + ' Se carga en pesos.' + (dz2.extra ? ' El IVA y el IIBB (+' + dz2.extra + '%) se suman solo a los consumos donde el banco los cobró.' : '') + '</div></div>';
   }
+  var pers = rsPersonales();
+  if (Per.ready()) h += '<label class="stat" style="align-items:center;gap:8px;margin-top:10px"><span>🔒 Guardar los <b>' + pers.length + '</b> consumos no compartidos en mi Personal</span><input type="checkbox" data-act="rsper" style="width:22px;height:22px;flex:none"' + (R.pers !== false ? ' checked' : '') + '></label>';
+  else h += '<div class="mut" style="font-size:12px;margin-top:8px">Si abrís tu espacio Personal, también podés guardar acá lo que no es compartido.</div>';
   var tot = {}; sel.forEach(function (x) { var q = rsPesos(x); tot[q.cur] = (tot[q.cur] || 0) + q.cents; });
   h += '<div class="stat" style="margin-top:10px"><span>Compartidos que se cargan</span><b>' + sel.length + (sel.length ? ' · ' + Object.keys(tot).map(function (k) { return C.fmt(tot[k], k, { noDecimals: k === 'ARS' }); }).join(' + ') : '') + '</b></div>';
-  h += '<button class="btn acc full" style="margin-top:8px" data-act="rsgo"' + (S.readOnly || S.rsBusy || !sel.length ? ' disabled' : '') + '>Cargar ' + sel.length + (sel.length === 1 ? ' gasto compartido' : ' gastos compartidos') + '</button>' +
+  h += '<button class="btn acc full" style="margin-top:8px" data-act="rsgo"' + (S.readOnly || S.rsBusy || !(sel.length || (R.pers !== false && Per.ready() && pers.length)) ? ' disabled' : '') + '>Cargar ' + sel.length + (sel.length === 1 ? ' gasto compartido' : ' gastos compartidos') + (R.pers !== false && Per.ready() && pers.length ? ' + ' + pers.length + ' a mi Personal' : '') + '</button>' +
     '<button class="btn ghost full" style="margin-top:6px" data-act="rsclear">Cancelar</button>';
   return h + '</div>';
 }
+function rsPersonales() { return S.rs ? S.rs.items.filter(function (x) { return x.estado !== 'ya' && !x.comparte; }) : []; }
 function rsDe(texto) {
   var res = CubaResumen.parseResumen(texto);
   if (res.error) { S.rsMsg = res.error; render(); return; }
@@ -1038,6 +1044,118 @@ function lotesHtml() {
   return '<h3 style="margin:14px 0 6px">Importaciones hechas</h3>' + S.lotes.map(function (l) {
     return '<div class="stat" style="align-items:center"><span>' + esc(l.origen) + ' · ' + esc(l.fecha) + '<br><span class="mut" style="font-size:13px">' + l.cantidad + ' movimientos</span></span><button class="btn ghost sm" data-act="undolote" data-id="' + esc(l.id) + '"' + (S.readOnly ? ' disabled' : '') + '>Deshacer</button></div>';
   }).join('');
+}
+
+// ---------------- Personal (cifrado en este celular) ----------------
+var LSPK = 'cuba:pk:', LSPE = 'cuba:pe:';
+var Per = {
+  key: null, ev: [], st: null, loaded: null, rows: [], bad: 0,
+  load: function () {
+    if (this.loaded === S.meId) return;
+    this.loaded = S.meId; this.key = null; this.ev = []; this.st = null; this.bad = 0;
+    if (!S.meId) return;
+    try {
+      var c = localStorage.getItem(LSPK + S.meId); this.key = c ? P.claveDeCodigo(c) : null;
+      this.ev = JSON.parse(localStorage.getItem(LSPE + S.meId) || '[]') || [];
+    } catch (e) {}
+  },
+  ready: function () { this.load(); return !!this.key; },
+  state: function () { this.load(); return this.st || (this.st = P.armar(this.ev)); },
+  guardar: function () { this.st = null; try { localStorage.setItem(LSPE + S.meId, JSON.stringify(this.ev)); } catch (e) {} },
+  subir: function (lista) {   // cifra y manda a la Sheet: llega ilegible; si no hay señal queda en la cola
+    if (S.mode !== 'sheets' || !this.key || !lista.length) return Promise.resolve();
+    var key = this.key, me = S.meId;
+    return Promise.all(lista.map(function (e) { return P.cifrar(key, e).then(function (b) { return { id: e.id, blob: b }; }); })).then(function (filas) {
+      for (var i = 0; i < filas.length; i += 150) Outbox.push('savePersonal', { persona_id: me, filas: filas.slice(i, i + 150) });
+      Outbox.go();
+    });
+  },
+  add: function (lista) {
+    this.load(); var ya = {}; this.ev.forEach(function (e) { ya[e.id] = 1; });
+    var nuevos = lista.filter(function (e) { return !ya[e.id]; }); if (!nuevos.length) return Promise.resolve(0);
+    this.ev = this.ev.concat(nuevos); this.guardar(); render();
+    return this.subir(nuevos).then(function () { return nuevos.length; });
+  },
+  remoto: function (rows) {   // lo que bajó de la Sheet: se descifra acá; lo que falte allá se vuelve a mandar
+    var self = this; this.load(); this.rows = rows || [];
+    var tengo = {}, alla = {}; this.ev.forEach(function (e) { tengo[e.id] = 1; }); this.rows.forEach(function (r) { alla[r.id] = 1; });
+    var nuevas = this.rows.filter(function (r) { return !tengo[r.id]; });
+    if (this.key) { var faltan = this.ev.filter(function (e) { return !alla[e.id]; }); if (faltan.length && !Outbox.q.length) this.subir(faltan.slice(0, 300)); }
+    this.sinClave = this.key ? 0 : nuevas.length;
+    if (!this.key || !nuevas.length) { this.bad = 0; return; }
+    Promise.all(nuevas.map(function (r) { return P.descifrar(self.key, r.blob); })).then(function (l) {
+      var ok = l.filter(Boolean); self.bad = l.length - ok.length;
+      if (ok.length) { self.ev = P.unir(self.ev, ok); self.guardar(); }
+      if (ok.length || self.bad) render();
+    });
+  }
+};
+function bajar(nombre, texto, mime) {
+  var b = new Blob(['﻿' + texto], { type: mime || 'text/plain' }), a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = nombre; document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+var perMonto = function (c, cur) { return C.fmt(c, cur, { noDecimals: cur === 'ARS' }); };
+function viewPerSetup() {
+  var h = '<div class="card">' + mc('gift') + '<h3>Personal</h3>';
+  if (S.perNew) {
+    return h + '<p style="margin:0 0 8px"><b>Este es tu código de recuperación.</b> Es la llave de tu espacio: sin él (y sin este celular) nadie puede leer tus datos, ni yo.</p>' +
+      '<div class="preview" style="font-family:ui-monospace,monospace;font-size:15px;word-break:break-all;letter-spacing:.04em;user-select:all">' + esc(S.perNew) + '</div>' +
+      '<p class="mut" style="font-size:13px;margin:8px 0">Copialo ahora a un lugar tuyo (notas, gestor de contraseñas). Si cambiás de celular lo vas a necesitar.</p>' +
+      '<button class="btn ghost full" data-act="percopiar">Copiar código</button><button class="btn acc full" style="margin-top:8px" data-act="persaved">Ya lo guardé, entrar</button></div>';
+  }
+  h += '<p style="margin:0 0 10px">Tu economía propia, aparte de lo compartido: gastos, topes, metas y cuotas. <b>Solo la ves vos</b>: se guarda cifrada con una llave que vive en este celular, y a la Sheet llega ilegible.</p>';
+  if (Per.sinClave) h += '<div class="preview" style="margin-bottom:10px">Encontré <b>' + Per.sinClave + '</b> registros cifrados tuyos en la Sheet. Ingresá tu código de recuperación para abrirlos.</div>';
+  if (S.perTengo || Per.sinClave) h += '<label class="f">Mi código de recuperación</label><input id="percode" data-in="percode" placeholder="XXXX-XXXX-XXXX-…" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn acc full" style="margin-top:8px" data-act="percode">Abrir mi espacio</button>' +
+    (Per.sinClave ? '' : '<button class="btn ghost full" style="margin-top:6px" data-act="perno">Volver</button>');
+  else h += '<button class="btn acc full" data-act="persetup">Crear mi espacio privado</button><button class="btn ghost full" style="margin-top:8px" data-act="pertengo">Ya tengo mi código</button>';
+  return h + '</div>';
+}
+function viewPersonal() {
+  if (!Per.ready()) return viewPerSetup();
+  var st = Per.state(), hoy = today(), mes = S.perMes || (S.perMes = C.monthKey(hoy));
+  var hayUsd = st.gastos.some(function (g) { return g.m === 'USD'; }), cur = S.perCur === 'USD' && hayUsd ? 'USD' : 'ARS';
+  var sal = C.salaryAt(S.sueldos, S.meId, hoy), sueldo = sal && sal.cur === cur ? sal.cents : 0;
+  var s = P.statsMes(st, mes, cur, sueldo, hoy), esMes = mes === C.monthKey(hoy);
+  var h = '<div class="card">' + mc('gift') + '<h3>Personal · solo vos 🔒</h3><div class="quick"><input id="perq" data-in="perq" placeholder="Anotá rápido: «almuerzo 4500», «tele 120000 en 6 cuotas»" autocomplete="off">' +
+    '<button data-act="perpon">Anotar</button>' + (window.SpeechRecognition || window.webkitSpeechRecognition ? '<button data-act="pervoz" aria-label="Dictar">🎤</button>' : '') + '</div>' +
+    '<div class="mut" style="font-size:12px">Poné «ayer», «u$s» o «en 6 cuotas» y Cuba lo entiende.</div></div>';
+  var rev = P.duplicados(st.gastos).filter(function (p) { return !st.vistos[p[1].id]; }).map(function (p) { return { k: 'dup', g: p[1], o: p[0] }; })
+    .concat(P.rarezas(st.gastos, hoy).filter(function (r) { return !st.vistos[r.g.id]; }).map(function (r) { return { k: 'raro', g: r.g, med: r.mediana }; }));
+  if (rev.length) h += '<div class="card"><h3>Para revisar</h3>' + rev.slice(0, 5).map(function (r) {
+    return '<div class="rsrow"><span class="grow"><div class="t">' + (r.k === 'dup' ? '¿Repetido? ' : '¿Muy alto? ') + esc(r.g.d) + '</div><div class="s">' + dLabel(r.g.f) + ' · ' + perMonto(r.g.c, r.g.m) +
+      (r.k === 'dup' ? ' · mismo monto que el del ' + dLabel(r.o.f) : ' · lo habitual en ' + C.catInfo(r.g.k).n.toLowerCase() + ' ronda ' + perMonto(r.med, r.g.m)) + '</div></span>' +
+      (r.k === 'dup' ? '<button class="chip" data-act="perdel" data-id="' + esc(r.g.id) + '">Anular</button>' : '') + '<button class="chip" data-act="perok" data-id="' + esc(r.g.id) + '">Está bien</button></div>';
+  }).join('') + '</div>';
+  h += '<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><button class="chip" data-act="permes" data-v="-1" aria-label="Mes anterior">‹</button><b>' + mLabel(mes) + '</b><button class="chip" data-act="permes" data-v="1" aria-label="Mes siguiente">›</button></div>' +
+    (hayUsd ? '<div class="chips" style="margin-bottom:6px"><button class="chip' + (cur === 'ARS' ? ' on' : '') + '" data-act="percur" data-v="ARS">ARS</button><button class="chip' + (cur === 'USD' ? ' on' : '') + '" data-act="percur" data-v="USD">USD</button></div>' : '') +
+    '<div class="big">' + perMonto(s.total, cur) + '</div><div class="mut">' + s.count + (s.count === 1 ? ' gasto' : ' gastos') + ' este mes</div>';
+  if (sueldo > 0 && esMes) h += '<div class="stat" style="margin-top:8px"><span>Te quedan del sueldo</span><b class="' + (s.libre < 0 ? 'neg' : 'pos') + '">' + perMonto(s.libre, cur) + '</b></div>' + (s.porDia != null ? '<div class="stat"><span>Para gastar por día</span><b>' + perMonto(s.porDia, cur) + '</b></div>' : '');
+  else if (esMes && !sueldo) h += '<div class="mut" style="font-size:13px;margin-top:6px">Cargá tu sueldo en Ajustes y te digo cuánto te queda por día.</div>';
+  if (s.proyeccion && esMes) h += '<div class="stat"><span>A este ritmo cerrás en</span><b>' + perMonto(Math.round(s.proyeccion / 100) * 100, cur) + '</b></div>';
+  if (s.cuotasFuturas) h += '<div class="stat"><span>Cuotas que ya vienen</span><b>' + perMonto(s.cuotasFuturas, cur) + '</b></div>';
+  var cats = Object.keys(s.cats).sort(function (a, b) { return s.cats[b] - s.cats[a]; });
+  h += '<div style="margin-top:8px">' + cats.map(function (k) {
+    var c = C.catInfo(k), t = s.tope[k], pct = t ? Math.min(100, t.pct) : Math.round(s.cats[k] * 100 / (s.total || 1));
+    return '<div style="margin:8px 0"><div class="stat" style="padding:0"><span>' + c.e + ' ' + esc(c.n) + '</span><span>' + perMonto(s.cats[k], cur) + (t ? ' <span class="mut">/ ' + perMonto(t.tope, cur) + '</span>' : '') + '</span></div>' +
+      '<div class="bar"><i style="width:' + pct + '%;' + (t ? 'background:' + (t.estado === 'pasado' ? 'var(--neg)' : t.estado === 'cerca' ? '#d9a21b' : 'var(--pos)') : '') + '"></i></div></div>';
+  }).join('') + '</div>';
+  var sinGastos = !cats.length; if (sinGastos) h += '<div class="empty">' + cuba('idle', 110) + '<br>Todavía no anotaste nada este mes.</div>';
+  h += '<button class="btn ghost sm full" style="margin-top:8px" data-act="pertope">Poner un tope por categoría</button></div>';
+  var del = st.gastos.filter(function (g) { return g.f.slice(0, 7) === mes && g.m === cur; });
+  if (del.length) h += '<div class="card"><h3>Movimientos</h3>' + del.slice(0, S.perN || 20).map(function (g) {
+    return '<div class="rsrow"><span class="emoji" style="width:34px;height:34px;font-size:17px">' + C.catInfo(g.k).e + '</span><span class="grow"><div class="t">' + esc(g.d) + '</div><div class="s">' + dLabel(g.f) + '</div></span><span class="a" style="font-weight:700">' + perMonto(g.c, g.m) + '</span>' +
+      '<button class="chip" data-act="perpasar" data-id="' + esc(g.id) + '" aria-label="Pasar a compartido" title="Pasar a compartido">🤝</button><button class="chip" data-act="perdel" data-id="' + esc(g.id) + '" aria-label="Anular">✕</button></div>';
+  }).join('') + (del.length > (S.perN || 20) ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="permas">Ver más</button>' : '') + '</div>';
+  h += '<div class="card"><h3>Metas de ahorro</h3>' + (st.metas.length ? st.metas.map(function (m) {
+    var pct = Math.min(100, Math.round(m.aportado * 100 / m.c));
+    return '<div style="margin:8px 0"><div class="stat" style="padding:0;align-items:center"><span>🎯 ' + esc(m.n) + '</span><button class="chip" data-act="peraporte" data-id="' + esc(m.id) + '">+ Aportar</button></div><div class="bar"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="mut" style="font-size:13px">' + perMonto(m.aportado, m.m) + ' de ' + perMonto(m.c, m.m) + ' · ' + pct + '%</div></div>';
+  }).join('') : '<div class="mut" style="font-size:14px">Viaje, fondo de emergencia, lo que sea: poné una meta y andá sumando.</div>') + '<button class="btn ghost sm full" style="margin-top:8px" data-act="permeta">+ Nueva meta</button></div>';
+  h += '<div class="card"><h3>Mi llave y mis copias</h3>' + (Per.bad ? '<div class="preview neg" style="margin-bottom:8px">' + Per.bad + ' registros de la Sheet no se pudieron abrir con esta llave (¿otro código?).</div>' : '') +
+    '<p class="mut" style="font-size:13px;margin:0 0 8px">Todo está cifrado en este celular' + (S.mode === 'sheets' ? ' y en tu pestaña Personal de la Sheet (ilegible sin tu código)' : '') + '.</p>' +
+    '<button class="btn ghost sm full" data-act="perver">Ver mi código de recuperación</button><button class="btn ghost sm full" style="margin-top:6px" data-act="percsv">Bajar mis gastos (CSV)</button></div>';
+  return h;
 }
 
 // ---------------- formulario ----------------
@@ -1296,7 +1414,9 @@ var A = {
     if (rec && rec.cents && r.total !== rec.cents && rec.cur === F.cur) { var pc = Math.round((r.total / rec.cents - 1) * 100); recMsg = pc ? ' ' + (pc > 0 ? 'Subió ' : 'Bajó ') + Math.abs(pc) + ' % respecto de lo anterior.' : ''; }
     // Una categoría elegida a mano distinta de lo que Cuba habría adivinado se vuelve regla de comercio.
     if (S.mode === 'sheets' && !isPay && e.cat !== 'otros' && e.cat !== C.guessCategory(desc)) Store.call('aprender', { descripcion: desc, categoria: e.cat }).catch(function () {});
+    var perRef = F.perRef;   // vino de Personal: se anula allá para no contarlo dos veces
     Store.putEntries(list, { optimista: true }).then(function () {
+      if (perRef) Per.add([{ id: P.nuevoId(), t: 'x', ref: perRef }]);
       if (!rec) return;
       var nx = CubaSheets.addMonth(rec.next, rec.day); while (nx <= (F.date || today())) nx = CubaSheets.addMonth(nx, rec.day);
       return Store.saveRec(Object.assign({}, rec, { cents: r.total, cur: F.cur, next: nx })); // el monto de este mes pasa a ser la referencia del próximo
@@ -1360,7 +1480,7 @@ var A = {
   rstog: function (el) { var x = S.rs && S.rs.items[+el.dataset.i]; if (!x) return; x.comparte = !x.comparte; x.why = x.comparte ? 'lo marcaste compartido' : 'lo marcaste personal'; render(); },
   rsgo: function () {
     var R = S.rs; if (!R || S.readOnly || S.rsBusy) return;
-    var sel = R.items.filter(function (x) { return x.estado !== 'ya' && x.comparte; }); if (!sel.length) return;
+    var sel = R.items.filter(function (x) { return x.estado !== 'ya' && x.comparte; }), pers = R.pers !== false && Per.ready() ? rsPersonales() : []; if (!sel.length && !pers.length) return;
     var ids = members().map(function (m) { return m.id; }), loteId = 'L' + rid(), now = new Date().toISOString(), problema = '';
     // Lo que ya está cargado y vigente no se vuelve a cargar nunca (un reintento no puede duplicar).
     var vivos = C.live(S.entries), yaVivo = function (id) { return vivos.some(function (e) { return e.id === id || e.id.indexOf(id + '-r') === 0; }); };
@@ -1380,14 +1500,105 @@ var A = {
     S.rsBusy = true; render();
     var cargar = entries.length ? Store.putEntries(entries, { lote: { id: loteId, origen: 'resumen', archivo: '', fecha: today(), cantidad: entries.length, moneda_original: 'ARS' } }) : Promise.resolve();
     cargar.then(function () {
+      if (pers.length) Per.add(pers.map(function (x) { return { id: ('r' + x.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64), t: 'g', f: x.fecha, d: x.nombre, c: x.cents, m: x.cur, k: x.cat || 'otros' }; }));   // id fijo: cargar el mismo resumen dos veces no repite nada
       // Los gastos ya quedaron. Aprender y registrar el resumen van en un solo viaje y, si fallan, no se pierde ni se repite nada.
       reglas.forEach(function (r) { var k = CubaResumen.patron(r.descripcion); if (k) S.reglas[k] = { comparte: r.comparte, categoria: r.categoria || (S.reglas[k] || {}).categoria || '' }; });   // al instante
       S.resumenes = (S.resumenes || []).concat([{ id: 'loc' + rid(), tarjeta: reg.tarjeta, persona_id: reg.persona_id, cierre: reg.cierre, vencimiento: reg.vencimiento, proximo_cierre: reg.proximo_cierre, consumos: reg.consumos, compartidos: reg.compartidos }]);
       Outbox.push('aprenderResumen', { reglas: reglas, resumen: reg }); Outbox.go(); return '';
     }).then(function (aviso) {
       S.rsBusy = false; S.rs = null;
-      toast((entries.length ? entries.length + ' gastos compartidos cargados' : 'Resumen registrado') + (R.items.length >= 25 ? ' · Cuba olfateó ' + R.items.length + ' consumos y trajo solo lo compartido 🦴' : '') + aviso); render();
+      toast((entries.length ? entries.length + ' gastos compartidos cargados' : 'Resumen registrado') + (pers.length ? ' · ' + pers.length + ' a tu Personal 🔒' : '') + (R.items.length >= 25 ? ' · Cuba olfateó ' + R.items.length + ' consumos y trajo solo lo compartido 🦴' : '') + aviso); render();
     }).catch(function (er) { S.rsBusy = false; S.rs = null; Store.refresh({ full: true }); render(); fail(er); });   // si algo falló, el resumen se vuelve a leer: lo que ya quedó figura como «ya estaba»
+  },
+  perfoco: function () { var i = $('#perq'); if (i) { i.scrollIntoView({ block: 'center' }); i.focus(); } },
+  persetup: function () { S.perNew = P.codigoDe(P.nuevaClave()); render(); window.scrollTo(0, 0); },
+  percopiar: function () { try { navigator.clipboard.writeText(S.perNew).then(function () { toast('Código copiado'); }, function () { toast('Seleccionalo y copialo a mano'); }); } catch (e) { toast('Seleccionalo y copialo a mano'); } },
+  persaved: function () {
+    try { localStorage.setItem(LSPK + S.meId, S.perNew); } catch (e) { toast('Este navegador no me deja guardar la llave.'); return; }
+    S.perNew = null; Per.loaded = null; Per.load(); render(); toast('Listo: tu espacio privado está abierto 🔒');
+  },
+  pertengo: function () { S.perTengo = true; render(); },
+  perno: function () { S.perTengo = false; render(); },
+  percode: function () {
+    var k = P.claveDeCodigo((($('#percode') || {}).value) || '');
+    if (!k) { toast('Ese código no es válido. Revisá que esté completo (13 grupos).'); return; }
+    try { localStorage.setItem(LSPK + S.meId, P.codigoDe(k)); } catch (e) { toast('Este navegador no me deja guardar la llave.'); return; }
+    S.perTengo = false; Per.loaded = null; Per.load(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); Per.remoto(Per.rows); render(); toast('Código aceptado');
+  },
+  perpon: function () {
+    var i = $('#perq'), l = P.leer(i && i.value, today());
+    if (!l) { toast('No encontré el monto: probá «almuerzo 4500».'); return; }
+    var evs = P.armarGasto(l);
+    if (i) i.value = '';
+    Per.add(evs).then(function () {
+      var q = $('#perq'); if (q) q.focus();   // para anotar el siguiente sin volver a tocar
+      var c = C.catInfo(l.cat);
+      toast(l.cuotas ? l.cuotas + ' cuotas de ' + perMonto(evs[0].c, l.cur) + ' anotadas' : 'Anotado: ' + l.desc + ' ' + perMonto(l.cents, l.cur) + ' · ' + c.n);
+    });
+  },
+  pervoz: function () {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return;
+    var r = new SR(); r.lang = 'es-AR'; r.interimResults = false;
+    r.onresult = function (e) { var i = $('#perq'); if (i) { i.value = e.results[0][0].transcript; A.perpon(); } };
+    r.onerror = function () { toast('No te pude escuchar.'); };
+    try { r.start(); toast('Te escucho…'); } catch (e) {}
+  },
+  permes: function (el) { S.perMes = P.addMes((S.perMes || C.monthKey(today())) + '-01', +el.dataset.v).slice(0, 7); S.perN = 0; render(); },
+  percur: function (el) { S.perCur = el.dataset.v; render(); },
+  permas: function () { S.perN = (S.perN || 20) + 30; render(); },
+  perdel: function (el) {
+    var g = Per.state().gastos.filter(function (x) { return x.id === el.dataset.id; })[0]; if (!g) return;
+    var lista = [g];
+    if (g.gr && confirm('Es una cuota. Aceptar = anular esta y las que siguen. Cancelar = solo esta.')) lista = Per.state().gastos.filter(function (x) { return x.gr === g.gr && x.f >= g.f; });
+    Per.add(lista.map(function (x) { return { id: P.nuevoId(), t: 'x', ref: x.id }; })).then(function () { toast(lista.length > 1 ? lista.length + ' cuotas anuladas' : 'Anulado'); });
+  },
+  perok: function (el) { Per.add([{ id: P.nuevoId(), t: 'o', ref: el.dataset.id }]); },
+  perpasar: function (el) {
+    var g = Per.state().gastos.filter(function (x) { return x.id === el.dataset.id; })[0]; if (!g || S.readOnly) return;
+    var F = newForm('expense'); F.desc = g.d; F.amount = String(C.centsDot(g.c)).replace('.', ','); F.cur = g.m; F.date = g.f; F.cat = g.k || 'otros'; F.catAuto = false; F.perRef = g.id;
+    S.form = F; renderForm(); toast('Al guardarlo se anula de tu Personal para no contarlo dos veces.');
+  },
+  pertope: function () {
+    var st = Per.state(), cur = S.perCur || 'ARS';
+    openSheet('<div class="sh-head"><h2>Tope mensual</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div><p class="mut" style="margin:0 0 8px;font-size:14px">Te aviso en verde, amarillo (80 %) y rojo. Con monto 0 se quita.</p>' +
+      '<label class="f">Categoría</label><select id="pertk">' + C.CATS.filter(function (c) { return c.k !== 'pago'; }).map(function (c) { return '<option value="' + c.k + '">' + c.e + ' ' + esc(c.n) + '</option>'; }).join('') + '</select>' +
+      '<label class="f">Tope por mes (' + cur + ')</label><input id="pertm" inputmode="decimal" placeholder="0,00" autocomplete="off"><button class="btn acc full" style="margin-top:12px" data-act="pertopesave">Guardar tope</button>');
+    void st;
+  },
+  pertopesave: function () {
+    var c = C.parseAmount(($('#pertm') || {}).value), k = ($('#pertk') || {}).value;
+    if (c == null || c < 0 || (!c && c !== 0)) { toast('Poné un monto (0 para quitar).'); return; }
+    Per.add([{ id: P.nuevoId(), t: 'p', k: k, c: c, m: S.perCur || 'ARS', ts: Date.now() }]); closeSheet(); toast(c ? 'Tope guardado' : 'Tope quitado');
+  },
+  permeta: function () {
+    openSheet('<div class="sh-head"><h2>Nueva meta</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div><label class="f">¿Para qué?</label><input id="permn" maxlength="40" placeholder="Viaje, fondo de emergencia…" autocomplete="off">' +
+      '<label class="f">¿Cuánto querés juntar? (' + (S.perCur || 'ARS') + ')</label><input id="permc" inputmode="decimal" placeholder="0,00" autocomplete="off"><button class="btn acc full" style="margin-top:12px" data-act="permetasave">Crear meta</button>');
+  },
+  permetasave: function () {
+    var n = (($('#permn') || {}).value || '').trim(), c = C.parseAmount(($('#permc') || {}).value);
+    if (!n) { toast('Ponele un nombre.'); return; } if (!(c > 0)) { toast('Poné cuánto querés juntar.'); return; }
+    Per.add([{ id: P.nuevoId(), t: 'm', n: n.slice(0, 40), c: c, m: S.perCur || 'ARS' }]); closeSheet();
+  },
+  peraporte: function (el) {
+    S.perMeta = el.dataset.id;
+    openSheet('<div class="sh-head"><h2>Sumar a la meta</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div><label class="f">Monto</label><input id="peram" inputmode="decimal" placeholder="0,00" autocomplete="off"><button class="btn acc full" style="margin-top:12px" data-act="peraportesave">Sumar</button>');
+  },
+  peraportesave: function () {
+    var c = C.parseAmount(($('#peram') || {}).value); if (!(c > 0)) { toast('Poné el monto.'); return; }
+    Per.add([{ id: P.nuevoId(), t: 'a', meta: S.perMeta, c: c, f: today() }]); closeSheet(); toast('Sumado 🎯');
+  },
+  perver: function () {
+    var c = ''; try { c = localStorage.getItem(LSPK + S.meId) || ''; } catch (e) {}
+    openSheet('<div class="sh-head"><h2>Mi código</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div><div class="preview" style="font-family:ui-monospace,monospace;word-break:break-all;user-select:all">' + esc(c) + '</div><p class="mut" style="font-size:13px">Guardalo fuera de este celular. Quien tenga el código y acceso a la Sheet puede leer tu Personal.</p>');
+  },
+  percsv: function () {
+    var rows = ['fecha,descripcion,monto,moneda,categoria'].concat(Per.state().gastos.slice().reverse().map(function (g) { return [g.f, '"' + String(g.d).replace(/"/g, '""') + '"', C.centsDot(g.c), g.m, g.k].join(','); }));
+    bajar('mis-gastos-personales.csv', rows.join('\n') + '\n', 'text/csv'); toast('Copia bajada');
+  },
+  recics: function () {
+    var it = S.recs.filter(function (r) { return r.active && r.next; }).map(function (r) { return { id: r.id, titulo: r.desc + ' (≈ ' + C.fmt(r.cents, r.cur, { noDecimals: true }) + ')', fecha: r.next, nota: 'Vencimiento anotado en Cuba' }; });
+    if (!it.length) { toast('No hay recurrentes activos con fecha.'); return; }
+    bajar('vencimientos-cuba.ics', P.ics(it), 'text/calendar'); toast('Abrilo y se agrega a tu calendario');
   },
   homemore: function () { S.homeN = (S.homeN || (S.entries.length ? 15 : 15)) + 20; render(); },
   retry: function () { Store.refresh(); },
@@ -1461,6 +1672,7 @@ var A = {
       fin(r, d.confianza < 0.6 ? 'Lo leí con dudas: revisá bien los datos.' : 'Revisá los datos y guardá.');
     }).catch(function (er) { if (!S.sh) return; var m = er && er.message === 'img' ? 'No pude abrir esa imagen: cargalo a mano.' : 'No pude leerla ahora: cargalo a mano.'; fin(null, m); });
   },
+  rsper: function (el) { if (S.rs) { S.rs.pers = !!el.checked; render(); } },
   recnew: function () { openRecForm(null); },
   recedit: function (el) { var r = S.recs.filter(function (x) { return x.id === el.dataset.id; })[0]; if (r) openRecForm(r); },
   recsave: function () {
@@ -1587,6 +1799,7 @@ document.addEventListener('click', function (ev) {
 document.addEventListener('change', function (ev) {
   var el = ev.target;
   if (el.type === 'checkbox' && el.dataset.act === 'toggle') { A.toggle(el); return; }
+  if (el.type === 'checkbox' && el.dataset.act === 'rsper') { A.rsper(el); return; }
   if ((el.id === 'rstc' || el.id === 'rspct') && S.rs) { S.rs.dolar[el.id === 'rstc' ? 'tc' : 'pct'] = el.value; render(); return; }
   if (el.type === 'file' && el.id === 'shfile') { var evq = S.form && S.form.ev, fq = el.files && el.files[0]; el.value = ''; if (fq) Share.archivo(fq, evq); return; }
   if (el.type === 'file' && el.id === 'rsfile') {
@@ -1646,6 +1859,7 @@ document.addEventListener('focusout', function () { setTimeout(function () { if 
 document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape') closeSheet();
   if (ev.key === 'Enter' && ev.target.id === 'quick') { ev.preventDefault(); A.quick(); }
+  if (ev.key === 'Enter' && ev.target.id === 'perq') { ev.preventDefault(); A.perpon(); }
   if (ev.key === 'Enter' && ev.target.id === 'askq') { ev.preventDefault(); A.askgo(); }
 });
 

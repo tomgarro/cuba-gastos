@@ -71,3 +71,9 @@ Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, desha
 - **Inicio → 💬 Preguntale a Cuba** abre una hoja con Cuba animada: *escucha* (`escucha_a/b`), *olfatea* (`olfatea_a/b`) y *responde* (`responde_a/b`) o *no encuentra* (`no_encuentra`). Cada pose usa su sprite si existe y, si falta, uno de repuesto (`tranquilo`, `feliz`, `alerta`), así que funciona hoy y mejora solo cuando se sumen los `.webp` a `assets/cuba/`.
 - `src/preguntas.js` (puro, con tests) entiende la pregunta en el celular (total por categoría y período, lo último de una categoría, quién le debe a quién, en qué se gasta más) y la contesta con las cuentas locales: sin eventos, sin anulados y sin mezclar monedas.
 - Si no la entiende, el backend (`entenderPregunta`) le pide a Gemini que la traduzca a una consulta `{tipo, categoria, mes}`. A Gemini va **solo el texto de la pregunta**, con nombres y alias reemplazados por «PERSONA» y sin números largos; nunca ve movimientos ni montos. Lo que vuelve se valida de nuevo en la app. Solo lee: no mueve el contador de cambios ni frena las cargas.
+
+## Personal (v0.19)
+- Decisión: la privacidad frente a la otra persona se logra con **cifrado en el cliente**, no con permisos (la Sheet es una sola y el token es compartido). Clave de 256 bits por persona, generada en el celular, guardada solo en `localStorage` y respaldada con un código de recuperación (base32, 13 grupos, con dígito de control).
+- La Sheet guarda eventos cifrados en la pestaña `Personal`; el modo local no sincroniza. Si se pierde la clave, los datos de la Sheet no se pueden recuperar: es a propósito.
+- `src/personal.js` (cifrado, carga rápida, cuotas exactas, estadísticas, duplicados, rarezas, `.ics`) tiene `tests/personal.test.js`; el flujo completo con dos celulares está en `tests/e2e-personal.js`.
+- Lo que Gemini ve no cambia: nada de Personal se manda afuera.

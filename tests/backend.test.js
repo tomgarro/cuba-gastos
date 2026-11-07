@@ -665,3 +665,29 @@ t('aprenderResumen puede registrar el resumen en el mismo pedido', () => {
   b.call('aprenderResumen', { reglas: [{ descripcion: 'COTO', comparte: 'si', categoria: 'super' }], resumen: { tarjeta: 'VISA', persona_id: 'm1', cierre: '2026-10-29', proximo_cierre: '2026-11-26', consumos: 3, compartidos: 1, creado_por: 'm1' } });
   assert.strictEqual(b.grids.Resumenes.length, 2);
 });
+
+t('Personal: guarda solo datos cifrados, es idempotente y cada uno lee únicamente lo suyo', () => {
+  const b = withPeople();
+  const blob = 'QUJDREVGR0hJSktMTU5PUA==';
+  const r = b.call('savePersonal', { persona_id: 'm1', filas: [{ id: 'p1', blob }, { id: 'p2', blob }] });
+  assert.deepStrictEqual([r.agregadas, r.repetidas], [2, 0]);
+  const r2 = b.call('savePersonal', { persona_id: 'm1', filas: [{ id: 'p2', blob }, { id: 'p3', blob }] });
+  assert.deepStrictEqual([r2.agregadas, r2.repetidas], [1, 1]);
+  b.call('savePersonal', { persona_id: 'm2', filas: [{ id: 'q1', blob }] });
+  assert.deepStrictEqual(J(b.call('read', { persona: 'm1' }).personal.map(x => x.id)), ['p1', 'p2', 'p3']);
+  assert.deepStrictEqual(J(b.call('read', { persona: 'm2' }).personal.map(x => x.id)), ['q1']);
+  assert.deepStrictEqual(J(b.call('read', {}).personal), [], 'sin decir quién sos, no te da nada');
+  assert.deepStrictEqual(J(b.call('read', { persona: 'm2' }).personal.map(x => Object.keys(x).sort().join())), ['blob,creado_en,id']);
+});
+t('Personal: rechaza texto en claro, filas de más y ids raros', () => {
+  const b = withPeople();
+  for (const blob of ['Almuerzo 1500 pesos', '', 'corto', 123]) assert.strictEqual(err(() => b.call('savePersonal', { persona_id: 'm1', filas: [{ id: 'x', blob }] })).code, 'pedido_invalido');
+  assert.strictEqual(err(() => b.call('savePersonal', { persona_id: 'm1', filas: [] })).code, 'pedido_invalido');
+  assert.strictEqual(err(() => b.call('savePersonal', { persona_id: 'm 1', filas: [{ id: 'x', blob: 'QUJDREVGR0hJSktMTU5PUA==' }] })).code, 'id_invalido');
+  assert.strictEqual(b.grids.Personal.length, 1);
+});
+t('Personal: mueve el contador para que el otro celular no se confunda', () => {
+  const b = withPeople(); const r1 = b.call('read', { persona: 'm1' });
+  b.call('savePersonal', { persona_id: 'm1', filas: [{ id: 'p1', blob: 'QUJDREVGR0hJSktMTU5PUA==' }] });
+  assert.ok(!b.call('read', { rev: r1.rev, persona: 'm1' }).unchanged);
+});

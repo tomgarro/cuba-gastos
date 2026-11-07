@@ -39,11 +39,12 @@ var TABS = {
   ReglasResumen: ['patron', 'comparte', 'categoria', 'veces', 'actualizado'],
   Resumenes: ['id', 'tarjeta', 'persona_id', 'cierre', 'vencimiento', 'proximo_cierre', 'consumos', 'compartidos', 'creado_por', 'creado_en'],
   Eventos: ['id', 'nombre', 'moneda', 'desde', 'hasta', 'estado', 'creado_por', 'creado_en'],
+  Personal: ['id', 'persona_id', 'blob', 'creado_en'],
   Config: ['clave', 'valor']
 };
 
 /** Pestañas que se crean solas si faltan, y columnas agregadas al final de pestañas viejas (se completan en el encabezado sin tocar los datos). */
-var TABS_NUEVAS = ['Etiquetas', 'Comercios', 'ReglasResumen', 'Resumenes', 'Eventos'];
+var TABS_NUEVAS = ['Etiquetas', 'Comercios', 'ReglasResumen', 'Resumenes', 'Eventos', 'Personal'];
 var COLS_VIEJAS = { Movimientos: 20, Recurrentes: 9 };
 
 var ENUM = {
@@ -108,7 +109,7 @@ function handle_(req) {
 /** Contador de cambios en Script Properties: permite que el celular pregunte «¿cambió algo?» sin bajar toda la Sheet. */
 function rev_() {   // contador de cambios + largo de las pestañas principales: también se nota si alguien agrega filas a mano en la Sheet
   var n = PropertiesService.getScriptProperties().getProperty('CUBA_REV') || '0';
-  return n + '.' + ['Movimientos', 'Sueldos', 'Personas'].map(function (t) { return sheet_(t).getLastRow(); }).join('.');
+  return n + '.' + ['Movimientos', 'Sueldos', 'Personas', 'Personal'].map(function (t) { return sheet_(t).getLastRow(); }).join('.');
 }
 function bumpRev_() {
   var pr = PropertiesService.getScriptProperties();
@@ -122,6 +123,7 @@ var ACTIONS = {
   saveSueldo: actionSaveSueldo_,
   saveRecurrente: actionSaveRecurrente_,
   saveEvento: actionSaveEvento_,
+  savePersonal: actionSavePersonal_,
   addMovimientos: actionAddMovimientos_,
   anularMovimientos: actionAnularMovimientos_,
   undoLote: actionUndoLote_,
@@ -168,6 +170,7 @@ function actionRead_(req) {
     categorias: readTab_('Categorias'),
     reglas_resumen: readTab_('ReglasResumen').map(function (r) { return { patron: String(r.patron), comparte: String(r.comparte), categoria: String(r.categoria) }; }),
     resumenes: readTab_('Resumenes').map(resumenOut_),
+    personal: personalDe_(req && req.persona),
     config: config
   };
 }
@@ -326,6 +329,27 @@ function actionSaveEvento_(req) {
 }
 function eventoOut_(r) {
   return { id: String(r.id), nombre: String(r.nombre), moneda: String(r.moneda), desde: String(r.desde), hasta: String(r.hasta), estado: String(r.estado) || 'abierto', creado_por: String(r.creado_por) };
+}
+
+/** Pestaña Personal: eventos CIFRADOS en el celular de cada uno (la clave nunca llega acá). Solo se agregan; cada uno recibe únicamente lo suyo. */
+function actionSavePersonal_(req) {
+  checkSchema_(['Personal']);
+  var persona = idOf_(req.persona_id, 'persona_id'), list = req.filas;
+  if (!Array.isArray(list) || !list.length || list.length > 200) fail_('pedido_invalido', 'filas: de 1 a 200.');
+  var sh = sheet_('Personal'), last = sh.getLastRow(), vistos = {}, nuevas = [], now = new Date().toISOString();
+  if (last >= 2) sh.getRange(2, 1, last - 1, 1).getValues().forEach(function (r) { if (r[0] !== '') vistos[String(r[0])] = true; });
+  list.forEach(function (f) {
+    var id = idOf_(f && f.id, 'fila'), blob = f.blob;
+    if (typeof blob !== 'string' || !/^[A-Za-z0-9+\/=_-]{16,12000}$/.test(blob)) fail_('pedido_invalido', 'blob: solo datos cifrados (base64, hasta 12000).');
+    if (vistos[id]) return;
+    vistos[id] = true; nuevas.push([id, persona, blob, now]);
+  });
+  if (nuevas.length) appendRows_(sh, nuevas, TABS.Personal.length);
+  return { ok: true, agregadas: nuevas.length, repetidas: list.length - nuevas.length };
+}
+function personalDe_(persona) {
+  if (typeof persona !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(persona)) return [];
+  return readTab_('Personal').filter(function (r) { return String(r.persona_id) === persona; }).map(function (r) { return { id: String(r.id), blob: String(r.blob), creado_en: String(r.creado_en) }; });
 }
 
 function actionAddMovimientos_(req) {
