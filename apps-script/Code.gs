@@ -29,7 +29,7 @@ var CUBA = {
 var TABS = {
   Personas: ['id', 'nombre', 'alias', 'color', 'estado', 'creada'],
   Movimientos: ['id', 'tipo', 'fecha', 'descripcion', 'monto_centavos', 'moneda', 'pagador_id', 'reparto_modo', 'reparto_json',
-    'excepcion', 'motivo_excepcion', 'categoria', 'confianza', 'nota', 'lote_id', 'origen', 'creado_por', 'creado_en', 'anulado', 'reemplaza_id'],
+    'excepcion', 'motivo_excepcion', 'categoria', 'confianza', 'nota', 'lote_id', 'origen', 'creado_por', 'creado_en', 'anulado', 'reemplaza_id', 'evento_id'],
   Sueldos: ['id', 'persona_id', 'desde', 'monto_centavos', 'moneda', 'nota', 'creado_por', 'creado_en'],
   Lotes: ['id', 'origen', 'archivo', 'fecha', 'cantidad', 'moneda_original', 'estado'],
   Recurrentes: ['id', 'descripcion', 'monto_estimado_centavos', 'moneda', 'dia_mes', 'categoria', 'pagador_id', 'proximo_vencimiento', 'activo'],
@@ -38,14 +38,20 @@ var TABS = {
   Etiquetas: ['id', 'movimiento_id', 'categoria', 'confianza', 'fuente', 'estado', 'creado_por', 'creado_en'],
   ReglasResumen: ['patron', 'comparte', 'categoria', 'veces', 'actualizado'],
   Resumenes: ['id', 'tarjeta', 'persona_id', 'cierre', 'vencimiento', 'proximo_cierre', 'consumos', 'compartidos', 'creado_por', 'creado_en'],
+  Eventos: ['id', 'nombre', 'moneda', 'desde', 'hasta', 'estado', 'creado_por', 'creado_en'],
   Config: ['clave', 'valor']
 };
+
+/** Pestañas que se crean solas si faltan, y columnas agregadas al final de pestañas viejas (se completan en el encabezado sin tocar los datos). */
+var TABS_NUEVAS = ['Etiquetas', 'Comercios', 'ReglasResumen', 'Resumenes', 'Eventos'];
+var COLS_VIEJAS = { Movimientos: 20 };
 
 var ENUM = {
   tipo: ['gasto', 'pago'],
   moneda: ['ARS', 'USD'],
   reparto_modo: ['sueldo', 'igual', 'porcentaje', 'exacto'],
-  estado_persona: ['activa', 'archivada']
+  estado_persona: ['activa', 'archivada'],
+  estado_evento: ['abierto', 'cerrado']
 };
 
 /* ------------------------------------------------------------------ */
@@ -115,6 +121,7 @@ var ACTIONS = {
   savePersonas: actionSavePersonas_,
   saveSueldo: actionSaveSueldo_,
   saveRecurrente: actionSaveRecurrente_,
+  saveEvento: actionSaveEvento_,
   addMovimientos: actionAddMovimientos_,
   anularMovimientos: actionAnularMovimientos_,
   undoLote: actionUndoLote_,
@@ -152,6 +159,7 @@ function actionRead_(req) {
     personas: readTab_('Personas'),
     sueldos: readTab_('Sueldos').map(sueldoOut_),
     recurrentes: readTab_('Recurrentes').map(recOut_),
+    eventos: readTab_('Eventos').map(eventoOut_),
     movimientos: readTab_('Movimientos').map(movOut_),
     lotes: readTab_('Lotes'),
     etiquetas: readTab_('Etiquetas').map(etiquetaOut_),
@@ -276,6 +284,43 @@ function actionSaveRecurrente_(req) {
   return { ok: true, creado: at < 0 };
 }
 
+/** Eventos y viajes: configuración que se edita en el lugar (nombre, fechas, cerrado/abierto). Sus gastos viven en Movimientos con evento_id. */
+function actionSaveEvento_(req) {
+  checkSchema_(['Eventos']);
+  var x = req.evento, bad = function (why) { fail_('evento_invalido', why); };
+  if (!x || typeof x !== 'object') bad('Falta el evento.');
+  var id = idOf_(x.id, 'Evento');
+  var sheet = sheet_('Eventos'), cols = TABS.Eventos, last = sheet.getLastRow();
+  var rows = last > 1 ? sheet.getRange(2, 1, last - 1, cols.length).getValues() : [], at = -1, old = null;
+  for (var i = 0; i < rows.length; i++) if (String(rows[i][0]) === id) { at = i; old = {}; cols.forEach(function (c, k) { old[c] = cell_(rows[i][k]); }); break; }
+  var has = function (k) { return x[k] !== undefined && x[k] !== null; };
+  var v = {
+    id: id,
+    nombre: has('nombre') ? text_(x.nombre, 60) : (old ? String(old.nombre) : ''),
+    moneda: has('moneda') ? x.moneda : (old ? String(old.moneda) : 'ARS'),
+    desde: has('desde') ? x.desde : (old ? String(old.desde) : ''),
+    hasta: has('hasta') ? x.hasta : (old ? String(old.hasta) : ''),
+    estado: has('estado') ? x.estado : (old ? String(old.estado) : 'abierto')
+  };
+  if (!v.nombre) bad('Ponele un nombre al evento.');
+  if (ENUM.moneda.indexOf(v.moneda) < 0) bad('moneda debe ser ARS o USD.');
+  if (v.desde !== '' && !isDate_(v.desde)) bad('La fecha de inicio es inválida (usá AAAA-MM-DD).');
+  if (v.hasta !== '' && !isDate_(v.hasta)) bad('La fecha de fin es inválida (usá AAAA-MM-DD).');
+  if (ENUM.estado_evento.indexOf(v.estado) < 0) bad('estado debe ser abierto o cerrado.');
+  if (old && v.moneda !== String(old.moneda)) {   // cambiar la moneda con gastos cargados dejaría números mezclados
+    var usado = readTab_('Movimientos').some(function (m) { return String(m.evento_id) === id; });
+    if (usado) bad('Ya tiene gastos: no se puede cambiar la moneda del evento.');
+  }
+  var por = x.creado_por == null || x.creado_por === '' ? '' : idOf_(x.creado_por, 'creado_por');
+  var row = [v.id, v.nombre, v.moneda, v.desde, v.hasta, v.estado, old ? String(old.creado_por) : por, old ? String(old.creado_en) : new Date().toISOString()];
+  if (at >= 0) sheet.getRange(at + 2, 1, 1, cols.length).setValues([row]);
+  else appendRows_(sheet, [row], cols.length);
+  return { ok: true, creado: at < 0 };
+}
+function eventoOut_(r) {
+  return { id: String(r.id), nombre: String(r.nombre), moneda: String(r.moneda), desde: String(r.desde), hasta: String(r.hasta), estado: String(r.estado) || 'abierto', creado_por: String(r.creado_por) };
+}
+
 function actionAddMovimientos_(req) {
   checkSchema_(['Personas', 'Movimientos', 'Lotes']);
   var list = req.movimientos;
@@ -292,7 +337,7 @@ function actionAddMovimientos_(req) {
   var lote = null;
   if (req.lote != null) lote = normLote_(req.lote);
 
-  var batchIds = {}, rows = [], omitidos = [], reemplazados = [], nuevos = [];
+  var eventos = null, batchIds = {}, rows = [], omitidos = [], reemplazados = [], nuevos = [];
   var now = new Date().toISOString();
   list.forEach(function (m, i) {
     var n = normMov_(m, i, personas);
@@ -300,6 +345,10 @@ function actionAddMovimientos_(req) {
     batchIds[n.id] = true;
     if (n.lote_id && !(lote && lote.id === n.lote_id) && !lotes[n.lote_id]) {
       fail_('movimiento_invalido', 'Movimiento #' + (i + 1) + ': el lote ' + n.lote_id + ' no existe.');
+    }
+    if (n.evento_id) {
+      if (!eventos) { eventos = {}; readTab_('Eventos').forEach(function (v) { eventos[String(v.id)] = true; }); }
+      if (!eventos[n.evento_id]) fail_('movimiento_invalido', 'Movimiento #' + (i + 1) + ': el evento ' + n.evento_id + ' no existe.');
     }
     if (n.id in known) { omitidos.push(n.id); return; } // reintento: ya estaba, no se duplica
     if (n.reemplaza_id) {
@@ -387,6 +436,7 @@ function normMov_(m, i, personas) {
   var lote = m.lote_id == null || m.lote_id === '' ? '' : idOf_(m.lote_id, tag);
   var reemplaza = m.reemplaza_id == null || m.reemplaza_id === '' ? '' : idOf_(m.reemplaza_id, tag);
   var creadoPor = m.creado_por == null || m.creado_por === '' ? '' : idOf_(m.creado_por, tag);
+  var evento = m.evento_id == null || m.evento_id === '' ? '' : idOf_(m.evento_id, tag);
   return {
     id: id, tipo: m.tipo, fecha: m.fecha,
     descripcion: text_(m.descripcion, 200),
@@ -395,7 +445,7 @@ function normMov_(m, i, personas) {
     excepcion: m.excepcion === true, motivo_excepcion: text_(m.motivo_excepcion, 200),
     categoria: text_(m.categoria, 40), confianza: conf == null ? '' : conf,
     nota: text_(m.nota, 500), lote_id: lote, origen: text_(m.origen || 'manual', 30) || 'manual',
-    creado_por: creadoPor, reemplaza_id: reemplaza
+    creado_por: creadoPor, reemplaza_id: reemplaza, evento_id: evento
   };
 }
 
@@ -440,7 +490,7 @@ function isDate_(s) {
 
 function sheet_(name) {
   var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(name);
-  if (!sh && (name === 'Etiquetas' || name === 'Comercios' || name === 'ReglasResumen' || name === 'Resumenes')) {  // pestañas agregadas después de v0.2: se crean solas con sus encabezados
+  if (!sh && TABS_NUEVAS.indexOf(name) >= 0) {  // pestañas agregadas después de v0.2: se crean solas con sus encabezados
     sh = ss.insertSheet(name); sh.getRange(1, 1, 1, TABS[name].length).setValues([TABS[name]]).setFontWeight('bold'); sh.setFrozenRows(1);
     if (sh.getMaxRows() < 2000) sh.insertRowsAfter(sh.getMaxRows(), 2000 - sh.getMaxRows());   // una pestaña nueva trae 1000 filas
     sh.getRange(2, 1, 1999, TABS[name].length).setNumberFormat('@');
@@ -453,7 +503,19 @@ function sheet_(name) {
 function checkSchema_(names) {
   (names || Object.keys(TABS)).forEach(function (name) {
     var cols = TABS[name];
-    var head = sheet_(name).getRange(1, 1, 1, cols.length).getValues()[0];
+    var sh = sheet_(name), head = sh.getRange(1, 1, 1, cols.length).getValues()[0];
+    var vieja = COLS_VIEJAS[name];
+    if (vieja && cols.length > vieja) {   // hoja de una versión anterior: si las columnas viejas coinciden y las nuevas están vacías, se completa el encabezado
+      var ok = true, vacias = true;
+      for (var j = 0; j < vieja; j++) if (String(head[j]) !== cols[j]) ok = false;
+      for (var k = vieja; k < cols.length; k++) if (String(head[k]) !== '') vacias = false;
+      if (ok && vacias) {
+        sh.getRange(1, vieja + 1, 1, cols.length - vieja).setValues([cols.slice(vieja)]);
+        if (sh.getMaxRows() < 2000) sh.insertRowsAfter(sh.getMaxRows(), 2000 - sh.getMaxRows());
+        sh.getRange(2, vieja + 1, 1999, cols.length - vieja).setNumberFormat('@');
+        head = cols.slice();
+      }
+    }
     for (var i = 0; i < cols.length; i++) {
       if (String(head[i]) !== cols[i]) fail_('esquema', 'La pestaña ' + name + ' no coincide con el esquema (columna ' + (i + 1) + ': esperaba ' + cols[i] + ').');
     }
@@ -487,7 +549,7 @@ function movOut_(r) {
     excepcion: bool_(r.excepcion), motivo_excepcion: String(r.motivo_excepcion), categoria: String(r.categoria),
     confianza: r.confianza === '' ? null : Number(r.confianza), nota: String(r.nota), lote_id: String(r.lote_id),
     origen: String(r.origen), creado_por: String(r.creado_por), creado_en: String(r.creado_en),
-    anulado: bool_(r.anulado), reemplaza_id: String(r.reemplaza_id)
+    anulado: bool_(r.anulado), reemplaza_id: String(r.reemplaza_id), evento_id: String(r.evento_id)
   };
 }
 function sueldoOut_(r) {
@@ -1032,7 +1094,7 @@ function textoResumen_(datos) {
 }
 
 function armarResumen_(mk, ejemplo) {
-  var datos = datosResumen_(readTab_('Movimientos').map(movOut_), readTab_('Etiquetas').map(etiquetaOut_), readTab_('Categorias'), mk);
+  var datos = datosResumen_(readTab_('Movimientos').map(movOut_).filter(function (m) { return !m.evento_id; }), readTab_('Etiquetas').map(etiquetaOut_), readTab_('Categorias'), mk);
   return { asunto: '🐕 Cuba · ' + (ejemplo ? 'ejemplo de resumen de ' : 'resumen de ') + mesLabel_(mk), html: htmlResumen_(datos, ejemplo), texto: textoResumen_(datos), datos: datos };
 }
 

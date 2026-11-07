@@ -14,7 +14,7 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 - El sueldo vigente a una fecha es el de mayor `desde` menor o igual a esa fecha.
 
 ## Movimientos (solo se agrega)
-`id | tipo | fecha | descripcion | monto_centavos | moneda | pagador_id | reparto_modo | reparto_json | excepcion | motivo_excepcion | categoria | confianza | nota | lote_id | origen | creado_por | creado_en | anulado | reemplaza_id`
+`id | tipo | fecha | descripcion | monto_centavos | moneda | pagador_id | reparto_modo | reparto_json | excepcion | motivo_excepcion | categoria | confianza | nota | lote_id | origen | creado_por | creado_en | anulado | reemplaza_id | evento_id`
 - `tipo`: `gasto` o `pago`.
 - `reparto_modo`: `sueldo` (por defecto), `igual`, `porcentaje` o `exacto`.
 - `reparto_json`: `[["persona_id", centavos], ...]`; la suma es exactamente `monto_centavos`.
@@ -49,6 +49,11 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 ## Recurrentes
 `id | descripcion | monto_estimado_centavos | moneda | dia_mes | categoria | pagador_id | proximo_vencimiento | activo`
 
+## Eventos
+`id | nombre | moneda | desde | hasta | estado | creado_por | creado_en`
+- Viajes y eventos (v0.14). `estado` = `abierto` o `cerrado`. Es configuración: se edita en el lugar. La moneda no se cambia si ya tiene gastos.
+- Sus gastos y pagos son movimientos normales con `evento_id` completo (última columna de `Movimientos`). La app los deja afuera del mes, de «Quién le debe a quién», del Cierre y del mail mensual; el evento tiene sus propios saldos.
+
 ## Cierres
 `id | mes | transferencias_json | confirmado_a | confirmado_b | pdf_drive_id | creado_en`
 - Cierre con doble confirmación: cada persona confirma y queda registrada la fecha.
@@ -69,3 +74,4 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 - `reparto_modo = sueldo` cuando el reparto es exactamente el proporcional al sueldo vigente a `fecha` entre los que participan. Si había sueldos de todos y no se usó, `excepcion = TRUE` (y `motivo_excepcion` si se escribió uno).
 - `Recurrentes` es configuración y se edita en el lugar. `monto_estimado_centavos` pasa a ser lo último que se pagó de verdad; `proximo_vencimiento` avanza un mes al anotarlo. Lo pagado vive en `Movimientos` con `origen = recurrente`.
 
+- `evento_id` (columna 21 de `Movimientos`) se agregó en v0.14: una Sheet anterior se completa sola (el backend escribe el encabezado si la columna está vacía; no toca ningún dato). La pestaña `Eventos` también se crea sola.

@@ -22,3 +22,8 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 
 - **Se activa:** al cargar un resumen de tarjeta con 25 consumos o más, el aviso de confirmación suma «Cuba olfateó N consumos y trajo solo lo compartido 🦴».
 - **Se apaga:** borrar el `(R.items.length >= 25 ? … : '')` del `toast` al final de `A.rsgo` en `src/app.html`.
+
+## v0.14 · Despedida de viaje
+
+- **Se activa:** al saldar la última deuda de un viaje o evento («Pagado ✓» hasta quedar a mano), un avión cruza la pantalla y el aviso dice «¡Cuentas del viaje claras!».
+- **Se apaga:** borrar el bloque `if (!quedan && …) {…}` en `A.evpay` y la regla `.plane` del CSS (`src/app.html`). No aparece con «reducir movimiento».

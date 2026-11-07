@@ -46,6 +46,7 @@
     };
     if (r.lote_id) e.lote = r.lote_id;
     if (r.reemplaza_id) e.replaces = r.reemplaza_id;
+    if (r.evento_id) e.ev = r.evento_id;
     if (r.excepcion) e.exc = true;
     if (r.motivo_excepcion) e.why = r.motivo_excepcion;
     if (r.anulado) e.del = true;
@@ -76,6 +77,7 @@
     if (info.exc && e.why) m.motivo_excepcion = String(e.why).slice(0, 200);
     if (e.lote) m.lote_id = e.lote;
     if (e.replaces) m.reemplaza_id = e.replaces;
+    if (e.ev) m.evento_id = e.ev;
     return m;
   }
 
@@ -105,6 +107,27 @@
     return C.live(entries).filter(function (e) { return e.type === 'payment' && /^Cierre /.test(e.note || '') && e.sp.length === 1; })
       .map(function (e) { return { id: e.id, month: C.monthKey(e.date), from: e.paidBy, to: e.sp[0][0], cents: e.cents, cur: e.cur, date: e.date, at: e.at, by: e.by }; })
       .sort(function (a, b) { return (b.at || '') < (a.at || '') ? -1 : (b.at || '') > (a.at || '') ? 1 : 0; });
+  }
+
+  function rowToEvento(r) {
+    return { id: r.id, name: r.nombre, cur: r.moneda || 'ARS', from: r.desde || '', to: r.hasta || '', open: r.estado !== 'cerrado', by: r.creado_por || null };
+  }
+  function eventoToPayload(v) {
+    return { id: v.id, nombre: v.name, moneda: v.cur, desde: v.from || '', hasta: v.to || '', estado: v.open ? 'abierto' : 'cerrado', creado_por: v.by || '' };
+  }
+  // Cuentas de un evento, aparte del resto: quién puso, a quién le tocaba y quién le debe a quién (los pagos del evento también cuentan).
+  function eventoCuentas(entries, evId, ids) {
+    var mine = (entries || []).filter(function (e) { return !e.del && e.ev === evId; });
+    var paid = {}, share = {}, total = 0, count = 0;
+    mine.forEach(function (e) {
+      if (e.type === 'payment') return;
+      total += e.cents; count++;
+      paid[e.paidBy] = (paid[e.paidBy] || 0) + e.cents;
+      e.sp.forEach(function (x) { share[x[0]] = (share[x[0]] || 0) + x[1]; });
+    });
+    var bal = C.balances(mine, ids || []);
+    var cur = Object.keys(bal)[0] || null;
+    return { total: total, count: count, paid: paid, share: share, transfers: cur ? C.simplify(bal[cur]).map(function (t) { return { from: t.from, to: t.to, cents: t.cents, cur: cur }; }) : [], entries: mine };
   }
 
   function rowToRec(r) {
@@ -149,6 +172,7 @@
     return {
       sueldos: (d.sueldos || []).map(function (r) { return { id: r.id, persona: r.persona_id, desde: r.desde, cents: r.monto_centavos, cur: r.moneda, note: r.nota || '', by: r.creado_por || null }; }),
       recs: (d.recurrentes || []).map(rowToRec),
+      eventos: (d.eventos || []).map(rowToEvento),
       dudosas: dudosas,
       reglas: (d.reglas_resumen || []).reduce(function (m, r) { m[r.patron] = { comparte: r.comparte, categoria: r.categoria }; return m; }, {}),
       resumenes: d.resumenes || [],
@@ -173,6 +197,6 @@
     decodeCfg: decodeCfg, personasToMembers: personasToMembers, membersToPersonas: membersToPersonas, rowToEntry: rowToEntry,
     entryToMov: entryToMov, repartoModo: repartoModo, planWrites: planWrites, deriveClosings: deriveClosings,
     snapshotToState: snapshotToState, applyPlan: applyPlan, repartoInfo: repartoInfo,
-    rowToRec: rowToRec, recToPayload: recToPayload, addMonth: addMonth, firstDue: firstDue, dueSoon: dueSoon
+    rowToEvento: rowToEvento, eventoToPayload: eventoToPayload, eventoCuentas: eventoCuentas, rowToRec: rowToRec, recToPayload: recToPayload, addMonth: addMonth, firstDue: firstDue, dueSoon: dueSoon
   };
 });

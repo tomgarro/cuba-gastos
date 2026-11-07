@@ -327,6 +327,56 @@ t('recurrentes: alta, edición en el lugar (monto y vencimiento) y validaciones'
 });
 
 
+t('eventos: alta, edición en el lugar, validaciones y gastos con evento_id', () => {
+  const b = withPeople();
+  const ev = (o) => ({ id: 'ev1', nombre: 'Bariloche', moneda: 'ARS', desde: '2026-12-10', hasta: '2026-12-17', estado: 'abierto', creado_por: 'm1', ...(o || {}) });
+  assert.strictEqual(b.call('saveEvento', { evento: ev() }).creado, true);
+  assert.strictEqual(b.call('saveEvento', { evento: { id: 'ev1', nombre: 'Bariloche 2026' } }).creado, false);
+  assert.strictEqual(b.grids.Eventos.length, 2, 'editar no crea otra fila');
+  assert.deepStrictEqual(J(b.call('read').eventos), [{ id: 'ev1', nombre: 'Bariloche 2026', moneda: 'ARS', desde: '2026-12-10', hasta: '2026-12-17', estado: 'abierto', creado_por: 'm1' }]);
+  b.call('saveEvento', { evento: { id: 'ev1', estado: 'cerrado' } });
+  assert.strictEqual(b.call('read').eventos[0].estado, 'cerrado');
+  assert.strictEqual(b.call('read').eventos[0].nombre, 'Bariloche 2026', 'cerrar no cambia el resto');
+  [{ nombre: '' }, { moneda: 'EUR' }, { desde: '2026-02-30' }, { hasta: 'mañana' }, { estado: 'borrado' }, { id: 'a b' }].forEach((o) => {
+    assert.ok(/^(evento_invalido|id_invalido)$/.test(err(() => b.call('saveEvento', { evento: ev(Object.assign({ id: 'ev2' }, o)) })).code), JSON.stringify(o));
+  });
+  assert.strictEqual(b.grids.Eventos.length, 2);
+  // un gasto del evento: se guarda con evento_id; uno de un evento inexistente se rechaza
+  b.call('addMovimientos', { movimientos: [mov({ id: 'g1', evento_id: 'ev1' })] });
+  assert.strictEqual(b.call('read').movimientos[0].evento_id, 'ev1');
+  assert.strictEqual(err(() => b.call('addMovimientos', { movimientos: [mov({ id: 'g2', evento_id: 'nope' })] })).code, 'movimiento_invalido');
+  assert.strictEqual(b.call('read').movimientos.length, 1);
+  // con gastos cargados no se cambia la moneda
+  assert.strictEqual(err(() => b.call('saveEvento', { evento: { id: 'ev1', moneda: 'USD' } })).code, 'evento_invalido');
+  // el resto de los gastos no tiene evento
+  b.call('addMovimientos', { movimientos: [mov({ id: 'g3' })] });
+  assert.strictEqual(b.call('read').movimientos.filter(m => m.evento_id === '').length, 1);
+});
+
+t('hojas de versiones anteriores: se agrega evento_id al encabezado sin tocar los datos y se crea la pestaña Eventos', () => {
+  const b = boot({ lazyTabs: true });
+  b.call('savePersonas', { personas: P });
+  // simulo una Sheet vieja: Movimientos de 20 columnas con una fila, sin la pestaña Eventos
+  b.grids.Movimientos.length = 0;
+  b.grids.Movimientos.push(b.TABS.Movimientos.slice(0, 20));
+  const vieja = b.TABS.Movimientos.slice(0, 20).map(c => ({ id: 'v1', tipo: 'gasto', fecha: '2026-10-01', descripcion: 'Viejo', monto_centavos: 500, moneda: 'ARS', pagador_id: 'm1', reparto_modo: 'igual', reparto_json: '[["m1",250],["m2",250]]', anulado: 'FALSE' }[c] ?? ''));
+  b.grids.Movimientos.push(vieja);
+  delete b.grids.Eventos;
+  const r = b.call('read');
+  assert.strictEqual(r.movimientos.length, 1);
+  assert.strictEqual(r.movimientos[0].descripcion, 'Viejo');
+  assert.strictEqual(r.movimientos[0].evento_id, '');
+  assert.strictEqual(b.grids.Movimientos[0][20], 'evento_id');
+  assert.deepStrictEqual(b.grids.Movimientos[1].slice(0, 5), vieja.slice(0, 5), 'los datos quedan igual');
+  assert.ok(b.grids.Eventos, 'se creó la pestaña');
+  // y se puede seguir escribiendo
+  b.call('addMovimientos', { movimientos: [mov({ id: 'n1' })] });
+  assert.strictEqual(b.call('read').movimientos.length, 2);
+  // una hoja con otro encabezado en esa columna NO se pisa
+  const c = boot(); c.call('savePersonas', { personas: P }); c.grids.Movimientos[0][20] = 'otra_cosa';
+  assert.strictEqual(err(() => c.call('read')).code, 'esquema');
+});
+
 t('avisos: vence pronto / hoy / vencido, una sola vez por etapa, sin montos al celu y reintenta si no salió', () => {
   const b = boot(); b.call('savePersonas', { personas: P });
   const rec = (id, d, ven, over) => Object.assign({ id, descripcion: d, monto_estimado_centavos: 1234500, moneda: 'ARS', dia_mes: 10, categoria: 'luz', pagador_id: 'm1', proximo_vencimiento: ven, activo: true }, over || {});

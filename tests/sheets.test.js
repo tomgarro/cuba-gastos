@@ -143,4 +143,24 @@ t('etiquetas: la última gana, aplicada cambia la categoría, dudosa no y queda 
   assert.strictEqual(by.a.cat, 'super'); assert.strictEqual(by.c.cat, 'otros'); assert.notStrictEqual(by.b.cat, 'luz');
   assert.deepStrictEqual(st.dudosas.map(d => d.id), ['b']);
 });
+
+t('eventos: evento_id viaja en las dos direcciones y las cuentas del evento van aparte', () => {
+  const m = S.entryToMov({ id: 'g1', type: 'expense', desc: 'Cabaña', cents: 10000, cur: 'ARS', date: '2026-12-10', paidBy: 'a', sp: [['a', 5000], ['b', 5000]], cat: 'otros', ev: 'ev1' }, []);
+  assert.strictEqual(m.evento_id, 'ev1');
+  const e = S.rowToEntry(Object.assign({ id: 'g1', tipo: 'gasto', descripcion: 'Cabaña', monto_centavos: 10000, moneda: 'ARS', fecha: '2026-12-10', pagador_id: 'a', reparto_json: '[["a",5000],["b",5000]]' }, { evento_id: 'ev1' }));
+  assert.strictEqual(e.ev, 'ev1');
+  assert.strictEqual(S.rowToEntry({ id: 'x', tipo: 'gasto', descripcion: 'x', monto_centavos: 1, moneda: 'ARS', fecha: '2026-12-10', pagador_id: 'a', reparto_json: '[["a",1]]', evento_id: '' }).ev, undefined);
+  const lista = [e, { id: 'g2', type: 'expense', desc: 'Nafta', cents: 3001, cur: 'ARS', date: '2026-12-11', paidBy: 'b', sp: [['a', 1501], ['b', 1500]], ev: 'ev1' },
+    { id: 'g3', type: 'expense', desc: 'Otro evento', cents: 999, cur: 'ARS', date: '2026-12-11', paidBy: 'b', sp: [['a', 999]], ev: 'ev2' }, { id: 'g4', type: 'expense', desc: 'Borrado', cents: 5, cur: 'ARS', date: '2026-12-11', paidBy: 'b', sp: [['a', 5]], ev: 'ev1', del: true }];
+  const k = S.eventoCuentas(lista, 'ev1', ['a', 'b']);
+  assert.deepStrictEqual([k.total, k.count, k.paid.a, k.paid.b, k.share.a, k.share.b], [13001, 2, 10000, 3001, 6501, 6500]);
+  assert.deepStrictEqual(k.transfers, [{ from: 'b', to: 'a', cents: 3499, cur: 'ARS' }]);
+  assert.strictEqual(k.transfers[0].cents, k.share.b - k.paid.b + 0, 'lo que le debe b = su parte menos lo que puso');
+  // un pago del evento lo deja a mano
+  const pago = { id: 'p1', type: 'payment', desc: 'Pago', cents: 3499, cur: 'ARS', date: '2026-12-12', paidBy: 'b', sp: [['a', 3499]], ev: 'ev1' };
+  assert.deepStrictEqual(S.eventoCuentas(lista.concat([pago]), 'ev1', ['a', 'b']).transfers, []);
+  assert.deepStrictEqual(S.eventoCuentas(lista, 'nada', ['a']).transfers, []);
+  assert.strictEqual(S.snapshotToState({ personas: [{ id: 'a', nombre: 'A' }], movimientos: [], eventos: [{ id: 'ev1', nombre: 'Bari', moneda: 'USD', desde: '', hasta: '', estado: 'cerrado', creado_por: 'a' }] }).eventos[0].open, false);
+  assert.deepStrictEqual(S.eventoToPayload({ id: 'ev1', name: 'Bari', cur: 'USD', from: '', to: '', open: true, by: 'a' }), { id: 'ev1', nombre: 'Bari', moneda: 'USD', desde: '', hasta: '', estado: 'abierto', creado_por: 'a' });
+});
 console.log(n + ' pruebas de traducción');
