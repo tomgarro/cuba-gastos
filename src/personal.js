@@ -228,6 +228,48 @@
     return L.join('\n');
   }
 
+  /* ---------------- Mercado Pago: qué hacer con cada movimiento ---------------- */
+  function fold(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim(); }
+  function nombre1(s) { return fold(s).split(/\s+/)[0] || ''; }
+  function difDias(a, b) { return Math.round((Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000); }
+  // Reparte un cobro entre las deudas pendientes (la más vieja primero).
+  function repartirCobro(ds, monto) {
+    var out = [], resto = monto;
+    ds.slice().sort(function (a, b) { return a.f < b.f ? -1 : a.f > b.f ? 1 : 0; }).forEach(function (d) {
+      if (resto <= 0 || d.pend <= 0) return;
+      var c = Math.min(d.pend, resto); out.push({ ref: d.id, c: c }); resto -= c;
+    });
+    return out;
+  }
+  // movs: lo que devuelve el Apps Script. Devuelve lo que se puede hacer solo y lo que hay que confirmar.
+  function conciliarMP(movs, st, hoy) {
+    var res = { cobros: [], gastos: [], sug: [], rev: [], ya: [] }, pend = {};
+    st.deudas.forEach(function (d) { if (d.pend > 0) { var k = fold(d.w); (pend[k] = pend[k] || []).push({ id: d.id, f: d.f, m: d.m, w: d.w, pend: d.pend }); } });
+    var tot = function (ds) { return ds.reduce(function (a, d) { return a + d.pend; }, 0); };
+    (movs || []).forEach(function (m) {
+      if (st.vistos['mp' + m.id] || st.gastos.some(function (g) { return g.id === 'mp' + m.id; })) return;
+      if (m.sentido === 'recibido') {
+        var cand = Object.keys(pend).map(function (k) { return pend[k].filter(function (d) { return d.m === m.moneda && d.pend > 0; }); }).filter(function (ds) { return ds.length; });
+        var n1 = nombre1(m.contraparte), porNombre = n1 ? cand.filter(function (ds) { return nombre1(ds[0].w) === n1; }) : [];
+        if (porNombre.length === 1 && m.monto_centavos <= tot(porNombre[0])) {
+          var al = repartirCobro(porNombre[0], m.monto_centavos);
+          al.forEach(function (a) { porNombre[0].forEach(function (d) { if (d.id === a.ref) d.pend -= a.c; }); });
+          res.cobros.push({ mov: m, persona: porNombre[0][0].w, allocs: al }); return;
+        }
+        var porMonto = cand.filter(function (ds) { return tot(ds) === m.monto_centavos || ds.some(function (d) { return d.pend === m.monto_centavos; }); });
+        if (porMonto.length === 1) {
+          var ds = porMonto[0], uno = ds.filter(function (d) { return d.pend === m.monto_centavos; })[0];
+          res.sug.push({ mov: m, persona: ds[0].w, allocs: uno ? [{ ref: uno.id, c: uno.pend }] : repartirCobro(ds, m.monto_centavos) });
+        }
+        return;   // el resto de los cobros (ventas, devoluciones) no es asunto de Personal
+      }
+      if (m.tipo === 'money_transfer') { res.rev.push(m); return; }
+      var dup = st.gastos.some(function (g) { return g.m === m.moneda && g.c === m.monto_centavos && Math.abs(difDias(g.f, m.fecha)) <= 3; });
+      (dup ? res.ya : res.gastos).push(m);
+    });
+    return res;
+  }
+
   /* ---------------- calendario ---------------- */
   function icsTxt(s) { return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
   function plegar(l) { var o = []; while (l.length > 74) { o.push(l.slice(0, 74)); l = ' ' + l.slice(74); } o.push(l); return o.join('\r\n'); }
@@ -250,6 +292,6 @@
   return {
     nuevaClave: nuevaClave, codigoDe: codigoDe, claveDeCodigo: claveDeCodigo, cifrar: cifrar, descifrar: descifrar,
     leer: leer, armarGasto: armarGasto, nuevoId: nuevoId, armar: armar, unir: unir, statsMes: statsMes,
-    duplicados: duplicados, rarezas: rarezas, ics: ics, YO: YO, repartirCompra: repartirCompra, armarCompra: armarCompra, textoWA: textoWA, textoGrupo: textoGrupo, addMes: addMes, addDias: addDias
+    duplicados: duplicados, rarezas: rarezas, ics: ics, conciliarMP: conciliarMP, YO: YO, repartirCompra: repartirCompra, armarCompra: armarCompra, textoWA: textoWA, textoGrupo: textoGrupo, addMes: addMes, addDias: addDias
   };
 });

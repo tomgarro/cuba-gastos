@@ -122,3 +122,32 @@ const HOY = '2026-11-10';
   assert.ok(/Nacho: /.test(P.textoGrupo({ comercio: 'Coto', fecha: '2026-11-07', cur: 'ARS', personas: [{ nombre: 'Nacho', c: nacho.c }], alias: 'tom.mp' })));
   console.log('ok  compras con amigos: reparto exacto, deudas, cobros parciales y mensajes');
 }
+
+// ---- Mercado Pago: conciliación ----
+{
+  const P = require('../src/personal.js'), assert = require('assert');
+  const c = P.armarCompra({ id: 'cp2', comercio: 'Coto', fecha: '2026-11-01', cur: 'ARS', cat: 'super', items: [{ d: 'Fernet', cents: 900000, w: ['__yo', 'nacho', 'fede'] }, { d: 'Coca', cents: 300000, w: ['nacho', 'fede'] }], nombres: { nacho: 'Nacho', fede: 'Fede' }, pagados: {} });
+  let st = P.armar(c.eventos.concat([{ id: 'g0', t: 'g', f: '2026-11-03', d: 'Kiosco', c: 150000, m: 'ARS', k: 'otros' }]));
+  const nacho = st.deudas.find(d => d.w === 'Nacho'), fede = st.deudas.find(d => d.w === 'Fede');
+  const mov = (id, c, extra) => Object.assign({ id: String(id), fecha: '2026-11-05', monto_centavos: c, moneda: 'ARS', sentido: 'recibido', tipo: 'regular_payment', descripcion: '', contraparte: '' }, extra || {});
+  const r = P.conciliarMP([
+    mov(1, nacho.pend, { contraparte: 'Nacho P' }),                       // nombre + monto: se marca solo
+    mov(2, fede.pend),                                                    // solo el monto: se pregunta
+    mov(3, 777700),                                                       // un cobro cualquiera: se ignora
+    mov(4, 150000, { sentido: 'pagado', fecha: '2026-11-04' }),           // ya está cargado el kiosco
+    mov(5, 320000, { sentido: 'pagado', descripcion: 'Farmacia' }),       // gasto nuevo
+    mov(6, 500000, { sentido: 'pagado', tipo: 'money_transfer' })         // transferencia: se revisa
+  ], st, '2026-11-07');
+  assert.strictEqual(r.cobros.length, 1); assert.strictEqual(r.cobros[0].allocs[0].c, nacho.pend);
+  assert.strictEqual(r.sug.length, 1); assert.strictEqual(r.sug[0].persona, 'Fede');
+  assert.deepStrictEqual([r.gastos.length, r.ya.length, r.rev.length], [1, 1, 1]);
+  // cobro parcial por nombre: reparte desde la deuda más vieja y no se pasa
+  const parc = P.conciliarMP([mov(7, 100000, { contraparte: 'Fede G' })], st, '2026-11-07');
+  assert.strictEqual(parc.cobros[0].allocs.reduce((a, x) => a + x.c, 0), 100000);
+  assert.strictEqual(P.conciliarMP([mov(8, fede.pend + 1, { contraparte: 'Fede' })], st, '2026-11-07').cobros.length, 0, 'más de lo que debe: no se marca solo');
+  // lo ya visto o ya importado no vuelve
+  st = P.armar(c.eventos.concat([{ id: 'o1', t: 'o', ref: 'mp5' }, { id: 'mp6', t: 'g', f: '2026-11-05', d: 'X', c: 500000, m: 'ARS', k: 'otros' }]));
+  assert.strictEqual(P.conciliarMP([mov(5, 320000, { sentido: 'pagado' }), mov(6, 500000, { sentido: 'pagado', tipo: 'money_transfer' })], st, '2026-11-07').gastos.length, 0);
+  assert.strictEqual(P.conciliarMP([mov(6, 500000, { sentido: 'pagado', tipo: 'money_transfer' })], st, '2026-11-07').rev.length, 0);
+  console.log('ok  Mercado Pago: cobros por nombre y monto, sugerencias, gastos nuevos sin duplicar');
+}

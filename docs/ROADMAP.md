@@ -59,3 +59,10 @@ Orden por dependencia. Marcar a medida que se completa.
 - En Personal: escanear el ticket (o cargarlo a mano), marcar quién comparte cada ítem (yo, Odi, amigos con nombre libre) y guardar. Personal registra solo **tu parte**; lo demás queda en «Me deben», sin tocar los gastos compartidos con Odi.
 - Odi aparece como una persona más pero viene marcada «Ya pagó» (te paga en el momento): no queda deuda. Los amigos se recuerdan para la próxima.
 - Mensaje de WhatsApp por persona (con tu alias de Mercado Pago, que se recuerda) y uno para el grupo; recordatorios y «Me pagó» total o parcial.
+
+## v0.22 · Mercado Pago (hecho)
+
+- Solo lectura, vía API. El Access Token vive únicamente en las Propiedades del script (menú 🐕 Cuba → Conectar Mercado Pago); la app solo guarda un «código de enlace» que no sirve fuera de tu Apps Script y que Odi no tiene.
+- Al abrir Personal (cada 2 h como máximo) o con «Traer ahora»: los cobros de amigos se marcan solos como «me pagó» (por nombre y monto), si solo coincide el monto se pregunta; tus pagos entran a Personal sin duplicar lo ya cargado; las transferencias se revisan una por una.
+- Lo que se trae se guarda cifrado en Personal; la Sheet no ve nada legible. Tests: `secretos.test.js` verifica que no haya claves en el repo ni en la app y que Mercado Pago solo se llame con GET.
+- Pendiente de comprobar con tu cuenta real: qué devuelve la API para una cuenta personal (la API está pensada para vendedores). La primera sincronización muestra cuántos movimientos trajo.

@@ -1167,7 +1167,7 @@ function viewPersonal() {
       '<button class="chip" data-act="perpasar" data-id="' + esc(g.id) + '" aria-label="Pasar a compartido" title="Pasar a compartido">🤝</button><button class="chip" data-act="perdel" data-id="' + esc(g.id) + '" aria-label="Anular">✕</button></div>';
   }).join('') + (del.length > (S.perN || 20) ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="permas">Ver más</button>' : '') + '</div>';
   h += '<div class="card"><h3>🧾 Compra con amigos</h3><p class="mut" style="margin:0 0 8px;font-size:14px">Pagaste vos y los demás te devuelven: en Personal queda solo tu parte y lo otro como «me deben», con el mensaje listo para WhatsApp.</p><div class="row">' +
-    (S.mode === 'sheets' ? '<label class="btn acc sm grow" style="text-align:center;cursor:pointer">📷 Cámara<input type="file" id="cmfile" accept="image/*" capture="environment" hidden></label><label class="btn ghost sm grow" style="text-align:center;cursor:pointer">🖼️ Galería<input type="file" id="cmfile2" accept="image/*" hidden></label>' : '') + '<button class="btn ghost sm grow" data-act="cmmanual">✍️ Cargar a mano</button></div></div>' + viewDeben();
+    (S.mode === 'sheets' ? '<label class="btn acc sm grow" style="text-align:center;cursor:pointer">📷 Cámara<input type="file" id="cmfile" accept="image/*" capture="environment" hidden></label><label class="btn ghost sm grow" style="text-align:center;cursor:pointer">🖼️ Galería<input type="file" id="cmfile2" accept="image/*" hidden></label>' : '') + '<button class="btn ghost sm grow" data-act="cmmanual">✍️ Cargar a mano</button></div></div>' + viewDeben() + viewMP();
   h += '<div class="card"><h3>🐾 Con Cuba</h3><div class="quick"><input id="precomp" data-in="precomp" placeholder="Antes de comprar: «tele 600000 en 6 cuotas»" autocomplete="off"><button data-act="precompra">¿Me conviene?</button></div>' + (S.mode === 'sheets' ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="rgabrir">🎁 Ideas de regalo con presupuesto</button>' : '') + '</div>';
   h += '<div class="card"><h3>Metas de ahorro</h3>' + (st.metas.length ? st.metas.map(function (m) {
     var pct = Math.min(100, Math.round(m.aportado * 100 / m.c));
@@ -1337,7 +1337,7 @@ var Ask = {
   }
 };
 var A = {
-  tab: function (el) { S.tab = el.dataset.v; S.evId = null; closeSheet(); render(); window.scrollTo(0, 0); },
+  tab: function (el) { S.tab = el.dataset.v; S.evId = null; closeSheet(); render(); window.scrollTo(0, 0); if (S.tab === 'personal') mpAuto(); },
   ob: function (el) {
     var v = +el.dataset.v;
     if (v === 2) { var ns = S.ob.names.map(function (n) { return n.trim(); }).filter(Boolean); if (ns.length < 2) { toast('Poné al menos dos nombres.'); return; } }
@@ -2037,6 +2037,83 @@ Object.assign(A, {
     var st = Per.state(), msgs = cmMsgs(st.deudas.filter(function (d) { return cmKey(d.w) === el.dataset.n; }), st.alias);
     if (msgs.length) cmMsgVer(msgs, 'Recordatorio para ' + msgs[0].n);
   }
+});
+
+// ---------------- Mercado Pago (v0.22): solo lectura; el token vive únicamente en el Apps Script ----------------
+// Acá solo se guarda el «código de enlace» (no sirve de nada fuera de tu Apps Script). Lo que se trae se vuelve eventos cifrados de Personal.
+var LSMPK = 'cuba:mpk:', LSMPT = 'cuba:mpt:';
+function mpClave() { try { return localStorage.getItem(LSMPK + S.meId) || ''; } catch (e) { return ''; } }
+function mpUltima() { try { return localStorage.getItem(LSMPT + S.meId) || ''; } catch (e) { return ''; } }
+function mpEventos(mov, allocs) {
+  var ev = (allocs || []).map(function (a, i) { return { id: 'mpr-' + mov.id + '-' + i, t: 'r', ref: a.ref, c: a.c, f: mov.fecha }; });
+  ev.push({ id: 'mpo-' + mov.id, t: 'o', ref: 'mp' + mov.id }); return ev;
+}
+function mpGasto(m, porDefecto) {
+  var d = C.prolija(m.descripcion || porDefecto || 'Mercado Pago', m.fecha);
+  return { id: 'mp' + m.id, t: 'g', f: m.fecha, d: d, c: m.monto_centavos, m: m.moneda, k: C.guessCategory(d), src: 'mp' };
+}
+function mpAuto() {
+  if (S.mode !== 'sheets' || !mpClave() || !Per.ready() || (S.mp && S.mp.busy)) return;
+  var u = mpUltima(); if (u && Date.now() - Date.parse(u) < 2 * 3600 * 1000) return;
+  mpSync(true);
+}
+function mpSync(auto) {
+  var M = S.mp = S.mp || {}, k = mpClave(); if (!k || M.busy) return;
+  M.busy = true; M.msg = ''; if (!auto) render();
+  var u = mpUltima(), desde = u ? P.addDias(u.slice(0, 10), -14) : P.addDias(today(), -30);
+  Store.call('mpMovimientos', { clave: k, desde: desde }).then(function (d) {
+    if (d.sin_token) { M.msg = 'Mercado Pago todavía no está conectado en tu Apps Script (menú 🐕 Cuba → Conectar Mercado Pago).'; return; }
+    if (d.error === 'mp_token') { M.msg = 'Mercado Pago rechazó el token: volvé a conectarlo desde el menú de la Sheet.'; return; }
+    if (d.error) { M.msg = 'Mercado Pago no respondió ahora. Se reintenta solo más tarde.'; return; }
+    var r = P.conciliarMP(d.movimientos, Per.state(), today()), ev = [];
+    r.cobros.forEach(function (c) { ev = ev.concat(mpEventos(c.mov, c.allocs)); });
+    r.gastos.forEach(function (m) { ev.push(mpGasto(m)); ev.push({ id: 'mpo-' + m.id, t: 'o', ref: 'mp' + m.id }); });
+    r.ya.forEach(function (m) { ev.push({ id: 'mpo-' + m.id, t: 'o', ref: 'mp' + m.id }); });
+    M.sug = r.sug; M.rev = r.rev;
+    try { localStorage.setItem(LSMPT + S.meId, new Date().toISOString()); } catch (e) {}
+    var partes = [];
+    if (r.cobros.length) partes.push(r.cobros.length + (r.cobros.length === 1 ? ' cobro marcado' : ' cobros marcados') + ' (' + r.cobros.map(function (c) { return c.persona; }).join(', ') + ')');
+    if (r.gastos.length) partes.push(r.gastos.length + (r.gastos.length === 1 ? ' gasto nuevo' : ' gastos nuevos') + ' en Personal');
+    if (r.sug.length + r.rev.length) partes.push(r.sug.length + r.rev.length + ' para revisar');
+    M.msg = partes.length ? partes.join(' · ') : 'Todo al día. Mercado Pago trajo ' + (d.movimientos || []).length + ' movimientos y no hay nada nuevo.';
+    return Per.add(ev).then(function () { if (partes.length || !auto) toast('Mercado Pago: ' + M.msg); });
+  }).catch(function (e) {
+    M.msg = e && e.code === 'accion_desconocida' ? 'Primero hay que publicar el Code.gs nuevo en Apps Script.' : e && e.code === 'no_autorizado' ? 'Ese código de enlace no es el de tu Apps Script. Desconectá y probá de nuevo.' : 'No pude hablar con tu Sheet ahora.';
+    if (!auto) toast(M.msg);
+  }).then(function () { M.busy = false; render(); });
+}
+function viewMP() {
+  if (S.mode !== 'sheets') return '';
+  var k = mpClave(), M = S.mp || {}, h = '<div class="card"><h3>💳 Mercado Pago</h3>';
+  if (!k) return h + '<p class="mut" style="margin:0 0 8px;font-size:14px">Cuba trae tus pagos y cobros de Mercado Pago, marca solos los «me pagó» de tus amigos y suma tus gastos a Personal. Solo lectura: nunca mueve plata.</p>' +
+    '<input id="mpclave" data-in="mpclave" placeholder="Código de enlace (XXXX-XXXX-XXXX)" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn acc full" style="margin-top:8px" data-act="mpconectar">Conectar</button>' +
+    '<p class="mut" style="font-size:13px;margin:8px 0 0">El código sale del menú 🐕 Cuba → Conectar Mercado Pago, en tu Sheet.</p></div>';
+  var u = mpUltima(), hace = u ? Math.max(1, Math.round((Date.now() - Date.parse(u)) / 60000)) : 0;
+  h += '<div class="mut" style="font-size:13px;margin-bottom:6px">' + (u ? 'Última vez: hace ' + (hace < 90 ? hace + ' min' : Math.round(hace / 60) + ' h') : 'Todavía no se trajo nada.') + '</div>';
+  if (M.msg) h += '<div class="preview" style="margin-bottom:8px">' + esc(M.msg) + '</div>';
+  (M.sug || []).forEach(function (x, i) {
+    h += '<div class="rsrow"><span class="grow"><div class="t">¿Te pagó ' + esc(x.persona) + '?</div><div class="s">' + dLabel(x.mov.fecha) + ' · ' + perMonto(x.mov.monto_centavos, x.mov.moneda) + ' recibidos</div></span><button class="chip" data-act="mpsi" data-i="' + i + '">Sí</button><button class="chip" data-act="mpno" data-i="' + i + '" data-k="sug">No</button></div>';
+  });
+  (M.rev || []).forEach(function (m, i) {
+    h += '<div class="rsrow"><span class="grow"><div class="t">Transferiste ' + perMonto(m.monto_centavos, m.moneda) + '</div><div class="s">' + dLabel(m.fecha) + (m.descripcion ? ' · ' + esc(m.descripcion) : '') + '</div></span><button class="chip" data-act="mpgasto" data-i="' + i + '">Es un gasto</button><button class="chip" data-act="mpno" data-i="' + i + '" data-k="rev">Ignorar</button></div>';
+  });
+  return h + '<button class="btn ghost sm full" data-act="mpsync"' + (M.busy ? ' disabled' : '') + '>' + (M.busy ? 'Trayendo…' : 'Traer ahora') + '</button><button class="btn ghost sm full" style="margin-top:6px" data-act="mpdesc">Desconectar este celular</button></div>';
+}
+Object.assign(A, {
+  mpconectar: function () {
+    var i = $('#mpclave'), v = String(i && i.value || '').replace(/[\s]/g, '').toUpperCase();
+    if (!/^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/.test(v)) { toast('El código tiene 3 grupos de 4: XXXX-XXXX-XXXX.'); return; }
+    try { localStorage.setItem(LSMPK + S.meId, v); localStorage.removeItem(LSMPT + S.meId); } catch (e) { toast('Este navegador no me deja guardarlo.'); return; }
+    if (i) i.blur(); S.mp = {}; mpSync(false);
+  },
+  mpsync: function () { mpSync(false); },
+  mpdesc: function () { try { localStorage.removeItem(LSMPK + S.meId); localStorage.removeItem(LSMPT + S.meId); } catch (e) {} S.mp = {}; render(); toast('Desconectado de este celular. El token sigue en tu Apps Script hasta que lo desconectes desde la Sheet.'); },
+  mpsi: function (el) { var x = S.mp && S.mp.sug && S.mp.sug[+el.dataset.i]; if (!x) return; S.mp.sug.splice(+el.dataset.i, 1); Per.add(mpEventos(x.mov, x.allocs)).then(function () { toast(x.persona + ' te pagó. Anotado.'); }); },
+  mpno: function (el) {
+    var lista = S.mp && S.mp[el.dataset.k], m = lista && lista[+el.dataset.i]; if (!m) return;
+    var mov = el.dataset.k === 'sug' ? m.mov : m; lista.splice(+el.dataset.i, 1); Per.add([{ id: 'mpo-' + mov.id, t: 'o', ref: 'mp' + mov.id }]);
+  },
+  mpgasto: function (el) { var m = S.mp && S.mp.rev && S.mp.rev[+el.dataset.i]; if (!m) return; S.mp.rev.splice(+el.dataset.i, 1); Per.add([mpGasto(m, 'Transferencia'), { id: 'mpo-' + m.id, t: 'o', ref: 'mp' + m.id }]).then(function () { toast('Sumado a Personal'); }); }
 });
 
 function iaCierre(tipo, titulo) {

@@ -132,6 +132,7 @@ var ACTIONS = {
   leerTicket: actionLeerTicket_,
   entenderGastos: actionEntenderGastos_,
   iaTexto: actionIaTexto_,
+  mpMovimientos: actionMpMovimientos_,
   entenderPregunta: actionEntenderPregunta_,
   aprender: actionAprender_,
   etiquetar: actionEtiquetar_,
@@ -140,8 +141,8 @@ var ACTIONS = {
 };
 
 /** Acciones que solo leen o llaman afuera: no toman el candado (Gemini tarda y no debe frenar las cargas). */
-var SIN_CANDADO = { categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true, read: true, ping: true };   // leer no frena a quien está escribiendo
-var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true };
+var SIN_CANDADO = { categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true, mpMovimientos: true, read: true, ping: true };   // leer no frena a quien está escribiendo
+var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true, mpMovimientos: true };
 
 /* ------------------------------------------------------------------ */
 /* Acciones                                                            */
@@ -693,6 +694,8 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('🐕 Cuba')
     .addItem('Link para emparejar celulares', 'mostrarEmparejado')
     .addItem('Guardar clave de Gemini', 'guardarClaveGemini')
+    .addItem('Conectar Mercado Pago', 'conectarMercadoPago')
+    .addItem('Desconectar Mercado Pago', 'desconectarMercadoPago')
     .addItem('Activar avisos de vencimientos', 'activarAvisos')
     .addItem('Mandarme un resumen de ejemplo', 'resumenDeEjemplo')
     .addItem('Activar resumen mensual', 'activarResumenMensual')
@@ -999,6 +1002,90 @@ function guardarClaveGemini() {
   PropertiesService.getScriptProperties().setProperty(IA.KEY_PROP, k);
   var res = gemini_([{ descripcion: 'Coto', monto: 20000, moneda: 'ARS' }], k);
   ui.alert(res.error ? 'Guardada, pero la prueba falló: ' + res.error : 'Listo: Gemini responde (' + (res.items[0] ? res.items[0].categoria : '?') + ' para «Coto»).');
+}
+
+/* ------------------------------------------------------------------ */
+/* Mercado Pago (solo lectura)                                         */
+/* El Access Token vive SOLO en las Propiedades del script: nunca en   */
+/* la Sheet, el repo ni la app. Acá solo se hacen pedidos GET; no hay  */
+/* ningún código que cree pagos, transferencias ni retiros.            */
+/* La app recibe un «código de enlace» (MP_LINK) que no sirve para     */
+/* nada fuera de este script y que Odi no tiene: sin él, mpMovimientos */
+/* no devuelve nada.                                                    */
+/* ------------------------------------------------------------------ */
+
+var MP = { TOKEN: 'MP_ACCESS_TOKEN', USER: 'MP_USER_ID', LINK: 'MP_LINK', BASE: 'https://api.mercadopago.com', PAGINA: 50, PAGINAS: 4 };
+
+function mpGet_(path, token) {
+  try {
+    var r = UrlFetchApp.fetch(MP.BASE + path, { method: 'get', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + token } });
+    var body = null;
+    try { body = JSON.parse(r.getContentText()); } catch (e) {}
+    return { code: r.getResponseCode(), body: body };
+  } catch (e) { return { code: 0, body: null }; }
+}
+
+function igual_(a, b) {   // compara sin cortar en la primera diferencia
+  a = String(a); b = String(b); var x = a.length ^ b.length;
+  for (var i = 0; i < Math.max(a.length, b.length); i++) x |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return x === 0;
+}
+
+function mpFecha_(iso) {   // fecha en hora argentina
+  var t = Date.parse(String(iso || ''));
+  return isFinite(t) ? new Date(t - 3 * 3600 * 1000).toISOString().slice(0, 10) : '';
+}
+
+/** Movimientos aprobados de la cuenta (cobros y pagos), sin emails ni documentos. Solo con el código de enlace. */
+function actionMpMovimientos_(req) {
+  var props = PropertiesService.getScriptProperties(), token = props.getProperty(MP.TOKEN), link = props.getProperty(MP.LINK);
+  if (!token || !link) return { ok: true, sin_token: true };
+  if (!igual_(text_(req.clave, 40), link)) fail_('no_autorizado', 'Ese código de enlace no es el de esta cuenta.');
+  var hoy = new Date().toISOString().slice(0, 10), tope = new Date(Date.now() - 92 * 86400000).toISOString().slice(0, 10);
+  var desde = isDate_(req.desde) ? req.desde : new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  if (desde < tope) desde = tope;
+  var out = [], vistos = {};
+  var tipos = [['recibido', 'collector.id'], ['pagado', 'payer.id']];
+  for (var t = 0; t < tipos.length; t++) {
+    for (var pg = 0; pg < MP.PAGINAS; pg++) {
+      var q = '/v1/payments/search?sort=date_created&criteria=desc&range=date_created&begin_date=' + encodeURIComponent(desde + 'T00:00:00.000-03:00') + '&end_date=NOW&limit=' + MP.PAGINA + '&offset=' + pg * MP.PAGINA + '&' + tipos[t][1] + '=me';
+      var r = mpGet_(q, token);
+      if (r.code === 401 || r.code === 403) return { ok: true, error: 'mp_token' };
+      if (r.code !== 200 || !r.body) return { ok: true, error: 'mp_http' };
+      var res = Array.isArray(r.body.results) ? r.body.results : [];
+      res.forEach(function (p) {
+        var id = String(p && p.id || ''), cents = centavosDe_(p && p.transaction_amount), fecha = mpFecha_(p && (p.date_approved || p.date_created));
+        if (!id || vistos[id] || !cents || !fecha || p.status !== 'approved') return;
+        vistos[id] = true;
+        var py = p.payer || {}, nom = tipos[t][0] === 'recibido' ? text_([py.first_name, String(py.last_name || '').slice(0, 1)].join(' '), 40) : '';
+        out.push({ id: id, fecha: fecha, monto_centavos: cents, moneda: p.currency_id === 'USD' ? 'USD' : 'ARS', sentido: tipos[t][0], tipo: text_(p.operation_type, 30), medio: text_(p.payment_type_id, 30), descripcion: text_(p.description, 60), contraparte: nom });
+      });
+      if (res.length < MP.PAGINA) break;
+    }
+  }
+  return { ok: true, movimientos: out.slice(0, 400), hasta: hoy };
+}
+
+function conectarMercadoPago() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('Token de Mercado Pago', 'Pegá el Access Token de PRODUCCIÓN de tu aplicación (queda solo en las Propiedades del script, no en la Sheet):', ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var k = r.getResponseText().replace(/[\s"']/g, '');
+  if (!/^APP_USR-[A-Za-z0-9_\-]{20,}$/.test(k)) { ui.alert('Ese token no parece válido (empieza con APP_USR-). No se guardó nada.'); return; }
+  var me = mpGet_('/users/me', k);
+  if (me.code !== 200 || !me.body || !me.body.id) { ui.alert('Mercado Pago no aceptó el token (código ' + me.code + '). No se guardó nada.'); return; }
+  var h = Utilities.getUuid().replace(/-/g, '').slice(0, 12).toUpperCase(), link = h.slice(0, 4) + '-' + h.slice(4, 8) + '-' + h.slice(8, 12);
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(MP.TOKEN, k); props.setProperty(MP.USER, String(me.body.id)); props.setProperty(MP.LINK, link);
+  ui.alert('Listo: cuenta de Mercado Pago #' + me.body.id + ' conectada (solo lectura).\n\nTu código de enlace es:\n\n' + link + '\n\nPegalo en la app: Personal → Mercado Pago. Anotalo ahora; si lo perdés, volvé a conectar.');
+}
+
+function desconectarMercadoPago() {
+  var ui = SpreadsheetApp.getUi();
+  if (ui.alert('¿Desconectar Mercado Pago? Se borra el token de acá. (Para que deje de valer del todo, revocalo también en Mercado Pago Developers.)', ui.ButtonSet.OK_CANCEL) !== ui.Button.OK) return;
+  var props = PropertiesService.getScriptProperties();
+  [MP.TOKEN, MP.USER, MP.LINK].forEach(function (k) { props.deleteProperty(k); });
+  ui.alert('Mercado Pago desconectado.');
 }
 
 /* ------------------------------------------------------------------ */

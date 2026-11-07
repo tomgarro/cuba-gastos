@@ -85,3 +85,7 @@ Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, desha
 ## Compra con amigos (v0.21)
 
 Todo vive en Personal, cifrado: eventos nuevos `d` (deuda de un amigo, con el detalle de sus ítems), `r` (cobro, total o parcial) y `h` (alias de Mercado Pago). El gasto `g` lleva solo tu parte (`tot` guarda el total del ticket). Los ids se derivan de la compra, así que reintentar no duplica. Nada de esto toca la Sheet compartida ni a Gemini más allá de leer el ticket.
+
+## Mercado Pago (v0.22)
+
+Apps Script llama a `GET /v1/payments/search` (`collector.id=me` y `payer.id=me`) con el token de las Propiedades del script; no hay ningún otro verbo ni endpoint. `mpMovimientos` exige el código de enlace (`MP_LINK`), devuelve solo id, fecha, monto, moneda, sentido, tipo, medio, descripción y, en los cobros, nombre + inicial (nunca emails ni documentos), y no escribe en la Sheet. La app concilia en el celular (`P.conciliarMP`) y guarda eventos cifrados de Personal (`r` cobros, `g` con `src:'mp'`, `o` vistos). Revocar: menú «Desconectar Mercado Pago» y revocar la credencial en Mercado Pago Developers.

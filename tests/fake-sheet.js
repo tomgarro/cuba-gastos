@@ -19,7 +19,7 @@ function boot(opts) {
       getUuid: () => crypto.randomUUID(),
       base64EncodeWebSafe: s => Buffer.from(s).toString('base64').replace(/\+/g, '-').replace(/\//g, '_')
     },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in log.props ? log.props[k] : null), setProperty: (k, v) => { log.props[k] = v; } }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in log.props ? log.props[k] : null), setProperty: (k, v) => { log.props[k] = v; }, deleteProperty: k => { delete log.props[k]; } }) },
     
     LockService: { getScriptLock: () => ({
       waitLock() { if (lockFails.v) throw new Error('timeout'); log.locks++; },
