@@ -92,7 +92,7 @@
 
   /* ---------------- estado a partir de los eventos ---------------- */
   function armar(eventos) {
-    var gastos = {}, anula = {}, presup = {}, metas = {}, aportes = [], vistos = {}, deu = {}, cobros = [], alias = null;
+    var gastos = {}, anula = {}, presup = {}, metas = {}, aportes = [], vistos = {};
     (eventos || []).forEach(function (e) {
       if (!e || !e.id) return;
       if (e.t === 'g') gastos[e.id] = e;
@@ -100,9 +100,6 @@
       else if (e.t === 'p') { if (!presup[e.k] || presup[e.k].ts <= (e.ts || 0)) presup[e.k] = { c: e.c, m: e.m || 'ARS', ts: e.ts || 0 }; }
       else if (e.t === 'm') metas[e.id] = e;
       else if (e.t === 'a') aportes.push(e);
-      else if (e.t === 'd') deu[e.id] = e;
-      else if (e.t === 'r') cobros.push(e);
-      else if (e.t === 'h') { if (!alias || alias.ts <= (e.ts || 0)) alias = { v: String(e.v || ''), ts: e.ts || 0 }; }
       else if (e.t === 'o') vistos[e.ref] = true;   // «está bien»: no vuelve a aparecer en Para revisar
     });
     var lista = Object.keys(gastos).filter(function (k) { return !anula[k]; }).map(function (k) { return gastos[k]; })
@@ -112,13 +109,7 @@
       var m = metas[k], hechos = aportes.filter(function (a) { return a.meta === k && !anula[a.id]; });
       return { id: k, n: m.n, c: m.c, m: m.m || 'ARS', aportado: hechos.reduce(function (s, a) { return s + a.c; }, 0), aportes: hechos };
     });
-    var amigos = [], vistoN = {};
-    var deudas = Object.keys(deu).filter(function (k) { return !anula[k]; }).map(function (k) {
-      var d = deu[k], pag = cobros.filter(function (r) { return r.ref === k && !anula[r.id]; }).reduce(function (a, r) { return a + r.c; }, 0);
-      return { id: k, f: d.f, d: d.d, w: d.w, c: d.c, m: d.m || 'ARS', cp: d.cp, det: d.det || [], pagado: Math.min(pag, d.c), pend: Math.max(0, d.c - pag) };
-    }).sort(function (a, b) { return a.f < b.f ? 1 : a.f > b.f ? -1 : a.id < b.id ? 1 : -1; });
-    deudas.forEach(function (d) { var k = String(d.w).toLowerCase(); if (!vistoN[k]) { vistoN[k] = 1; amigos.push(d.w); } });
-    return { gastos: lista, presup: presup, metas: ms, vistos: vistos, deudas: deudas, amigos: amigos, alias: alias ? alias.v : '' };
+    return { gastos: lista, presup: presup, metas: ms, vistos: vistos };
   }
 
   // Une lo que hay en el celular con lo que bajó de la Sheet (mismo id = mismo evento).
@@ -184,90 +175,103 @@
     return out;
   }
 
-  /* ---------------- compras con amigos ---------------- */
-  var YO = '__yo';
-  // items: [{ d, cents, w: [claves] }]. Cada ítem se reparte parejo entre quienes lo comparten y siempre suma exacto.
-  function repartirCompra(items) {
-    var tot = {}, det = {};
-    items.forEach(function (it, i) {
-      var w = it.w && it.w.length ? it.w : [YO], n = w.length, base = Math.floor(it.cents / n), rem = it.cents - base * n, start = i % n;
-      w.forEach(function (k, j) {
-        var c = base + (((j - start + n) % n) < rem ? 1 : 0);
-        tot[k] = (tot[k] || 0) + c; (det[k] = det[k] || []).push({ d: it.d, c: c, n: n });
-      });
-    });
-    return { tot: tot, det: det };
-  }
-  // c: { id, comercio, fecha, cur, cat, items, nombres:{clave:nombre}, pagados:{clave:true} } -> eventos para Personal
-  function armarCompra(c) {
-    var r = repartirCompra(c.items), ev = [], total = c.items.reduce(function (a, i) { return a + i.cents; }, 0), n = 0;
-    if (r.tot[YO] > 0) ev.push({ id: c.id + '-g', t: 'g', f: c.fecha, d: c.comercio, c: r.tot[YO], m: c.cur, k: c.cat || 'otros', tot: total, cp: c.id });
-    Object.keys(r.tot).forEach(function (k) {
-      if (k === YO || !(r.tot[k] > 0)) return; n++;
-      var id = c.id + '-d-' + n;
-      ev.push({ id: id, t: 'd', f: c.fecha, d: c.comercio, w: c.nombres[k], c: r.tot[k], m: c.cur, cp: c.id, det: r.det[k].map(function (x) { return { d: x.d, c: x.c, n: x.n }; }) });
-      if (c.pagados && c.pagados[k]) ev.push({ id: c.id + '-r-' + n, t: 'r', ref: id, c: r.tot[k], f: c.fecha });
-    });
-    return { eventos: ev, tot: r.tot, total: total };
-  }
-  function dm(f) { var p = String(f).split('-'); return +p[2] + '/' + +p[1]; }
-  function plata(c, cur) { return C.fmt(c, cur, { noDecimals: cur === 'ARS' }); }
-  // Mensaje para WhatsApp. lineas: [{ d, c, n?, comercio?, f? }]
-  function textoWA(o) {
-    var L = ['Hola ' + o.nombre + '! 👋 ' + (o.comercio ? 'Lo de ' + o.comercio + (o.fecha ? ' del ' + dm(o.fecha) : '') + ':' : 'Lo que me debés:')];
-    o.lineas.forEach(function (x) { L.push('• ' + (x.comercio ? x.comercio + ' ' + dm(x.f) + ': ' : x.d + (x.n > 1 ? ' (entre ' + x.n + ')' : '') + ': ') + plata(x.c, o.cur)); });
-    var tot = o.lineas.reduce(function (a, x) { return a + x.c; }, 0);
-    L.push('Total: ' + plata(tot, o.cur));
-    L.push(o.alias ? 'Pasámelo por Mercado Pago al alias ' + o.alias + ' 🙏' : 'Cuando puedas me lo pasás 🙏');
-    return L.join('\n');
-  }
-  function textoGrupo(o) {
-    var L = [o.comercio + (o.fecha ? ' ' + dm(o.fecha) : '') + ' 🧾 Cuentas:'];
-    o.personas.forEach(function (p) { L.push('• ' + p.nombre + ': ' + plata(p.c, o.cur)); });
-    if (o.alias) L.push('Alias de Mercado Pago: ' + o.alias);
-    return L.join('\n');
-  }
-
-  /* ---------------- Mercado Pago: qué hacer con cada movimiento ---------------- */
+  /* ---------------- Mercado Pago (API o reporte CSV) ---------------- */
   function fold(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim(); }
-  function nombre1(s) { return fold(s).split(/\s+/)[0] || ''; }
   function difDias(a, b) { return Math.round((Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000); }
-  // Reparte un cobro entre las deudas pendientes (la más vieja primero).
-  function repartirCobro(ds, monto) {
-    var out = [], resto = monto;
-    ds.slice().sort(function (a, b) { return a.f < b.f ? -1 : a.f > b.f ? 1 : 0; }).forEach(function (d) {
-      if (resto <= 0 || d.pend <= 0) return;
-      var c = Math.min(d.pend, resto); out.push({ ref: d.id, c: c }); resto -= c;
-    });
-    return out;
-  }
-  // movs: lo que devuelve el Apps Script. Devuelve lo que se puede hacer solo y lo que hay que confirmar.
-  function conciliarMP(movs, st, hoy) {
-    var res = { cobros: [], gastos: [], sug: [], rev: [], ya: [] }, pend = {};
-    st.deudas.forEach(function (d) { if (d.pend > 0) { var k = fold(d.w); (pend[k] = pend[k] || []).push({ id: d.id, f: d.f, m: d.m, w: d.w, pend: d.pend }); } });
-    var tot = function (ds) { return ds.reduce(function (a, d) { return a + d.pend; }, 0); };
+  // movs: lo que devuelve el Apps Script o el CSV. El mismo número de operación es siempre el mismo movimiento:
+  // por eso se pueden subir reportes que se pisan (dos de noviembre, uno por día) sin duplicar nada.
+  function conciliarMP(movs, st) {
+    var res = { gastos: [], rev: [], ya: [], antes: 0, ing: 0 }, lote = {};
     (movs || []).forEach(function (m) {
-      if (st.vistos['mp' + m.id] || st.gastos.some(function (g) { return g.id === 'mp' + m.id; })) return;
-      if (m.sentido === 'recibido') {
-        var cand = Object.keys(pend).map(function (k) { return pend[k].filter(function (d) { return d.m === m.moneda && d.pend > 0; }); }).filter(function (ds) { return ds.length; });
-        var n1 = nombre1(m.contraparte), porNombre = n1 ? cand.filter(function (ds) { return nombre1(ds[0].w) === n1; }) : [];
-        if (porNombre.length === 1 && m.monto_centavos <= tot(porNombre[0])) {
-          var al = repartirCobro(porNombre[0], m.monto_centavos);
-          al.forEach(function (a) { porNombre[0].forEach(function (d) { if (d.id === a.ref) d.pend -= a.c; }); });
-          res.cobros.push({ mov: m, persona: porNombre[0][0].w, allocs: al }); return;
-        }
-        var porMonto = cand.filter(function (ds) { return tot(ds) === m.monto_centavos || ds.some(function (d) { return d.pend === m.monto_centavos; }); });
-        if (porMonto.length === 1) {
-          var ds = porMonto[0], uno = ds.filter(function (d) { return d.pend === m.monto_centavos; })[0];
-          res.sug.push({ mov: m, persona: ds[0].w, allocs: uno ? [{ ref: uno.id, c: uno.pend }] : repartirCobro(ds, m.monto_centavos) });
-        }
-        return;   // el resto de los cobros (ventas, devoluciones) no es asunto de Personal
-      }
+      var id = 'mp' + m.id;
+      if (m.sentido === 'recibido') { res.ing++; return; }   // lo que entra no es gasto
+      if (lote[id]) return; lote[id] = 1;
+      if (st.vistos[id] || st.gastos.some(function (g) { return g.id === id; })) { res.antes++; return; }
       if (m.tipo === 'money_transfer') { res.rev.push(m); return; }
-      var dup = st.gastos.some(function (g) { return g.m === m.moneda && g.c === m.monto_centavos && Math.abs(difDias(g.f, m.fecha)) <= 3; });
+      var dup = st.gastos.some(function (g) { return g.src !== 'mp' && g.m === m.moneda && g.c === m.monto_centavos && Math.abs(difDias(g.f, m.fecha)) <= 3; });
       (dup ? res.ya : res.gastos).push(m);
     });
     return res;
+  }
+
+  function csvFilas(t, sep) {
+    var rows = [], row = [], cur = '', q = false;
+    for (var i = 0; i < t.length; i++) {
+      var ch = t[i];
+      if (q) { if (ch === '"') { if (t[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === sep) { row.push(cur); cur = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && t[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+      else cur += ch;
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); });
+  }
+  // «1.234,56», «1,234.56», «-$ 1.234», «(500,00)» -> centavos con signo (null si no es un número)
+  function numCents(s) {
+    var t = String(s == null ? '' : s).replace(/\s|\$|ARS|USD|U\$S/gi, ''); if (!t) return null;
+    var neg = /^\(.*\)$/.test(t) || /^-/.test(t) || /-$/.test(t); t = t.replace(/[()\-+]/g, '');
+    if (!/^\d[\d.,]*$/.test(t)) return null;
+    var lc = t.lastIndexOf(','), lp = t.lastIndexOf('.'), dec = null;
+    if (lc >= 0 && lp >= 0) dec = lc > lp ? ',' : '.';
+    else if (lc >= 0) dec = /,\d{1,2}$/.test(t) && t.indexOf(',') === lc ? ',' : null;
+    else if (lp >= 0) dec = /\.\d{1,2}$/.test(t) && t.indexOf('.') === lp ? '.' : null;
+    var ent = t, fr = ''; if (dec) { var j = t.lastIndexOf(dec); ent = t.slice(0, j); fr = t.slice(j + 1); }
+    var c = parseInt(ent.replace(/[.,]/g, '') || '0', 10) * 100 + (fr ? parseInt((fr + '0').slice(0, 2), 10) : 0);
+    return neg ? -c : c;
+  }
+  function fechaMP(s) {
+    var t = String(s || ''), m = t.match(/(\d{4})-(\d{2})-(\d{2})/), y, mo, d;
+    if (m) { y = m[1]; mo = m[2]; d = m[3]; }
+    else { m = t.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/); if (!m) return ''; y = m[3]; mo = ('0' + m[2]).slice(-2); d = ('0' + m[1]).slice(-2); }
+    return +mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31 ? y + '-' + mo + '-' + d : '';
+  }
+  function hash36(s) { var h = 5381; for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36); }
+  var COL = {
+    fecha: ['transaction_date', 'release_date', 'date', 'fecha', 'fecha_de_liberacion', 'fecha_de_aprobacion', 'transaction_approval_date', 'fecha_de_compra', 'date_created', 'fecha_de_la_operacion', 'fecha_de_operacion', 'settlement_date'],
+    id: ['reference_id', 'source_id', 'id_de_la_operacion', 'numero_de_operacion', 'n_de_operacion', 'nro_de_operacion', 'operation_id', 'id_de_operacion', 'id_operacion', 'payment_id', 'id', 'operacion'],
+    desc: ['sale_detail', 'transaction_type', 'description', 'descripcion', 'detalle', 'tipo_de_operacion', 'concepto', 'tipo_de_transaccion', 'record_type'],
+    monto: ['transaction_amount', 'valor', 'monto', 'importe', 'amount', 'monto_de_la_operacion', 'gross_amount'],
+    cred: ['net_credit_amount', 'credito', 'creditos', 'ingreso', 'ingresos'],
+    deb: ['net_debit_amount', 'debito', 'debitos', 'egreso', 'egresos'],
+    mon: ['transaction_currency', 'currency_id', 'currency', 'moneda']
+  };
+  function colIdx(hdr, lista) { for (var i = 0; i < lista.length; i++) { var j = hdr.indexOf(lista[i]); if (j >= 0) return j; } return -1; }
+  // Lee un CSV de Mercado Pago (resumen de cuenta, reporte de dinero en cuenta o de liberaciones) sin depender de un formato fijo.
+  function leerCSVMP(texto) {
+    var t = String(texto || '').replace(/^﻿/, ''), pri = t.split(/\r?\n/).filter(function (l) { return l.trim(); }).slice(0, 4).join('\n');
+    var sep = [';', ',', '\t'].map(function (c) { return [c, pri.split(c).length - 1]; }).sort(function (a, b) { return b[1] - a[1]; })[0][0];
+    var rows = csvFilas(t, sep), h = -1, C = null;
+    for (var i = 0; i < Math.min(rows.length, 40) && h < 0; i++) {
+      var hdr = rows[i].map(function (x) { return fold(x).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''); });
+      var c = { fecha: colIdx(hdr, COL.fecha), id: colIdx(hdr, COL.id), mon: colIdx(hdr, COL.mon), monto: colIdx(hdr, COL.monto), cred: colIdx(hdr, COL.cred), deb: colIdx(hdr, COL.deb),
+        desc: COL.desc.map(function (k) { return hdr.indexOf(k); }).filter(function (j) { return j >= 0; }) };
+      if (c.fecha >= 0 && (c.monto >= 0 || c.cred >= 0 || c.deb >= 0)) { h = i; C = c; }
+    }
+    if (h < 0) return { movs: [], filas: 0, error: 'cabecera', cabecera: (rows[0] || []).slice(0, 12) };
+    var movs = [], vistoId = {}, vistoK = {}, filas = 0;
+    rows.slice(h + 1).forEach(function (r) {
+      var f = fechaMP(r[C.fecha]); if (!f) return; filas++;
+      var cents = null;
+      if (C.cred >= 0 || C.deb >= 0) {
+        var cr = C.cred >= 0 ? Math.abs(numCents(r[C.cred]) || 0) : 0, db = C.deb >= 0 ? Math.abs(numCents(r[C.deb]) || 0) : 0;
+        if (cr || db) cents = cr - db;
+      }
+      if (cents == null && C.monto >= 0) cents = numCents(r[C.monto]);
+      if (!cents) return;
+      var desc = []; C.desc.forEach(function (j) { var v = String(r[j] || '').replace(/^[\s"]+|[\s"]+$/g, ''); if (v && desc.indexOf(v) < 0) desc.push(v); });
+      var crudo = desc.join(' · ');
+      // «SETTLEMENT» y «PAYOUTS» son tipos internos: lo que sirve es el detalle («Producto de Comercio»); «Varios» y los retiros son transferencias
+      var d = desc.filter(function (v) { return !/^(settlement|payouts?|refund|chargeback)$/i.test(v); }).map(function (v) { return v.replace(/^producto de\s+/i, '').replace(/^orden de venta$/i, 'Pago con QR').replace(/^varios$/i, ''); }).filter(Boolean).join(' · ');
+      if (!d && /payout/i.test(crudo)) d = 'Retiro o transferencia';
+      var raw = C.id >= 0 ? String(r[C.id] || '').replace(/\s/g, '').replace(/\.0+$/, '') : '', id;
+      if (raw) { vistoId[raw] = (vistoId[raw] || 0) + 1; id = vistoId[raw] > 1 ? raw + '-' + vistoId[raw] : raw; }
+      else { var k = f + '|' + cents + '|' + d; vistoK[k] = (vistoK[k] || 0) + 1; id = 'c' + hash36(k) + (vistoK[k] > 1 ? '-' + vistoK[k] : ''); }
+      var mon = C.mon >= 0 && /usd|u\$s|dolar/i.test(String(r[C.mon])) ? 'USD' : 'ARS';
+      movs.push({ id: id, fecha: f, monto_centavos: Math.abs(cents), moneda: mon, sentido: cents < 0 ? 'pagado' : 'recibido',
+        tipo: /transferencia|envio de dinero|retiro|extraccion|cash.?out|payout/.test(fold(crudo)) || desc.some(function (v) { return /^varios$/i.test(v); }) ? 'money_transfer' : 'regular_payment', descripcion: d });
+    });
+    return { movs: movs, filas: filas };
   }
 
   /* ---------------- calendario ---------------- */
@@ -292,6 +296,6 @@
   return {
     nuevaClave: nuevaClave, codigoDe: codigoDe, claveDeCodigo: claveDeCodigo, cifrar: cifrar, descifrar: descifrar,
     leer: leer, armarGasto: armarGasto, nuevoId: nuevoId, armar: armar, unir: unir, statsMes: statsMes,
-    duplicados: duplicados, rarezas: rarezas, ics: ics, conciliarMP: conciliarMP, YO: YO, repartirCompra: repartirCompra, armarCompra: armarCompra, textoWA: textoWA, textoGrupo: textoGrupo, addMes: addMes, addDias: addDias
+    duplicados: duplicados, rarezas: rarezas, ics: ics, conciliarMP: conciliarMP, leerCSVMP: leerCSVMP, addMes: addMes, addDias: addDias
   };
 });

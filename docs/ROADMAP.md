@@ -70,3 +70,8 @@ Orden por dependencia. Marcar a medida que se completa.
 ## v0.22.1
 - Mercado Pago: la sincronización informa cuántos cobros/pagos vio la API y muestra el saldo si la cuenta lo permite.
 - Avisos: el menú «Probar avisos» manda una prueba a cada celu y muestra el resultado del último aviso real (`AVISO_ULTIMO`).
+
+## v0.23.0
+- Se retira «Compra con amigos» (no queda nada que limpiar en el backend; ver ARQUITECTURA).
+- Mercado Pago: importación del reporte CSV con vista previa, sin duplicar entre reportes que se pisan y con «Deshacer». + detalle sorpresa 🥚
+- Mercado Pago automático: Cuba baja sola el reporte diario programado (lista + descarga, solo lectura) y lo importa; el CSV a mano queda de respaldo.

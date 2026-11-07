@@ -43,3 +43,8 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 
 - **Se activa:** guardar un ticket por ítems (🧾 en «Nuevo gasto») que tenga algo de parrilla (asado, chorizo, vacío, costilla…). La app mueve la cola y avisa que Cuba se queda con el hueso. No se le pregunta nada extra a Gemini.
 - **Se apaga:** borrar la variable `asado` y su uso en `A.tksave` (`src/app.html`). Sin movimiento con «reducir movimiento».
+
+## v0.23 · El olfato de Cuba
+
+- **Se activa:** importar un reporte de Mercado Pago que incluya un pago a una veterinaria, pet shop o alimento balanceado. Cuba «olfatea» algo suyo, el aviso lo cuenta y el celu vibra apenas.
+- **Se apaga:** borrar la variable `guau` y su uso en `A.mpimp` (`src/app.html`).

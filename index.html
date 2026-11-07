@@ -1732,7 +1732,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 
   /* ---------------- estado a partir de los eventos ---------------- */
   function armar(eventos) {
-    var gastos = {}, anula = {}, presup = {}, metas = {}, aportes = [], vistos = {}, deu = {}, cobros = [], alias = null;
+    var gastos = {}, anula = {}, presup = {}, metas = {}, aportes = [], vistos = {};
     (eventos || []).forEach(function (e) {
       if (!e || !e.id) return;
       if (e.t === 'g') gastos[e.id] = e;
@@ -1740,9 +1740,6 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
       else if (e.t === 'p') { if (!presup[e.k] || presup[e.k].ts <= (e.ts || 0)) presup[e.k] = { c: e.c, m: e.m || 'ARS', ts: e.ts || 0 }; }
       else if (e.t === 'm') metas[e.id] = e;
       else if (e.t === 'a') aportes.push(e);
-      else if (e.t === 'd') deu[e.id] = e;
-      else if (e.t === 'r') cobros.push(e);
-      else if (e.t === 'h') { if (!alias || alias.ts <= (e.ts || 0)) alias = { v: String(e.v || ''), ts: e.ts || 0 }; }
       else if (e.t === 'o') vistos[e.ref] = true;   // «está bien»: no vuelve a aparecer en Para revisar
     });
     var lista = Object.keys(gastos).filter(function (k) { return !anula[k]; }).map(function (k) { return gastos[k]; })
@@ -1752,13 +1749,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
       var m = metas[k], hechos = aportes.filter(function (a) { return a.meta === k && !anula[a.id]; });
       return { id: k, n: m.n, c: m.c, m: m.m || 'ARS', aportado: hechos.reduce(function (s, a) { return s + a.c; }, 0), aportes: hechos };
     });
-    var amigos = [], vistoN = {};
-    var deudas = Object.keys(deu).filter(function (k) { return !anula[k]; }).map(function (k) {
-      var d = deu[k], pag = cobros.filter(function (r) { return r.ref === k && !anula[r.id]; }).reduce(function (a, r) { return a + r.c; }, 0);
-      return { id: k, f: d.f, d: d.d, w: d.w, c: d.c, m: d.m || 'ARS', cp: d.cp, det: d.det || [], pagado: Math.min(pag, d.c), pend: Math.max(0, d.c - pag) };
-    }).sort(function (a, b) { return a.f < b.f ? 1 : a.f > b.f ? -1 : a.id < b.id ? 1 : -1; });
-    deudas.forEach(function (d) { var k = String(d.w).toLowerCase(); if (!vistoN[k]) { vistoN[k] = 1; amigos.push(d.w); } });
-    return { gastos: lista, presup: presup, metas: ms, vistos: vistos, deudas: deudas, amigos: amigos, alias: alias ? alias.v : '' };
+    return { gastos: lista, presup: presup, metas: ms, vistos: vistos };
   }
 
   // Une lo que hay en el celular con lo que bajó de la Sheet (mismo id = mismo evento).
@@ -1824,90 +1815,103 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     return out;
   }
 
-  /* ---------------- compras con amigos ---------------- */
-  var YO = '__yo';
-  // items: [{ d, cents, w: [claves] }]. Cada ítem se reparte parejo entre quienes lo comparten y siempre suma exacto.
-  function repartirCompra(items) {
-    var tot = {}, det = {};
-    items.forEach(function (it, i) {
-      var w = it.w && it.w.length ? it.w : [YO], n = w.length, base = Math.floor(it.cents / n), rem = it.cents - base * n, start = i % n;
-      w.forEach(function (k, j) {
-        var c = base + (((j - start + n) % n) < rem ? 1 : 0);
-        tot[k] = (tot[k] || 0) + c; (det[k] = det[k] || []).push({ d: it.d, c: c, n: n });
-      });
-    });
-    return { tot: tot, det: det };
-  }
-  // c: { id, comercio, fecha, cur, cat, items, nombres:{clave:nombre}, pagados:{clave:true} } -> eventos para Personal
-  function armarCompra(c) {
-    var r = repartirCompra(c.items), ev = [], total = c.items.reduce(function (a, i) { return a + i.cents; }, 0), n = 0;
-    if (r.tot[YO] > 0) ev.push({ id: c.id + '-g', t: 'g', f: c.fecha, d: c.comercio, c: r.tot[YO], m: c.cur, k: c.cat || 'otros', tot: total, cp: c.id });
-    Object.keys(r.tot).forEach(function (k) {
-      if (k === YO || !(r.tot[k] > 0)) return; n++;
-      var id = c.id + '-d-' + n;
-      ev.push({ id: id, t: 'd', f: c.fecha, d: c.comercio, w: c.nombres[k], c: r.tot[k], m: c.cur, cp: c.id, det: r.det[k].map(function (x) { return { d: x.d, c: x.c, n: x.n }; }) });
-      if (c.pagados && c.pagados[k]) ev.push({ id: c.id + '-r-' + n, t: 'r', ref: id, c: r.tot[k], f: c.fecha });
-    });
-    return { eventos: ev, tot: r.tot, total: total };
-  }
-  function dm(f) { var p = String(f).split('-'); return +p[2] + '/' + +p[1]; }
-  function plata(c, cur) { return C.fmt(c, cur, { noDecimals: cur === 'ARS' }); }
-  // Mensaje para WhatsApp. lineas: [{ d, c, n?, comercio?, f? }]
-  function textoWA(o) {
-    var L = ['Hola ' + o.nombre + '! 👋 ' + (o.comercio ? 'Lo de ' + o.comercio + (o.fecha ? ' del ' + dm(o.fecha) : '') + ':' : 'Lo que me debés:')];
-    o.lineas.forEach(function (x) { L.push('• ' + (x.comercio ? x.comercio + ' ' + dm(x.f) + ': ' : x.d + (x.n > 1 ? ' (entre ' + x.n + ')' : '') + ': ') + plata(x.c, o.cur)); });
-    var tot = o.lineas.reduce(function (a, x) { return a + x.c; }, 0);
-    L.push('Total: ' + plata(tot, o.cur));
-    L.push(o.alias ? 'Pasámelo por Mercado Pago al alias ' + o.alias + ' 🙏' : 'Cuando puedas me lo pasás 🙏');
-    return L.join('\n');
-  }
-  function textoGrupo(o) {
-    var L = [o.comercio + (o.fecha ? ' ' + dm(o.fecha) : '') + ' 🧾 Cuentas:'];
-    o.personas.forEach(function (p) { L.push('• ' + p.nombre + ': ' + plata(p.c, o.cur)); });
-    if (o.alias) L.push('Alias de Mercado Pago: ' + o.alias);
-    return L.join('\n');
-  }
-
-  /* ---------------- Mercado Pago: qué hacer con cada movimiento ---------------- */
+  /* ---------------- Mercado Pago (API o reporte CSV) ---------------- */
   function fold(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim(); }
-  function nombre1(s) { return fold(s).split(/\s+/)[0] || ''; }
   function difDias(a, b) { return Math.round((Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000); }
-  // Reparte un cobro entre las deudas pendientes (la más vieja primero).
-  function repartirCobro(ds, monto) {
-    var out = [], resto = monto;
-    ds.slice().sort(function (a, b) { return a.f < b.f ? -1 : a.f > b.f ? 1 : 0; }).forEach(function (d) {
-      if (resto <= 0 || d.pend <= 0) return;
-      var c = Math.min(d.pend, resto); out.push({ ref: d.id, c: c }); resto -= c;
-    });
-    return out;
-  }
-  // movs: lo que devuelve el Apps Script. Devuelve lo que se puede hacer solo y lo que hay que confirmar.
-  function conciliarMP(movs, st, hoy) {
-    var res = { cobros: [], gastos: [], sug: [], rev: [], ya: [] }, pend = {};
-    st.deudas.forEach(function (d) { if (d.pend > 0) { var k = fold(d.w); (pend[k] = pend[k] || []).push({ id: d.id, f: d.f, m: d.m, w: d.w, pend: d.pend }); } });
-    var tot = function (ds) { return ds.reduce(function (a, d) { return a + d.pend; }, 0); };
+  // movs: lo que devuelve el Apps Script o el CSV. El mismo número de operación es siempre el mismo movimiento:
+  // por eso se pueden subir reportes que se pisan (dos de noviembre, uno por día) sin duplicar nada.
+  function conciliarMP(movs, st) {
+    var res = { gastos: [], rev: [], ya: [], antes: 0, ing: 0 }, lote = {};
     (movs || []).forEach(function (m) {
-      if (st.vistos['mp' + m.id] || st.gastos.some(function (g) { return g.id === 'mp' + m.id; })) return;
-      if (m.sentido === 'recibido') {
-        var cand = Object.keys(pend).map(function (k) { return pend[k].filter(function (d) { return d.m === m.moneda && d.pend > 0; }); }).filter(function (ds) { return ds.length; });
-        var n1 = nombre1(m.contraparte), porNombre = n1 ? cand.filter(function (ds) { return nombre1(ds[0].w) === n1; }) : [];
-        if (porNombre.length === 1 && m.monto_centavos <= tot(porNombre[0])) {
-          var al = repartirCobro(porNombre[0], m.monto_centavos);
-          al.forEach(function (a) { porNombre[0].forEach(function (d) { if (d.id === a.ref) d.pend -= a.c; }); });
-          res.cobros.push({ mov: m, persona: porNombre[0][0].w, allocs: al }); return;
-        }
-        var porMonto = cand.filter(function (ds) { return tot(ds) === m.monto_centavos || ds.some(function (d) { return d.pend === m.monto_centavos; }); });
-        if (porMonto.length === 1) {
-          var ds = porMonto[0], uno = ds.filter(function (d) { return d.pend === m.monto_centavos; })[0];
-          res.sug.push({ mov: m, persona: ds[0].w, allocs: uno ? [{ ref: uno.id, c: uno.pend }] : repartirCobro(ds, m.monto_centavos) });
-        }
-        return;   // el resto de los cobros (ventas, devoluciones) no es asunto de Personal
-      }
+      var id = 'mp' + m.id;
+      if (m.sentido === 'recibido') { res.ing++; return; }   // lo que entra no es gasto
+      if (lote[id]) return; lote[id] = 1;
+      if (st.vistos[id] || st.gastos.some(function (g) { return g.id === id; })) { res.antes++; return; }
       if (m.tipo === 'money_transfer') { res.rev.push(m); return; }
-      var dup = st.gastos.some(function (g) { return g.m === m.moneda && g.c === m.monto_centavos && Math.abs(difDias(g.f, m.fecha)) <= 3; });
+      var dup = st.gastos.some(function (g) { return g.src !== 'mp' && g.m === m.moneda && g.c === m.monto_centavos && Math.abs(difDias(g.f, m.fecha)) <= 3; });
       (dup ? res.ya : res.gastos).push(m);
     });
     return res;
+  }
+
+  function csvFilas(t, sep) {
+    var rows = [], row = [], cur = '', q = false;
+    for (var i = 0; i < t.length; i++) {
+      var ch = t[i];
+      if (q) { if (ch === '"') { if (t[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === sep) { row.push(cur); cur = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && t[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+      else cur += ch;
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); });
+  }
+  // «1.234,56», «1,234.56», «-$ 1.234», «(500,00)» -> centavos con signo (null si no es un número)
+  function numCents(s) {
+    var t = String(s == null ? '' : s).replace(/\s|\$|ARS|USD|U\$S/gi, ''); if (!t) return null;
+    var neg = /^\(.*\)$/.test(t) || /^-/.test(t) || /-$/.test(t); t = t.replace(/[()\-+]/g, '');
+    if (!/^\d[\d.,]*$/.test(t)) return null;
+    var lc = t.lastIndexOf(','), lp = t.lastIndexOf('.'), dec = null;
+    if (lc >= 0 && lp >= 0) dec = lc > lp ? ',' : '.';
+    else if (lc >= 0) dec = /,\d{1,2}$/.test(t) && t.indexOf(',') === lc ? ',' : null;
+    else if (lp >= 0) dec = /\.\d{1,2}$/.test(t) && t.indexOf('.') === lp ? '.' : null;
+    var ent = t, fr = ''; if (dec) { var j = t.lastIndexOf(dec); ent = t.slice(0, j); fr = t.slice(j + 1); }
+    var c = parseInt(ent.replace(/[.,]/g, '') || '0', 10) * 100 + (fr ? parseInt((fr + '0').slice(0, 2), 10) : 0);
+    return neg ? -c : c;
+  }
+  function fechaMP(s) {
+    var t = String(s || ''), m = t.match(/(\d{4})-(\d{2})-(\d{2})/), y, mo, d;
+    if (m) { y = m[1]; mo = m[2]; d = m[3]; }
+    else { m = t.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/); if (!m) return ''; y = m[3]; mo = ('0' + m[2]).slice(-2); d = ('0' + m[1]).slice(-2); }
+    return +mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31 ? y + '-' + mo + '-' + d : '';
+  }
+  function hash36(s) { var h = 5381; for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36); }
+  var COL = {
+    fecha: ['transaction_date', 'release_date', 'date', 'fecha', 'fecha_de_liberacion', 'fecha_de_aprobacion', 'transaction_approval_date', 'fecha_de_compra', 'date_created', 'fecha_de_la_operacion', 'fecha_de_operacion', 'settlement_date'],
+    id: ['reference_id', 'source_id', 'id_de_la_operacion', 'numero_de_operacion', 'n_de_operacion', 'nro_de_operacion', 'operation_id', 'id_de_operacion', 'id_operacion', 'payment_id', 'id', 'operacion'],
+    desc: ['sale_detail', 'transaction_type', 'description', 'descripcion', 'detalle', 'tipo_de_operacion', 'concepto', 'tipo_de_transaccion', 'record_type'],
+    monto: ['transaction_amount', 'valor', 'monto', 'importe', 'amount', 'monto_de_la_operacion', 'gross_amount'],
+    cred: ['net_credit_amount', 'credito', 'creditos', 'ingreso', 'ingresos'],
+    deb: ['net_debit_amount', 'debito', 'debitos', 'egreso', 'egresos'],
+    mon: ['transaction_currency', 'currency_id', 'currency', 'moneda']
+  };
+  function colIdx(hdr, lista) { for (var i = 0; i < lista.length; i++) { var j = hdr.indexOf(lista[i]); if (j >= 0) return j; } return -1; }
+  // Lee un CSV de Mercado Pago (resumen de cuenta, reporte de dinero en cuenta o de liberaciones) sin depender de un formato fijo.
+  function leerCSVMP(texto) {
+    var t = String(texto || '').replace(/^﻿/, ''), pri = t.split(/\r?\n/).filter(function (l) { return l.trim(); }).slice(0, 4).join('\n');
+    var sep = [';', ',', '\t'].map(function (c) { return [c, pri.split(c).length - 1]; }).sort(function (a, b) { return b[1] - a[1]; })[0][0];
+    var rows = csvFilas(t, sep), h = -1, C = null;
+    for (var i = 0; i < Math.min(rows.length, 40) && h < 0; i++) {
+      var hdr = rows[i].map(function (x) { return fold(x).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''); });
+      var c = { fecha: colIdx(hdr, COL.fecha), id: colIdx(hdr, COL.id), mon: colIdx(hdr, COL.mon), monto: colIdx(hdr, COL.monto), cred: colIdx(hdr, COL.cred), deb: colIdx(hdr, COL.deb),
+        desc: COL.desc.map(function (k) { return hdr.indexOf(k); }).filter(function (j) { return j >= 0; }) };
+      if (c.fecha >= 0 && (c.monto >= 0 || c.cred >= 0 || c.deb >= 0)) { h = i; C = c; }
+    }
+    if (h < 0) return { movs: [], filas: 0, error: 'cabecera', cabecera: (rows[0] || []).slice(0, 12) };
+    var movs = [], vistoId = {}, vistoK = {}, filas = 0;
+    rows.slice(h + 1).forEach(function (r) {
+      var f = fechaMP(r[C.fecha]); if (!f) return; filas++;
+      var cents = null;
+      if (C.cred >= 0 || C.deb >= 0) {
+        var cr = C.cred >= 0 ? Math.abs(numCents(r[C.cred]) || 0) : 0, db = C.deb >= 0 ? Math.abs(numCents(r[C.deb]) || 0) : 0;
+        if (cr || db) cents = cr - db;
+      }
+      if (cents == null && C.monto >= 0) cents = numCents(r[C.monto]);
+      if (!cents) return;
+      var desc = []; C.desc.forEach(function (j) { var v = String(r[j] || '').replace(/^[\s"]+|[\s"]+$/g, ''); if (v && desc.indexOf(v) < 0) desc.push(v); });
+      var crudo = desc.join(' · ');
+      // «SETTLEMENT» y «PAYOUTS» son tipos internos: lo que sirve es el detalle («Producto de Comercio»); «Varios» y los retiros son transferencias
+      var d = desc.filter(function (v) { return !/^(settlement|payouts?|refund|chargeback)$/i.test(v); }).map(function (v) { return v.replace(/^producto de\s+/i, '').replace(/^orden de venta$/i, 'Pago con QR').replace(/^varios$/i, ''); }).filter(Boolean).join(' · ');
+      if (!d && /payout/i.test(crudo)) d = 'Retiro o transferencia';
+      var raw = C.id >= 0 ? String(r[C.id] || '').replace(/\s/g, '').replace(/\.0+$/, '') : '', id;
+      if (raw) { vistoId[raw] = (vistoId[raw] || 0) + 1; id = vistoId[raw] > 1 ? raw + '-' + vistoId[raw] : raw; }
+      else { var k = f + '|' + cents + '|' + d; vistoK[k] = (vistoK[k] || 0) + 1; id = 'c' + hash36(k) + (vistoK[k] > 1 ? '-' + vistoK[k] : ''); }
+      var mon = C.mon >= 0 && /usd|u\$s|dolar/i.test(String(r[C.mon])) ? 'USD' : 'ARS';
+      movs.push({ id: id, fecha: f, monto_centavos: Math.abs(cents), moneda: mon, sentido: cents < 0 ? 'pagado' : 'recibido',
+        tipo: /transferencia|envio de dinero|retiro|extraccion|cash.?out|payout/.test(fold(crudo)) || desc.some(function (v) { return /^varios$/i.test(v); }) ? 'money_transfer' : 'regular_payment', descripcion: d });
+    });
+    return { movs: movs, filas: filas };
   }
 
   /* ---------------- calendario ---------------- */
@@ -1932,7 +1936,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
   return {
     nuevaClave: nuevaClave, codigoDe: codigoDe, claveDeCodigo: claveDeCodigo, cifrar: cifrar, descifrar: descifrar,
     leer: leer, armarGasto: armarGasto, nuevoId: nuevoId, armar: armar, unir: unir, statsMes: statsMes,
-    duplicados: duplicados, rarezas: rarezas, ics: ics, conciliarMP: conciliarMP, YO: YO, repartirCompra: repartirCompra, armarCompra: armarCompra, textoWA: textoWA, textoGrupo: textoGrupo, addMes: addMes, addDias: addDias
+    duplicados: duplicados, rarezas: rarezas, ics: ics, conciliarMP: conciliarMP, leerCSVMP: leerCSVMP, addMes: addMes, addDias: addDias
   };
 });
 </script>
@@ -2555,7 +2559,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.22.1</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.23.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
@@ -3046,8 +3050,7 @@ function viewPersonal() {
     return '<div class="rsrow"><span class="emoji" style="width:34px;height:34px;font-size:17px">' + C.catInfo(g.k).e + '</span><span class="grow"><div class="t">' + esc(g.d) + '</div><div class="s">' + dLabel(g.f) + '</div></span><span class="a" style="font-weight:700">' + perMonto(g.c, g.m) + '</span>' +
       '<button class="chip" data-act="perpasar" data-id="' + esc(g.id) + '" aria-label="Pasar a compartido" title="Pasar a compartido">🤝</button><button class="chip" data-act="perdel" data-id="' + esc(g.id) + '" aria-label="Anular">✕</button></div>';
   }).join('') + (del.length > (S.perN || 20) ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="permas">Ver más</button>' : '') + '</div>';
-  h += '<div class="card"><h3>🧾 Compra con amigos</h3><p class="mut" style="margin:0 0 8px;font-size:14px">Pagaste vos y los demás te devuelven: en Personal queda solo tu parte y lo otro como «me deben», con el mensaje listo para WhatsApp.</p><div class="row">' +
-    (S.mode === 'sheets' ? '<label class="btn acc sm grow" style="text-align:center;cursor:pointer">📷 Cámara<input type="file" id="cmfile" accept="image/*" capture="environment" hidden></label><label class="btn ghost sm grow" style="text-align:center;cursor:pointer">🖼️ Galería<input type="file" id="cmfile2" accept="image/*" hidden></label>' : '') + '<button class="btn ghost sm grow" data-act="cmmanual">✍️ Cargar a mano</button></div></div>' + viewDeben() + viewMP();
+  h += viewMP();
   h += '<div class="card"><h3>🐾 Con Cuba</h3><div class="quick"><input id="precomp" data-in="precomp" placeholder="Antes de comprar: «tele 600000 en 6 cuotas»" autocomplete="off"><button data-act="precompra">¿Me conviene?</button></div>' + (S.mode === 'sheets' ? '<button class="btn ghost sm full" style="margin-top:8px" data-act="rgabrir">🎁 Ideas de regalo con presupuesto</button>' : '') + '</div>';
   h += '<div class="card"><h3>Metas de ahorro</h3>' + (st.metas.length ? st.metas.map(function (m) {
     var pct = Math.min(100, Math.round(m.aportado * 100 / m.c));
@@ -3685,7 +3688,7 @@ function multiGemini(texto, per) {
 }
 
 // --- ticket por ítems ---
-function tkLeer(f, cm) {
+function tkLeer(f) {
   var ev = S.form && S.form.ev, tk = S.iaTk = Date.now();
   iaHoja('🧾 Ticket por ítems', iaPensando('Leyendo el ticket…'));
   Share.achicar(f, 1600).then(function (b64) { return iaLlamar('leerTicket', { imagen: b64, mime: 'image/jpeg' }); }).then(function (d) {
@@ -3694,7 +3697,6 @@ function tkLeer(f, cm) {
     if (!its.length) throw iaErr('No pude separar los ítems de esa foto: cargalo a mano.');
     var sum = its.reduce(function (a, i) { return a + i.cents; }, 0);
     if (d.total_centavos > sum) its.push({ d: 'Propina e impuestos', cents: d.total_centavos - sum, a: 'ambos' });
-    if (cm) { cmAbrir({ comercio: d.comercio, fecha: d.fecha || today(), cur: d.moneda, items: its.map(function (i) { return { d: i.d, cents: i.cents }; }) }); return; }
     var evv = ev ? S.eventos.filter(function (x) { return x.id === ev; })[0] : null;
     S.tk = { ev: ev || null, cur: evv ? evv.cur : d.moneda, date: d.fecha || today(), name: d.comercio || '', items: its };
     tkVer();
@@ -3812,122 +3814,12 @@ Object.assign(A, {
     bajar('regalo-cuba.ics', P.ics([{ id: 'rg' + Date.now(), titulo: 'Regalo: ' + R.q.trim() + ' (presupuesto ' + R.m + ')', fecha: f, nota: 'La ocasión es el ' + R.f, unico: true, icono: '🎁', aviso: '-PT9H' }]), 'text/calendar'); toast('Abrilo y se agrega a tu calendario');
   }
 });
-// ---------------- compra con amigos (v0.21): queda en Personal, solo tu parte; el resto es «me deben» ----------------
-var YO = P.YO;
-function cmKey(n) { return String(n).trim().toLowerCase(); }
-function cmAbrir(o) {
-  var st = Per.state(), otro = otroId(), gente = [], vistos = {};
-  var suma = function (n) { var k = cmKey(n); if (n && k !== 'yo' && !vistos[k]) { vistos[k] = 1; gente.push(String(n).trim()); } };
-  if (otro) suma(firstName(otro));
-  st.amigos.forEach(suma);
-  S.cm = { comercio: o.comercio || '', fecha: o.fecha || today(), cur: o.cur || 'ARS', items: o.items.map(function (i) { return { d: i.d, cents: i.cents, w: [YO] }; }), gente: gente, pagados: {}, alias: st.alias || '' };
-  if (otro) S.cm.pagados[cmKey(firstName(otro))] = true;   // Odi suele pagar en el momento
-  cmVer();
-}
-function cmVer() {
-  var M = S.cm, sc = $('#sheet').scrollTop, parts = [[YO, 'Yo']].concat(M.gente.map(function (n) { return [cmKey(n), n]; })), nom = {};
-  parts.forEach(function (p) { nom[p[0]] = p[1]; });
-  var h = '<label class="f">Comercio</label><input data-in="cmname" value="' + esc(M.comercio) + '" placeholder="Coto, carnicería…" maxlength="60" autocomplete="off">' +
-    '<div class="quick" style="margin-top:8px"><input id="cmnew" data-in="cmnew" placeholder="Sumar a alguien: Nacho, Fede…" maxlength="30" autocomplete="off"><button data-act="cmadd">Sumar</button></div>' +
-    '<p class="mut" style="font-size:13px;margin:8px 0">Tocá quiénes comparten cada cosa. Si son varios, se divide parejo.</p>';
-  h += M.items.map(function (it, i) {
-    return '<div class="rsrow" style="flex-wrap:wrap"><span class="grow"><div class="t">' + esc(it.d) + '</div><div class="s">' + perMonto(it.cents, M.cur) + '</div></span><span class="chips">' +
-      parts.map(function (p) { return '<button class="chip' + (it.w.indexOf(p[0]) >= 0 ? ' on' : '') + '" data-act="cmtog" data-i="' + i + '" data-k="' + esc(p[0]) + '">' + esc(p[1]) + '</button>'; }).join('') +
-      '<button class="chip" data-act="cmall" data-i="' + i + '">Todos</button></span></div>';
-  }).join('');
-  var r = P.repartirCompra(M.items), total = M.items.reduce(function (a, i) { return a + i.cents; }, 0);
-  h += '<div class="preview" style="margin-top:8px"><b>Ticket ' + perMonto(total, M.cur) + '</b>' + parts.filter(function (p) { return r.tot[p[0]] > 0; }).map(function (p) {
-    return '<div class="stat" style="padding:4px 0;align-items:center"><span>' + (p[0] === YO ? 'Tu parte <span class="mut">(va a Personal)</span>' : esc(p[1]) + ' te debe') + '</span><span><b>' + perMonto(r.tot[p[0]], M.cur) + '</b>' +
-      (p[0] === YO ? '' : ' <button class="chip' + (M.pagados[p[0]] ? ' on' : '') + '" data-act="cmpaid" data-k="' + esc(p[0]) + '">' + (M.pagados[p[0]] ? 'Ya pagó ✓' : 'Ya pagó') + '</button>') + '</span></div>';
-  }).join('') + '</div>';
-  h += '<label class="f">Mi alias de Mercado Pago</label><input data-in="cmalias" value="' + esc(M.alias) + '" placeholder="tu.alias.mp" maxlength="40" autocomplete="off" autocapitalize="off">';
-  iaHoja('🧾 Compra con amigos', h + '<button class="btn acc full" style="margin-top:12px" data-act="cmsave">Guardar y armar mensajes</button>');
-  $('#sheet').scrollTop = sc;
-}
-function cmMsgs(deudas, alias) {   // mensajes de WhatsApp para lo que sigue pendiente
-  var por = {}, orden = [];
-  deudas.filter(function (d) { return d.pend > 0; }).forEach(function (d) { var k = cmKey(d.w); if (!por[k]) { por[k] = []; orden.push(k); } por[k].push(d); });
-  return orden.map(function (k) {
-    var ds = por[k], uno = ds.length === 1 && ds[0].det.length;
-    var txt = P.textoWA({ nombre: ds[0].w, cur: ds[0].m, alias: alias, comercio: uno ? ds[0].d : '', fecha: uno ? ds[0].f : '',
-      lineas: uno ? ds[0].det : ds.map(function (d) { return { comercio: d.d, f: d.f, c: d.pend }; }) });
-    return { n: ds[0].w, txt: txt, c: ds.reduce(function (a, d) { return a + d.pend; }, 0), cur: ds[0].m };
-  });
-}
-function cmMsgVer(msgs, titulo, grupo) {
-  S.cmmsg = msgs.map(function (m) { return m.txt; });
-  var h = '<p class="mut" style="margin:0 0 8px;font-size:14px">Listo. Copialo o mandalo directo por WhatsApp.</p>' + msgs.map(function (m, i) {
-    return '<div class="preview" style="margin-bottom:8px"><div style="white-space:pre-wrap;font-size:14px">' + esc(m.txt) + '</div><div class="row" style="margin-top:8px"><button class="btn ghost sm grow" data-act="cmcopy" data-i="' + i + '">Copiar</button><a class="btn acc sm grow" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(m.txt) + '">WhatsApp</a></div></div>';
-  }).join('');
-  if (grupo) { S.cmmsg.push(grupo); h += '<button class="btn ghost full" data-act="cmcopy" data-i="' + (S.cmmsg.length - 1) + '">Copiar uno para el grupo</button>'; }
-  iaHoja(titulo, h + '<button class="btn ghost full" style="margin-top:8px" data-act="close">Listo</button>');
-}
-function viewDeben() {
-  var st = Per.state(), pend = st.deudas.filter(function (d) { return d.pend > 0; }); if (!pend.length) return '';
-  var por = {}, orden = []; pend.forEach(function (d) { var k = cmKey(d.w); if (!por[k]) { por[k] = []; orden.push(k); } por[k].push(d); });
-  return '<div class="card"><h3>Me deben</h3>' + orden.map(function (k) {
-    var ds = por[k], tot = {}; ds.forEach(function (d) { tot[d.m] = (tot[d.m] || 0) + d.pend; });
-    return '<div style="margin:8px 0"><div class="stat" style="padding:0;align-items:center"><span><b>' + esc(ds[0].w) + '</b></span><b>' + Object.keys(tot).map(function (m) { return perMonto(tot[m], m); }).join(' + ') + '</b></div>' +
-      ds.map(function (d) { return '<div class="rsrow"><span class="grow"><div class="t">' + esc(d.d) + '</div><div class="s">' + dLabel(d.f) + (d.pagado ? ' · ya pagó ' + perMonto(d.pagado, d.m) : '') + '</div></span><span class="a">' + perMonto(d.pend, d.m) + '</span><button class="chip" data-act="cobro" data-id="' + esc(d.id) + '">Me pagó</button></div>'; }).join('') +
-      '<div class="row" style="margin-top:6px"><button class="chip" data-act="cmrecordar" data-n="' + esc(k) + '">💬 Recordar</button>' + (ds.length > 1 ? '<button class="chip" data-act="cobrotodo" data-n="' + esc(k) + '">Me pagó todo</button>' : '') + '</div></div>';
-  }).join('') + '</div>';
-}
-
-Object.assign(A, {
-  cmmanual: function () {
-    S.cmm = { t: '', n: '' };
-    iaHoja('🧾 Compra con amigos', '<label class="f">Comercio</label><input data-in="cmmname" placeholder="Coto" maxlength="60" autocomplete="off"><label class="f">Qué compraste (uno por renglón)</label><textarea data-in="cmmtxt" rows="6" placeholder="fernet 12000&#10;coca 3500&#10;detergente 2800" style="width:100%"></textarea><button class="btn acc full" style="margin-top:10px" data-act="cmarmar">Armar el reparto</button>');
-  },
-  cmarmar: function () {
-    var M = S.cmm; if (!M) return;
-    var its = String(M.t).split(/\n/).map(function (l) { return P.leer(l, today()); }).filter(Boolean), cur = its[0] ? its[0].cur : 'ARS';
-    if (!its.length) { toast('Escribí cada cosa con su monto: «fernet 12000».'); return; }
-    cmAbrir({ comercio: M.n, cur: cur, items: its.filter(function (l) { return l.cur === cur; }).map(function (l) { return { d: l.desc, cents: l.cents }; }) });
-  },
-  cmtog: function (el) { var it = S.cm && S.cm.items[+el.dataset.i]; if (!it) return; var k = el.dataset.k, j = it.w.indexOf(k); if (j >= 0) it.w.splice(j, 1); else it.w.push(k); if (!it.w.length) it.w = [YO]; cmVer(); },
-  cmall: function (el) { var M = S.cm, it = M && M.items[+el.dataset.i]; if (it) { it.w = [YO].concat(M.gente.map(cmKey)); cmVer(); } },
-  cmpaid: function (el) { if (S.cm) { S.cm.pagados[el.dataset.k] = !S.cm.pagados[el.dataset.k]; cmVer(); } },
-  cmadd: function () {
-    var i = $('#cmnew'), n = i && i.value.trim(), M = S.cm; if (!M || !n) return;
-    if (cmKey(n) === 'yo' || M.gente.some(function (g) { return cmKey(g) === cmKey(n); })) { toast('Ya está en la lista.'); return; }
-    M.gente.push(n); cmVer(); var j = $('#cmnew'); if (j) j.focus();
-  },
-  cmsave: function () {
-    var M = S.cm; if (!M) return;
-    var nombres = {}; M.gente.forEach(function (g) { nombres[cmKey(g)] = g; });
-    var total = M.items.reduce(function (a, i) { return a + i.cents; }, 0), id = 'cp' + P.nuevoId();
-    var c = P.armarCompra({ id: id, comercio: C.prolija(M.comercio.trim() || 'Compra', M.fecha), fecha: M.fecha, cur: M.cur, cat: C.guessCategory(M.comercio), items: M.items, nombres: nombres, pagados: M.pagados });
-    var evs = c.eventos.slice(), alias = M.alias.trim();
-    if (alias && alias !== Per.state().alias) evs.push({ id: P.nuevoId(), t: 'h', v: alias, ts: Date.now() });
-    Per.add(evs).then(function () {
-      var st = Per.state(), nuevas = st.deudas.filter(function (d) { return d.cp === id; }), msgs = cmMsgs(nuevas, st.alias);
-      S.cm = null;
-      if (!msgs.length) { closeSheet(); toast('Anotado en Personal. Nadie te debe nada de esta compra.'); return; }
-      var grupo = msgs.length > 1 ? P.textoGrupo({ comercio: C.prolija(M.comercio.trim() || 'Compra', M.fecha), fecha: M.fecha, cur: M.cur, alias: st.alias, personas: msgs.map(function (m) { return { nombre: m.n, c: m.c }; }) }) : '';
-      cmMsgVer(msgs, 'Mensajes para tus amigos', grupo);
-    });
-  },
-  cmcopy: function (el) { var t = (S.cmmsg || [])[+el.dataset.i]; if (t) copyText(t, 'Copiado: pegalo en WhatsApp'); },
-  cobro: function (el) { var d = Per.state().deudas.filter(function (x) { return x.id === el.dataset.id; })[0]; if (d && d.pend > 0) Per.add([{ id: P.nuevoId(), t: 'r', ref: d.id, c: d.pend, f: today() }]).then(function () { toast(d.w + ' te pagó ' + perMonto(d.pend, d.m)); }); },
-  cobrotodo: function (el) {
-    var ds = Per.state().deudas.filter(function (d) { return cmKey(d.w) === el.dataset.n && d.pend > 0; });
-    if (ds.length) Per.add(ds.map(function (d) { return { id: P.nuevoId(), t: 'r', ref: d.id, c: d.pend, f: today() }; })).then(function () { toast('Anotado: ' + ds[0].w + ' te pagó todo'); });
-  },
-  cmrecordar: function (el) {
-    var st = Per.state(), msgs = cmMsgs(st.deudas.filter(function (d) { return cmKey(d.w) === el.dataset.n; }), st.alias);
-    if (msgs.length) cmMsgVer(msgs, 'Recordatorio para ' + msgs[0].n);
-  }
-});
-
-// ---------------- Mercado Pago (v0.22): solo lectura; el token vive únicamente en el Apps Script ----------------
-// Acá solo se guarda el «código de enlace» (no sirve de nada fuera de tu Apps Script). Lo que se trae se vuelve eventos cifrados de Personal.
-var LSMPK = 'cuba:mpk:', LSMPT = 'cuba:mpt:';
+// ---------------- Mercado Pago (v0.23): se importa el reporte CSV; la API (solo lectura) queda para quien ya la conectó ----------------
+// El mismo número de operación es siempre el mismo movimiento: se pueden subir reportes que se pisan sin duplicar nada.
+var LSMPK = 'cuba:mpk:', LSMPT = 'cuba:mpt:', LSMPU = 'cuba:mpu:';
 function mpClave() { try { return localStorage.getItem(LSMPK + S.meId) || ''; } catch (e) { return ''; } }
 function mpUltima() { try { return localStorage.getItem(LSMPT + S.meId) || ''; } catch (e) { return ''; } }
-function mpEventos(mov, allocs) {
-  var ev = (allocs || []).map(function (a, i) { return { id: 'mpr-' + mov.id + '-' + i, t: 'r', ref: a.ref, c: a.c, f: mov.fecha }; });
-  ev.push({ id: 'mpo-' + mov.id, t: 'o', ref: 'mp' + mov.id }); return ev;
-}
+function mpVisto(m) { return { id: 'mpo-' + m.id, t: 'o', ref: 'mp' + m.id }; }
 function mpGasto(m, porDefecto) {
   var d = C.prolija(m.descripcion || porDefecto || 'Mercado Pago', m.fecha);
   return { id: 'mp' + m.id, t: 'g', f: m.fecha, d: d, c: m.monto_centavos, m: m.moneda, k: C.guessCategory(d), src: 'mp' };
@@ -3940,47 +3832,71 @@ function mpAuto() {
 function mpSync(auto) {
   var M = S.mp = S.mp || {}, k = mpClave(); if (!k || M.busy) return;
   M.busy = true; M.msg = ''; if (!auto) render();
-  var u = mpUltima(), desde = u ? P.addDias(u.slice(0, 10), -14) : P.addDias(today(), -30);
-  Store.call('mpMovimientos', { clave: k, desde: desde }).then(function (d) {
+  var u = mpUltima(), desde = u ? P.addDias(u.slice(0, 10), -3) : P.addDias(today(), -31);
+  Store.call('mpReportes', { clave: k, desde: desde }).then(function (d) {
     if (d.sin_token) { M.msg = 'Mercado Pago todavía no está conectado en tu Apps Script (menú 🐕 Cuba → Conectar Mercado Pago).'; return; }
     if (d.error === 'mp_token') { M.msg = 'Mercado Pago rechazó el token: volvé a conectarlo desde el menú de la Sheet.'; return; }
+    if (d.error === 'mp_lista') { M.msg = 'Mercado Pago no me dejó ver los reportes (código ' + (d.codigo || '?') + '). Revisá que el token sea de producción; mientras tanto podés importar el CSV a mano.'; return; }
     if (d.error) { M.msg = 'Mercado Pago no respondió ahora. Se reintenta solo más tarde.'; return; }
-    var r = P.conciliarMP(d.movimientos, Per.state(), today()), ev = [];
-    r.cobros.forEach(function (c) { ev = ev.concat(mpEventos(c.mov, c.allocs)); });
-    r.gastos.forEach(function (m) { ev.push(mpGasto(m)); ev.push({ id: 'mpo-' + m.id, t: 'o', ref: 'mp' + m.id }); });
-    r.ya.forEach(function (m) { ev.push({ id: 'mpo-' + m.id, t: 'o', ref: 'mp' + m.id }); });
-    M.sug = r.sug; M.rev = r.rev;
-    try { localStorage.setItem(LSMPT + S.meId, new Date().toISOString()); } catch (e) {}
+    var movs = [], malos = 0;
+    (d.reportes || []).forEach(function (x) { var L = P.leerCSVMP(x.csv); if (L.error) malos++; else movs = movs.concat(L.movs); });
+    var r = P.conciliarMP(movs, Per.state()), ev = [], ids = [];
+    r.gastos.forEach(function (m) { var g = mpGasto(m); ev.push(g, mpVisto(m)); ids.push(g.id); });
+    r.ya.forEach(function (m) { ev.push(mpVisto(m)); });
+    var nuevos = r.rev.filter(function (m) { return !(M.rev || []).some(function (x) { return x.id === m.id; }); });
+    M.rev = (M.rev || []).concat(nuevos);
+    try { localStorage.setItem(LSMPT + S.meId, new Date().toISOString()); if (ids.length) localStorage.setItem(LSMPU + S.meId, JSON.stringify(ids)); } catch (e) {}
     var partes = [];
-    if (r.cobros.length) partes.push(r.cobros.length + (r.cobros.length === 1 ? ' cobro marcado' : ' cobros marcados') + ' (' + r.cobros.map(function (c) { return c.persona; }).join(', ') + ')');
     if (r.gastos.length) partes.push(r.gastos.length + (r.gastos.length === 1 ? ' gasto nuevo' : ' gastos nuevos') + ' en Personal');
-    if (r.sug.length + r.rev.length) partes.push(r.sug.length + r.rev.length + ' para revisar');
-    M.saldo = d.saldo_centavos == null ? null : d.saldo_centavos; var dg = d.diag || {};
-    M.msg = partes.length ? partes.join(' · ') : (d.movimientos || []).length ? 'Todo al día. Mercado Pago trajo ' + d.movimientos.length + ' movimientos y no hay nada nuevo.'
-      : 'Mercado Pago está conectado pero informó ' + ((dg.recibido || {}).total || 0) + ' cobros y ' + ((dg.pagado || {}).total || 0) + ' pagos desde ' + dLabel(desde) + '. La API solo muestra lo que pasa por una integración (ventas, QR de cobro): la actividad común de la billetera puede no estar.';
+    if (nuevos.length) partes.push(nuevos.length + ' para revisar');
+    if (malos) partes.push('no pude leer ' + malos + (malos === 1 ? ' reporte' : ' reportes'));
+    M.msg = partes.length ? partes.join(' · ') : (d.reportes || []).length ? 'Todo al día.' : 'Todavía no hay reportes generados. En Mercado Pago programá un reporte diario en CSV (o importá uno a mano).';
     return Per.add(ev).then(function () { if (partes.length || !auto) toast('Mercado Pago: ' + M.msg); });
   }).catch(function (e) {
     M.msg = e && e.code === 'accion_desconocida' ? 'Primero hay que publicar el Code.gs nuevo en Apps Script.' : e && e.code === 'no_autorizado' ? 'Ese código de enlace no es el de tu Apps Script. Desconectá y probá de nuevo.' : 'No pude hablar con tu Sheet ahora.';
     if (!auto) toast(M.msg);
   }).then(function () { M.busy = false; render(); });
 }
+function mpLeerArchivo(f) {
+  var fr = new FileReader();
+  fr.onerror = function () { toast('No pude abrir ese archivo.'); };
+  fr.onload = function () {
+    var tx = new TextDecoder('utf-8').decode(fr.result);
+    if (tx.indexOf('�') >= 0) { try { tx = new TextDecoder('windows-1252').decode(fr.result); } catch (e) {} }
+    mpPreview(P.leerCSVMP(tx));
+  };
+  fr.readAsArrayBuffer(f.size > 8 * 1024 * 1024 ? f.slice(0, 8 * 1024 * 1024) : f);
+}
+function mpPreview(L) {
+  if (L.error) { iaHoja('📄 Reporte de Mercado Pago', '<p>No reconocí las columnas de ese archivo' + (L.cabecera && L.cabecera.length ? ' (veo: ' + esc(L.cabecera.join(', ').slice(0, 200)) + ')' : '') + '. Probá con el reporte de actividad o de dinero en cuenta, en CSV.</p><button class="btn ghost full" data-act="close">Cerrar</button>'); return; }
+  var r = S.mpi = P.conciliarMP(L.movs, Per.state()); r.rev = r.rev.filter(function (m) { return !((S.mp || {}).rev || []).some(function (x) { return x.id === m.id; }); });   // los que ya están para revisar no cuentan de nuevo
+  var fs = L.movs.map(function (m) { return m.fecha; }).sort(), n = r.gastos.length;
+  var h = '<p class="mut" style="margin:0 0 8px">' + L.movs.length + ' movimientos' + (fs.length ? ' del ' + dLabel(fs[0]) + ' al ' + dLabel(fs[fs.length - 1]) : '') + '.</p>' +
+    '<div class="preview"><b>' + n + '</b> ' + (n === 1 ? 'gasto nuevo' : 'gastos nuevos') + ' · ' + r.antes + ' ya estaban · ' + r.ya.length + ' parecen repetidos de los que cargaste a mano · ' + r.rev.length + ' para revisar · ' + r.ing + ' ingresos (se ignoran)</div>';
+  r.gastos.slice(0, 8).forEach(function (m) { h += '<div class="rsrow"><span class="grow"><div class="t">' + esc(C.prolija(m.descripcion || 'Mercado Pago', m.fecha)) + '</div><div class="s">' + dLabel(m.fecha) + '</div></span><b>' + perMonto(m.monto_centavos, m.moneda) + '</b></div>'; });
+  if (n > 8) h += '<div class="mut" style="font-size:13px;margin:4px 0">…y ' + (n - 8) + ' más</div>';
+  h += n + r.rev.length + r.ya.length ? '<button class="btn acc full" style="margin-top:12px" data-act="mpimp">' + (n ? 'Importar ' + n + (n === 1 ? ' gasto' : ' gastos') : 'Seguir') + '</button>' : '<p>Todo al día: no hay nada nuevo.</p><button class="btn ghost full" data-act="close">Cerrar</button>';
+  iaHoja('📄 Reporte de Mercado Pago', h);
+}
 function viewMP() {
   if (S.mode !== 'sheets') return '';
-  var k = mpClave(), M = S.mp || {}, h = '<div class="card"><h3>💳 Mercado Pago</h3>';
-  if (!k) return h + '<p class="mut" style="margin:0 0 8px;font-size:14px">Cuba trae tus pagos y cobros de Mercado Pago, marca solos los «me pagó» de tus amigos y suma tus gastos a Personal. Solo lectura: nunca mueve plata.</p>' +
+  var k = mpClave(), M = S.mp || {}, h = '<div class="card"><h3>💳 Mercado Pago</h3>', ult = [];
+  try { ult = JSON.parse(localStorage.getItem(LSMPU + S.meId) || '[]'); } catch (e) {}
+  if (!k) h += '<p class="mut" style="margin:0 0 8px;font-size:14px">Cuba trae sola los reportes diarios de Mercado Pago y suma tus pagos a Personal. Solo lectura: nunca mueve plata.</p>' +
     '<input id="mpclave" data-in="mpclave" placeholder="Código de enlace (XXXX-XXXX-XXXX)" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn acc full" style="margin-top:8px" data-act="mpconectar">Conectar</button>' +
-    '<p class="mut" style="font-size:13px;margin:8px 0 0">El código sale del menú 🐕 Cuba → Conectar Mercado Pago, en tu Sheet.</p></div>';
-  var u = mpUltima(), hace = u ? Math.max(1, Math.round((Date.now() - Date.parse(u)) / 60000)) : 0;
-  h += '<div class="mut" style="font-size:13px;margin-bottom:6px">' + (u ? 'Última vez: hace ' + (hace < 90 ? hace + ' min' : Math.round(hace / 60) + ' h') : 'Todavía no se trajo nada.') + '</div>';
-  if (M.saldo != null) h += '<div class="stat"><span>Saldo en Mercado Pago</span><b>' + perMonto(M.saldo, 'ARS') + '</b></div>';
-  if (M.msg) h += '<div class="preview" style="margin-bottom:8px">' + esc(M.msg) + '</div>';
-  (M.sug || []).forEach(function (x, i) {
-    h += '<div class="rsrow"><span class="grow"><div class="t">¿Te pagó ' + esc(x.persona) + '?</div><div class="s">' + dLabel(x.mov.fecha) + ' · ' + perMonto(x.mov.monto_centavos, x.mov.moneda) + ' recibidos</div></span><button class="chip" data-act="mpsi" data-i="' + i + '">Sí</button><button class="chip" data-act="mpno" data-i="' + i + '" data-k="sug">No</button></div>';
-  });
+    '<p class="mut" style="font-size:13px;margin:8px 0 10px">El código sale del menú 🐕 Cuba → Conectar Mercado Pago, en tu Sheet.</p>';
+  h += (k ? '<p class="mut" style="margin:0 0 8px;font-size:14px">Cuba trae sola los reportes diarios. Si querés sumar uno a mano, subilo acá: lo que ya está no se repite.</p>' : '') +
+    '<label class="btn ' + (k ? 'ghost' : 'ghost') + ' full" style="text-align:center;cursor:pointer">📄 Importar reporte (CSV)<input type="file" id="mpfile" accept=".csv,.txt,text/csv,text/plain" hidden></label>';
+  if (ult.length) h += '<button class="btn ghost sm full" style="margin-top:6px" data-act="mpundo">↩️ Deshacer la última importación (' + ult.length + ')</button>';
+  if (M.msg) h += '<div class="preview" style="margin-top:8px">' + esc(M.msg) + '</div>';
   (M.rev || []).forEach(function (m, i) {
-    h += '<div class="rsrow"><span class="grow"><div class="t">Transferiste ' + perMonto(m.monto_centavos, m.moneda) + '</div><div class="s">' + dLabel(m.fecha) + (m.descripcion ? ' · ' + esc(m.descripcion) : '') + '</div></span><button class="chip" data-act="mpgasto" data-i="' + i + '">Es un gasto</button><button class="chip" data-act="mpno" data-i="' + i + '" data-k="rev">Ignorar</button></div>';
+    h += '<div class="rsrow"><span class="grow"><div class="t">Transferiste ' + perMonto(m.monto_centavos, m.moneda) + '</div><div class="s">' + dLabel(m.fecha) + (m.descripcion ? ' · ' + esc(m.descripcion) : '') + '</div></span><button class="chip" data-act="mpgasto" data-i="' + i + '">Es un gasto</button><button class="chip" data-act="mpno" data-i="' + i + '">No</button></div>';
   });
-  return h + '<button class="btn ghost sm full" data-act="mpsync"' + (M.busy ? ' disabled' : '') + '>' + (M.busy ? 'Trayendo…' : 'Traer ahora') + '</button><button class="btn ghost sm full" style="margin-top:6px" data-act="mpdesc">Desconectar este celular</button></div>';
+  if (k) {
+    var u = mpUltima();
+    h += '<div class="mut" style="font-size:13px;margin:8px 0 6px">Conectado con Mercado Pago' + (u ? ' · última vez ' + dLabel(u.slice(0, 10)) : '') + '</div><button class="btn ghost sm full" data-act="mpsync"' + (M.busy ? ' disabled' : '') + '>' + (M.busy ? 'Trayendo…' : 'Traer ahora') + '</button><button class="btn ghost sm full" style="margin-top:6px" data-act="mpdesc">Desconectar este celular</button>';
+  }
+  return h + '</div>';
 }
 Object.assign(A, {
   mpconectar: function () {
@@ -3991,12 +3907,25 @@ Object.assign(A, {
   },
   mpsync: function () { mpSync(false); },
   mpdesc: function () { try { localStorage.removeItem(LSMPK + S.meId); localStorage.removeItem(LSMPT + S.meId); } catch (e) {} S.mp = {}; render(); toast('Desconectado de este celular. El token sigue en tu Apps Script hasta que lo desconectes desde la Sheet.'); },
-  mpsi: function (el) { var x = S.mp && S.mp.sug && S.mp.sug[+el.dataset.i]; if (!x) return; S.mp.sug.splice(+el.dataset.i, 1); Per.add(mpEventos(x.mov, x.allocs)).then(function () { toast(x.persona + ' te pagó. Anotado.'); }); },
-  mpno: function (el) {
-    var lista = S.mp && S.mp[el.dataset.k], m = lista && lista[+el.dataset.i]; if (!m) return;
-    var mov = el.dataset.k === 'sug' ? m.mov : m; lista.splice(+el.dataset.i, 1); Per.add([{ id: 'mpo-' + mov.id, t: 'o', ref: 'mp' + mov.id }]);
+  mpimp: function () {
+    var r = S.mpi; if (!r) return; S.mpi = null;
+    var ev = [], ids = [];
+    r.gastos.forEach(function (m) { var g = mpGasto(m); ev.push(g, mpVisto(m)); ids.push(g.id); });
+    r.ya.forEach(function (m) { ev.push(mpVisto(m)); });
+    var M = S.mp = S.mp || {}; M.rev = (M.rev || []).concat(r.rev.filter(function (m) { return !(M.rev || []).some(function (x) { return x.id === m.id; }); }));
+    try { if (ids.length) localStorage.setItem(LSMPU + S.meId, JSON.stringify(ids)); } catch (e) {}
+    closeSheet();
+    var guau = r.gastos.some(function (m) { return /veterinari|pet ?shop|mascota|balanceado|alimento para perro/i.test(m.descripcion || ''); });
+    Per.add(ev).then(function () { toast(guau ? '🐕 Cuba olfateó algo para ella… ¡guau! ' + ids.length + (ids.length === 1 ? ' gasto sumado' : ' gastos sumados') : ids.length ? ids.length + (ids.length === 1 ? ' gasto sumado' : ' gastos sumados') + ' a Personal' : 'Listo'); if (guau && navigator.vibrate) { try { navigator.vibrate([20, 40, 20]); } catch (e) {} } render(); });
   },
-  mpgasto: function (el) { var m = S.mp && S.mp.rev && S.mp.rev[+el.dataset.i]; if (!m) return; S.mp.rev.splice(+el.dataset.i, 1); Per.add([mpGasto(m, 'Transferencia'), { id: 'mpo-' + m.id, t: 'o', ref: 'mp' + m.id }]).then(function () { toast('Sumado a Personal'); }); }
+  mpundo: function () {
+    var ids = []; try { ids = JSON.parse(localStorage.getItem(LSMPU + S.meId) || '[]'); } catch (e) {}
+    if (!ids.length || !confirm('¿Deshacer la última importación? Se anulan ' + ids.length + ' gastos de Personal (el historial se conserva).')) return;
+    try { localStorage.removeItem(LSMPU + S.meId); } catch (e) {}
+    Per.add(ids.map(function (id) { return { id: P.nuevoId(), t: 'x', ref: id }; })).then(function () { toast('Importación deshecha'); render(); });
+  },
+  mpno: function (el) { var m = S.mp && S.mp.rev && S.mp.rev[+el.dataset.i]; if (!m) return; S.mp.rev.splice(+el.dataset.i, 1); Per.add([mpVisto(m)]); },
+  mpgasto: function (el) { var m = S.mp && S.mp.rev && S.mp.rev[+el.dataset.i]; if (!m) return; S.mp.rev.splice(+el.dataset.i, 1); Per.add([mpGasto(m, 'Transferencia'), mpVisto(m)]).then(function () { toast('Sumado a Personal'); }); }
 });
 
 function iaCierre(tipo, titulo) {
@@ -4090,7 +4019,7 @@ document.addEventListener('change', function (ev) {
   if (el.type === 'checkbox' && el.dataset.act === 'toggle') { A.toggle(el); return; }
   if (el.type === 'checkbox' && el.dataset.act === 'rsper') { A.rsper(el); return; }
   if ((el.id === 'rstc' || el.id === 'rspct') && S.rs) { S.rs.dolar[el.id === 'rstc' ? 'tc' : 'pct'] = el.value; render(); return; }
-  if (el.type === 'file' && /^cmfile/.test(el.id)) { var fc = el.files && el.files[0]; el.value = ''; if (fc) tkLeer(fc, true); return; }
+  if (el.type === 'file' && el.id === 'mpfile') { var fm = el.files && el.files[0]; el.value = ''; if (fm) mpLeerArchivo(fm); return; }
   if (el.type === 'file' && el.id === 'tkfile') { var ft = el.files && el.files[0]; el.value = ''; if (ft) tkLeer(ft); return; }
   if (el.type === 'checkbox' && el.dataset.act === 'multick') { A.multick(el); return; }
   if (el.type === 'file' && el.id === 'shfile') { var evq = S.form && S.form.ev, fq = el.files && el.files[0]; el.value = ''; if (fq) Share.archivo(fq, evq); return; }
@@ -4132,8 +4061,6 @@ document.addEventListener('input', function (ev) {
   else if (k === 'search') { S.q = el.value; var l = $('#list'); if (l) l.innerHTML = listHtml(); }
   else if (S.ef && k === 'evname') { S.ef.name = el.value; }
   else if (S.tk && k === 'tkname') { S.tk.name = el.value; }
-  else if (S.cm && (k === 'cmname' || k === 'cmalias')) { S.cm[k === 'cmname' ? 'comercio' : 'alias'] = el.value; }
-  else if (S.cmm && (k === 'cmmname' || k === 'cmmtxt')) { S.cmm[k === 'cmmname' ? 'n' : 't'] = el.value; }
   else if (S.rg && (k === 'rgq' || k === 'rgm' || k === 'rgf')) { S.rg[k.slice(2)] = el.value; }
   else if (k === 'calcamt') { S.calcAmt = el.value; var co = $('#calcout'); if (co) co.innerHTML = calcRepartoHtml(el.value); }
   else if (S.rf && (k === 'radj' || k === 'radjn')) { S.rf[k === 'radj' ? 'adj' : 'adjNext'] = el.value; }
@@ -4157,7 +4084,6 @@ document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape') closeSheet();
   if (ev.key === 'Enter' && ev.target.id === 'quick') { ev.preventDefault(); A.quick(); }
   if (ev.key === 'Enter' && ev.target.id === 'perq') { ev.preventDefault(); A.perpon(); }
-  if (ev.key === 'Enter' && ev.target.id === 'cmnew') { ev.preventDefault(); A.cmadd(); }
   if (ev.key === 'Enter' && ev.target.id === 'precomp') { ev.preventDefault(); A.precompra(); }
   if (ev.key === 'Enter' && ev.target.id === 'askq') { ev.preventDefault(); A.askgo(); }
 });

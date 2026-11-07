@@ -99,55 +99,39 @@ const HOY = '2026-11-10';
   console.log(n + ' pruebas de Personal');
 })();
 
-// ---- compras con amigos ----
+// ---- Mercado Pago: reporte CSV ----
 {
   const P = require('../src/personal.js'), assert = require('assert');
-  const items = [{ d: 'Fernet', cents: 1000001, w: ['__yo', 'odi', 'nacho'] }, { d: 'Detergente', cents: 300000, w: ['__yo', 'odi'] }, { d: 'Coca', cents: 250000, w: ['nacho'] }, { d: 'Bolsas', cents: 1, w: [] }];
-  const r = P.repartirCompra(items), suma = Object.keys(r.tot).reduce((a, k) => a + r.tot[k], 0);
-  assert.strictEqual(suma, 1000001 + 300000 + 250000 + 1, 'el reparto suma exacto al ticket');
-  assert.strictEqual(r.tot.odi, 333334 + 150000 || r.tot.odi, 'odi');
-  const c = P.armarCompra({ id: 'cp1', comercio: 'Coto', fecha: '2026-11-07', cur: 'ARS', cat: 'super', items, nombres: { odi: 'Odi', nacho: 'Nacho' }, pagados: { odi: true } });
-  const g = c.eventos.find(e => e.t === 'g'), ds = c.eventos.filter(e => e.t === 'd'), rs = c.eventos.filter(e => e.t === 'r');
-  assert.strictEqual(g.c + ds.reduce((a, d) => a + d.c, 0), c.total, 'mi parte + lo que me deben = ticket');
-  assert.strictEqual(ds.length, 2); assert.strictEqual(rs.length, 1, 'Odi ya pagó');
-  const st = P.armar(c.eventos.concat([{ id: 'h1', t: 'h', v: 'tom.mp', ts: 1 }]));
-  assert.strictEqual(st.gastos.length, 1); assert.strictEqual(st.gastos[0].c, g.c, 'Personal cuenta solo mi parte');
-  const nacho = st.deudas.find(d => d.w === 'Nacho'), odi = st.deudas.find(d => d.w === 'Odi');
-  assert.strictEqual(odi.pend, 0); assert.strictEqual(nacho.pend, nacho.c); assert.strictEqual(st.alias, 'tom.mp');
-  const st2 = P.armar(c.eventos.concat([{ id: 'r9', t: 'r', ref: nacho.id, c: 100000 }]));
-  assert.strictEqual(st2.deudas.find(d => d.w === 'Nacho').pend, nacho.c - 100000, 'cobro parcial');
-  assert.deepStrictEqual(P.armar(c.eventos.concat(c.eventos)).deudas.length, 2, 'idempotente por id');
-  const wa = P.textoWA({ nombre: 'Nacho', comercio: 'Coto', fecha: '2026-11-07', cur: 'ARS', lineas: nacho.det, alias: 'tom.mp' });
-  assert.ok(/Hola Nacho/.test(wa) && /Fernet/.test(wa) && /alias tom\.mp/.test(wa) && /7\/11/.test(wa), wa);
-  assert.ok(/Nacho: /.test(P.textoGrupo({ comercio: 'Coto', fecha: '2026-11-07', cur: 'ARS', personas: [{ nombre: 'Nacho', c: nacho.c }], alias: 'tom.mp' })));
-  console.log('ok  compras con amigos: reparto exacto, deudas, cobros parciales y mensajes');
-}
-
-// ---- Mercado Pago: conciliación ----
-{
-  const P = require('../src/personal.js'), assert = require('assert');
-  const c = P.armarCompra({ id: 'cp2', comercio: 'Coto', fecha: '2026-11-01', cur: 'ARS', cat: 'super', items: [{ d: 'Fernet', cents: 900000, w: ['__yo', 'nacho', 'fede'] }, { d: 'Coca', cents: 300000, w: ['nacho', 'fede'] }], nombres: { nacho: 'Nacho', fede: 'Fede' }, pagados: {} });
-  let st = P.armar(c.eventos.concat([{ id: 'g0', t: 'g', f: '2026-11-03', d: 'Kiosco', c: 150000, m: 'ARS', k: 'otros' }]));
-  const nacho = st.deudas.find(d => d.w === 'Nacho'), fede = st.deudas.find(d => d.w === 'Fede');
-  const mov = (id, c, extra) => Object.assign({ id: String(id), fecha: '2026-11-05', monto_centavos: c, moneda: 'ARS', sentido: 'recibido', tipo: 'regular_payment', descripcion: '', contraparte: '' }, extra || {});
-  const r = P.conciliarMP([
-    mov(1, nacho.pend, { contraparte: 'Nacho P' }),                       // nombre + monto: se marca solo
-    mov(2, fede.pend),                                                    // solo el monto: se pregunta
-    mov(3, 777700),                                                       // un cobro cualquiera: se ignora
-    mov(4, 150000, { sentido: 'pagado', fecha: '2026-11-04' }),           // ya está cargado el kiosco
-    mov(5, 320000, { sentido: 'pagado', descripcion: 'Farmacia' }),       // gasto nuevo
-    mov(6, 500000, { sentido: 'pagado', tipo: 'money_transfer' })         // transferencia: se revisa
-  ], st, '2026-11-07');
-  assert.strictEqual(r.cobros.length, 1); assert.strictEqual(r.cobros[0].allocs[0].c, nacho.pend);
-  assert.strictEqual(r.sug.length, 1); assert.strictEqual(r.sug[0].persona, 'Fede');
-  assert.deepStrictEqual([r.gastos.length, r.ya.length, r.rev.length], [1, 1, 1]);
-  // cobro parcial por nombre: reparte desde la deuda más vieja y no se pasa
-  const parc = P.conciliarMP([mov(7, 100000, { contraparte: 'Fede G' })], st, '2026-11-07');
-  assert.strictEqual(parc.cobros[0].allocs.reduce((a, x) => a + x.c, 0), 100000);
-  assert.strictEqual(P.conciliarMP([mov(8, fede.pend + 1, { contraparte: 'Fede' })], st, '2026-11-07').cobros.length, 0, 'más de lo que debe: no se marca solo');
-  // lo ya visto o ya importado no vuelve
-  st = P.armar(c.eventos.concat([{ id: 'o1', t: 'o', ref: 'mp5' }, { id: 'mp6', t: 'g', f: '2026-11-05', d: 'X', c: 500000, m: 'ARS', k: 'otros' }]));
-  assert.strictEqual(P.conciliarMP([mov(5, 320000, { sentido: 'pagado' }), mov(6, 500000, { sentido: 'pagado', tipo: 'money_transfer' })], st, '2026-11-07').gastos.length, 0);
-  assert.strictEqual(P.conciliarMP([mov(6, 500000, { sentido: 'pagado', tipo: 'money_transfer' })], st, '2026-11-07').rev.length, 0);
-  console.log('ok  Mercado Pago: cobros por nombre y monto, sugerencias, gastos nuevos sin duplicar');
+  const csv = 'INITIAL_BALANCE;CREDITS;DEBITS;FINAL_BALANCE\n1,00;2,00;3,00;4,00\n\nRELEASE_DATE;TRANSACTION_TYPE;REFERENCE_ID;TRANSACTION_AMOUNT;PARTIAL_BALANCE\n' +
+    '03-11-2026;Pago Coto Sucursal;1001;-7.066,67;10.000,00\n03-11-2026;Transferencia enviada Juan P;1002;-5.000,00;5.000,00\n04-11-2026;Ingreso de dinero;1003;1.000,00;6.000,00\n05-11-2026;Pago Farmacia;1004;-$ 1.234,5;4.000,00\n';
+  const L = P.leerCSVMP(csv);
+  assert.strictEqual(L.movs.length, 4); assert.strictEqual(L.movs[0].monto_centavos, 706667); assert.strictEqual(L.movs[3].monto_centavos, 123450);
+  assert.deepStrictEqual(L.movs.map(m => m.sentido), ['pagado', 'pagado', 'recibido', 'pagado']);
+  const st0 = P.armar([]), r = P.conciliarMP(L.movs, st0);
+  assert.strictEqual(r.gastos.length, 2); assert.strictEqual(r.rev.length, 1); assert.strictEqual(r.ing, 1);
+  // se sube de nuevo (o un reporte que se pisa): no duplica
+  const ev = []; r.gastos.forEach(m => ev.push({ id: 'mp' + m.id, t: 'g', f: m.fecha, d: 'X', c: m.monto_centavos, m: 'ARS', k: 'otros', src: 'mp' }, { id: 'mpo-' + m.id, t: 'o', ref: 'mp' + m.id }));
+  const st1 = P.armar(ev), r2 = P.conciliarMP(L.movs.concat([{ id: '1099', fecha: '2026-11-06', monto_centavos: 1000, moneda: 'ARS', sentido: 'pagado', tipo: 'regular_payment', descripcion: 'Kiosco' }]), st1);
+  assert.deepStrictEqual([r2.antes, r2.gastos.length, r2.rev.length], [2, 1, 1], 'lo ya importado no vuelve');
+  // otro formato: columnas en inglés, coma como separador, importes con punto, débito/crédito aparte
+  const L2 = P.leerCSVMP('Date,Description,Net Debit Amount,Net Credit Amount\n2026-11-03T10:00:00.000-03:00,Subte,"700.50",\n2026-11-03,Subte,700.50,\n"2026-11-04","Cobro, venta",,"2,000.00"\n');
+  assert.deepStrictEqual(L2.movs.map(m => [m.monto_centavos, m.sentido]), [[70050, 'pagado'], [70050, 'pagado'], [200000, 'recibido']]);
+  assert.notStrictEqual(L2.movs[0].id, L2.movs[1].id, 'dos pagos iguales el mismo día son dos movimientos');
+  assert.strictEqual(P.leerCSVMP('a;b\n1;2\n').error, 'cabecera');
+  // parecido a un gasto cargado a mano: se marca como repetido, pero un pago importado antes no cuenta
+  const man = P.armar([{ id: 'g1', t: 'g', f: '2026-11-03', d: 'Coto', c: 706667, m: 'ARS', k: 'super' }]);
+  assert.strictEqual(P.conciliarMP(L.movs, man).ya.length, 1);
+  // los eventos viejos de compras con amigos quedan dormidos y no rompen nada
+  assert.strictEqual(P.armar([{ id: 'd1', t: 'd', f: '2026-11-01', w: 'Nacho', c: 5000 }, { id: 'r1', t: 'r', ref: 'd1', c: 1 }, { id: 'h1', t: 'h', v: 'x' }]).gastos.length, 0);
+  // reporte de liberaciones (settlement) tal cual lo arma Mercado Pago, con datos inventados: JSON con comillas sueltas, detalle entre comillas dobles
+  const H = 'EXTERNAL_REFERENCE,SOURCE_ID,USER_ID,TRANSACTION_TYPE,TRANSACTION_AMOUNT,TRANSACTION_CURRENCY,TRANSACTION_DATE,METADATA,PAYER_NAME,SALE_DETAIL,TIP_AMOUNT\n';
+  const S1 = H + '"0109",9001,1,SETTLEMENT,-6873.75,ARS,2026-11-07T13:05:36.000-03:00,"[{"hide_payer_information":true}]",PERSONA UNO,"""Orden de Venta""",0.00\n' +
+    ',9002,1,PAYOUTS,-10000.00,ARS,2026-11-07T11:42:08.000-03:00,"{}",,,0.00\n' + ',9003,1,SETTLEMENT,-2500.00,ARS,2026-11-06T21:44:08.000-03:00,"[{}]",PERSONA UNO,"""Varios""",0.00\n' +
+    ',9004,1,SETTLEMENT,100000.00,ARS,2026-11-06T08:58:12.000-03:00,"[{}]",PERSONA DOS,"""Varios""",0.00\n' + ',9005,1,SETTLEMENT,-4600.00,ARS,2026-11-04T11:02:37.000-03:00,"[{}]",PERSONA UNO,"""Producto de Cafe Inventado""",0.00\n' +
+    ',9006,1,SETTLEMENT,158.44,ARS,2026-11-05T01:39:33.000-03:00,"[{}]",,,0.00\n' + ',9006,1,SETTLEMENT,11.35,ARS,2026-11-05T01:39:33.000-03:00,"[{}]",,,0.00\n';
+  const LS = P.leerCSVMP(S1), rs = P.conciliarMP(LS.movs, P.armar([]));
+  assert.deepStrictEqual(rs.gastos.map(m => [m.id, m.monto_centavos, m.descripcion]), [['9001', 687375, 'Pago con QR'], ['9005', 460000, 'Cafe Inventado']]);
+  assert.deepStrictEqual(rs.rev.map(m => [m.id, m.monto_centavos]), [['9002', 1000000], ['9003', 250000]], 'retiros y «Varios» quedan para revisar');
+  assert.strictEqual(rs.ing, 3, 'los ingresos y rendimientos no son gastos');
+  console.log('ok  Mercado Pago CSV: formatos, signos, sin duplicar entre reportes que se pisan');
 }

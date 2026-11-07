@@ -724,36 +724,34 @@ t('IA nueva: leerTicket, entenderGastos e iaTexto validan, limpian y no filtran 
   assert.strictEqual(b.call('read').rev, rev, 'no escribe nada');
 });
 
-t('Mercado Pago: solo lectura, necesita código de enlace, no devuelve datos sensibles ni el token', () => {
+t('Mercado Pago: solo lee reportes ya generados, necesita código de enlace y no filtra el token', () => {
   const b = withPeople();
   const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-9999';
-  assert.strictEqual(b.call('mpMovimientos', { clave: 'X' }).sin_token, true, 'sin token no llama a nadie');
+  assert.strictEqual(b.call('mpReportes', { clave: 'X' }).sin_token, true, 'sin token no llama a nadie');
   b.log.props.MP_ACCESS_TOKEN = TOKEN; b.log.props.MP_LINK = 'AAAA-BBBB-CCCC';
-  const pedidos = [];
-  const pago = (id, monto, extra) => Object.assign({ id, status: 'approved', transaction_amount: monto, currency_id: 'ARS', date_approved: '2026-11-07T01:30:00.000-03:00', operation_type: 'regular_payment', payment_type_id: 'account_money', description: 'Coto\u0000 sucursal', payer: { id: 5, email: 'nacho@example.com', first_name: 'Nacho', last_name: 'Pérez', identification: { type: 'DNI', number: '30111222' } } }, extra || {});
+  const pedidos = [], CSV = 'SOURCE_ID,TRANSACTION_DATE,TRANSACTION_AMOUNT\n1,2026-11-07T10:00:00.000-03:00,-100.00\n';
+  const lista = [{ file_name: 'settlement-1-daily-2026-11-07.csv', date_created: '2026-11-07T21:00:00.000-03:00' }, { file_name: 'settlement-1-daily-2026-11-06.csv', date_created: '2026-11-06T21:00:00.000-03:00' }, { file_name: 'viejo.csv', date_created: '2026-09-01T21:00:00.000-03:00' }, { file_name: 'x.xlsx', date_created: '2026-11-07T21:00:00.000-03:00' }];
   b.ctx.UrlFetchApp = { fetch: (u, o) => {
     pedidos.push({ u, o });
-    const res = /collector\.id=me/.test(u) ? [pago(1, 5166.67), pago(2, 10, { status: 'rejected' })] : [pago(3, 2300.5, { operation_type: 'money_transfer' }), pago(1, 5166.67)];
-    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ paging: { total: res.length, limit: 50, offset: 0 }, results: res }) };
+    if (/settlement_report\/list$/.test(u)) return { getResponseCode: () => 200, getContentText: () => JSON.stringify(lista) };
+    return { getResponseCode: () => 200, getContentText: () => CSV };
   } };
-  assert.strictEqual(err(() => b.call('mpMovimientos', { clave: 'MALA' })).code, 'no_autorizado');
-  assert.strictEqual(err(() => b.call('mpMovimientos', {})).code, 'no_autorizado');
+  assert.strictEqual(err(() => b.call('mpReportes', { clave: 'MALA' })).code, 'no_autorizado');
+  assert.strictEqual(err(() => b.call('mpReportes', {})).code, 'no_autorizado');
   assert.strictEqual(pedidos.length, 0, 'con clave mala no se llama a Mercado Pago');
-  const r = J(b.call('mpMovimientos', { clave: 'AAAA-BBBB-CCCC', desde: '2026-11-01' }));
-  assert.strictEqual(r.movimientos.length, 2, 'aprobados, sin duplicar el mismo id');
-  const m1 = r.movimientos.find(m => m.id === '1'), m3 = r.movimientos.find(m => m.id === '3');
-  assert.deepStrictEqual([m1.sentido, m1.monto_centavos, m1.fecha, m1.contraparte], ['recibido', 516667, '2026-11-07', 'Nacho P']);
-  assert.deepStrictEqual([m3.sentido, m3.tipo, m3.monto_centavos], ['pagado', 'money_transfer', 230050]);
-  assert.ok(!/\u0000|@|30111222|APP_USR/.test(JSON.stringify(r)), 'ni emails, ni documentos, ni el token');
-  assert.deepStrictEqual(J(r.diag), { recibido: { total: 2 }, pagado: { total: 2 } }); assert.strictEqual(r.saldo_centavos, null, 'sin saldo si la API no lo da');
+  const r = J(b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC', desde: '2026-11-01' }));
+  assert.deepStrictEqual(r.reportes.map(x => x.nombre), ['settlement-1-daily-2026-11-07.csv', 'settlement-1-daily-2026-11-06.csv'], 'solo CSV y desde la fecha, el más nuevo primero');
+  assert.strictEqual(r.reportes[0].csv, CSV);
   assert.ok(pedidos.every(p => p.o.method === 'get' && !p.o.payload), 'solo GET');
-  assert.ok(pedidos.every(p => /^https:\/\/api\.mercadopago\.com\/(v1\/payments\/search\?|users\/[^/?]+\/mercadopago_account\/balance$)/.test(p.u) && !/TOKEN|APP_USR/.test(p.u)), 'solo esas dos consultas, con el token en el encabezado y no en la URL');
-  assert.ok(/begin_date=2026-11-01T00%3A00%3A00\.000-03%3A00/.test(pedidos[0].u));
+  assert.ok(pedidos.every(p => /^https:\/\/api\.mercadopago\.com\/v1\/account\/settlement_report\/(list|settlement-[\w.-]+\.csv)$/.test(p.u) && !/TOKEN|APP_USR/.test(p.u)), 'solo esas consultas, con el token en el encabezado');
+  assert.ok(pedidos.every(p => p.o.headers.Authorization === 'Bearer ' + TOKEN));
   b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 401, getContentText: () => '{}' }) };
-  assert.strictEqual(b.call('mpMovimientos', { clave: 'AAAA-BBBB-CCCC' }).error, 'mp_token');
+  assert.strictEqual(b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' }).error, 'mp_token');
+  b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 404, getContentText: () => '{}' }) };
+  assert.deepStrictEqual([b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' }).error, b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' }).codigo], ['mp_lista', 404]);
   b.ctx.UrlFetchApp = { fetch: () => { throw new Error('sin red ' + TOKEN); } };
-  const caido = b.call('mpMovimientos', { clave: 'AAAA-BBBB-CCCC' });
+  const caido = b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' });
   assert.strictEqual(caido.error, 'mp_http'); assert.ok(!JSON.stringify(caido).includes('APP_USR'));
-  const rev = b.call('read').rev; b.call('mpMovimientos', { clave: 'AAAA-BBBB-CCCC' }); assert.strictEqual(b.call('read').rev, rev, 'no escribe nada en la Sheet');
+  const rev = b.call('read').rev; b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' }); assert.strictEqual(b.call('read').rev, rev, 'no escribe nada en la Sheet');
   assert.ok(!JSON.stringify(b.call('read')).includes('APP_USR') && !JSON.stringify(b.call('read')).includes('AAAA-BBBB'), 'read no filtra el token ni el código');
 });

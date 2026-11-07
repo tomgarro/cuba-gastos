@@ -132,7 +132,7 @@ var ACTIONS = {
   leerTicket: actionLeerTicket_,
   entenderGastos: actionEntenderGastos_,
   iaTexto: actionIaTexto_,
-  mpMovimientos: actionMpMovimientos_,
+  mpReportes: actionMpReportes_,
   entenderPregunta: actionEntenderPregunta_,
   aprender: actionAprender_,
   etiquetar: actionEtiquetar_,
@@ -141,8 +141,8 @@ var ACTIONS = {
 };
 
 /** Acciones que solo leen o llaman afuera: no toman el candado (Gemini tarda y no debe frenar las cargas). */
-var SIN_CANDADO = { categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true, mpMovimientos: true, read: true, ping: true };   // leer no frena a quien está escribiendo
-var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true, mpMovimientos: true };
+var SIN_CANDADO = { categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true, mpReportes: true, read: true, ping: true };   // leer no frena a quien está escribiendo
+var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true, mpReportes: true };
 
 /* ------------------------------------------------------------------ */
 /* Acciones                                                            */
@@ -1011,18 +1011,18 @@ function guardarClaveGemini() {
 /* la Sheet, el repo ni la app. Acá solo se hacen pedidos GET; no hay  */
 /* ningún código que cree pagos, transferencias ni retiros.            */
 /* La app recibe un «código de enlace» (MP_LINK) que no sirve para     */
-/* nada fuera de este script y que Odi no tiene: sin él, mpMovimientos */
+/* nada fuera de este script y que Odi no tiene: sin él, mpReportes */
 /* no devuelve nada.                                                    */
 /* ------------------------------------------------------------------ */
 
-var MP = { TOKEN: 'MP_ACCESS_TOKEN', USER: 'MP_USER_ID', LINK: 'MP_LINK', BASE: 'https://api.mercadopago.com', PAGINA: 50, PAGINAS: 4 };
+var MP = { TOKEN: 'MP_ACCESS_TOKEN', USER: 'MP_USER_ID', LINK: 'MP_LINK', BASE: 'https://api.mercadopago.com', REPORTES: 5 };
 
 function mpGet_(path, token) {
   try {
     var r = UrlFetchApp.fetch(MP.BASE + path, { method: 'get', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + token } });
-    var body = null;
-    try { body = JSON.parse(r.getContentText()); } catch (e) {}
-    return { code: r.getResponseCode(), body: body };
+    var texto = r.getContentText(), body = null;
+    try { body = JSON.parse(texto); } catch (e) {}
+    return { code: r.getResponseCode(), body: body, texto: texto };
   } catch (e) { return { code: 0, body: null }; }
 }
 
@@ -1032,43 +1032,31 @@ function igual_(a, b) {   // compara sin cortar en la primera diferencia
   return x === 0;
 }
 
-function mpFecha_(iso) {   // fecha en hora argentina
-  var t = Date.parse(String(iso || ''));
-  return isFinite(t) ? new Date(t - 3 * 3600 * 1000).toISOString().slice(0, 10) : '';
-}
-
-/** Movimientos aprobados de la cuenta (cobros y pagos), sin emails ni documentos. Solo con el código de enlace. */
-function actionMpMovimientos_(req) {
+/**
+ * Reportes de liberaciones que Mercado Pago ya generó (los que programás vos en Mercado Pago → Reportes).
+ * Solo lectura: lista los reportes y baja el CSV de los más nuevos; la app los lee y arma los gastos.
+ * Solo con el código de enlace. El token nunca sale de acá.
+ */
+function actionMpReportes_(req) {
   var props = PropertiesService.getScriptProperties(), token = props.getProperty(MP.TOKEN), link = props.getProperty(MP.LINK);
   if (!token || !link) return { ok: true, sin_token: true };
   if (!igual_(text_(req.clave, 40), link)) fail_('no_autorizado', 'Ese código de enlace no es el de esta cuenta.');
-  var hoy = new Date().toISOString().slice(0, 10), tope = new Date(Date.now() - 92 * 86400000).toISOString().slice(0, 10);
-  var desde = isDate_(req.desde) ? req.desde : new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  if (desde < tope) desde = tope;
-  var out = [], vistos = {}, diag = {};
-  var tipos = [['recibido', 'collector.id'], ['pagado', 'payer.id']];
-  for (var t = 0; t < tipos.length; t++) {
-    for (var pg = 0; pg < MP.PAGINAS; pg++) {
-      var q = '/v1/payments/search?sort=date_created&criteria=desc&range=date_created&begin_date=' + encodeURIComponent(desde + 'T00:00:00.000-03:00') + '&end_date=NOW&limit=' + MP.PAGINA + '&offset=' + pg * MP.PAGINA + '&' + tipos[t][1] + '=me';
-      var r = mpGet_(q, token);
-      if (r.code === 401 || r.code === 403) return { ok: true, error: 'mp_token' };
-      if (r.code !== 200 || !r.body) return { ok: true, error: 'mp_http' };
-      var res = Array.isArray(r.body.results) ? r.body.results : [];
-      if (pg === 0) diag[tipos[t][0]] = { total: Number(r.body.paging && r.body.paging.total) || res.length };
-      res.forEach(function (p) {
-        var id = String(p && p.id || ''), cents = centavosDe_(p && p.transaction_amount), fecha = mpFecha_(p && (p.date_approved || p.date_created));
-        if (!id || vistos[id] || !cents || !fecha || p.status !== 'approved') return;
-        vistos[id] = true;
-        var py = p.payer || {}, nom = tipos[t][0] === 'recibido' ? text_([py.first_name, String(py.last_name || '').slice(0, 1)].join(' '), 40) : '';
-        out.push({ id: id, fecha: fecha, monto_centavos: cents, moneda: p.currency_id === 'USD' ? 'USD' : 'ARS', sentido: tipos[t][0], tipo: text_(p.operation_type, 30), medio: text_(p.payment_type_id, 30), descripcion: text_(p.description, 60), contraparte: nom });
-      });
-      if (res.length < MP.PAGINA) break;
-    }
-  }
-  var saldo = null;   // la API de saldo es restringida: si no responde, simplemente no se muestra
-  var sd = mpGet_('/users/' + encodeURIComponent(props.getProperty(MP.USER) || 'me') + '/mercadopago_account/balance', token);
-  if (sd.code === 200 && sd.body && isFinite(Number(sd.body.available_balance))) saldo = Math.round(Number(sd.body.available_balance) * 100);
-  return { ok: true, movimientos: out.slice(0, 400), hasta: hoy, diag: diag, saldo_centavos: saldo };
+  var hoy = new Date().toISOString().slice(0, 10);
+  var desde = isDate_(req.desde) ? req.desde : new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10);
+  var lst = mpGet_('/v1/account/settlement_report/list', token);
+  if (lst.code === 401 || lst.code === 403) return { ok: true, error: 'mp_token' };
+  if (lst.code === 0) return { ok: true, error: 'mp_http' };
+  if (lst.code !== 200 || !Array.isArray(lst.body)) return { ok: true, error: 'mp_lista', codigo: lst.code };
+  var fs = lst.body.filter(function (f) {
+    return f && /\.csv$/i.test(String(f.file_name || '')) && (!f.date_created || String(f.date_created).slice(0, 10) >= desde);
+  }).sort(function (a, b) { return String(b.date_created || '') < String(a.date_created || '') ? -1 : 1; }).slice(0, MP.REPORTES);
+  var out = [], bytes = 0;
+  fs.forEach(function (f) {
+    if (bytes > 1500000) return;
+    var r = mpGet_('/v1/account/settlement_report/' + encodeURIComponent(f.file_name), token);
+    if (r.code === 200 && r.texto) { out.push({ nombre: String(f.file_name), creado: String(f.date_created || '').slice(0, 19), csv: r.texto }); bytes += r.texto.length; }
+  });
+  return { ok: true, reportes: out, listados: lst.body.length, hasta: hoy };
 }
 
 function conectarMercadoPago() {

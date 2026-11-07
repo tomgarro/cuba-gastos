@@ -82,10 +82,14 @@ Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, desha
 
 `src/ia.js` (CubaIA) hace lo local: separar gastos dictados, suscripciones, ¿es caro?, cuota de una compra, agregados del mes y reparto de un ticket. Gemini solo entra por tres acciones del Apps Script: `leerTicket` (foto → ítems), `entenderGastos` (frase → gastos) e `iaTexto` (carta, explica, regalos, compra, caro). A `iaTexto` solo viajan números agregados y conceptos: nunca nombres, sueldos ni movimientos sueltos de Personal.
 
-## Compra con amigos (v0.21)
+## Compra con amigos (retirada en v0.23)
 
-Todo vive en Personal, cifrado: eventos nuevos `d` (deuda de un amigo, con el detalle de sus ítems), `r` (cobro, total o parcial) y `h` (alias de Mercado Pago). El gasto `g` lleva solo tu parte (`tot` guarda el total del ticket). Los ids se derivan de la compra, así que reintentar no duplica. Nada de esto toca la Sheet compartida ni a Gemini más allá de leer el ticket.
+Se sacó de la app: estaba bien armada pero mal pensada para el uso real. No había nada en el backend: vivía en Personal, cifrada en el celu. Los eventos viejos (`d` deuda, `r` cobro, `h` alias) quedan dormidos en la Sheet y la app los ignora; los gastos «solo mi parte» que ya se habían guardado siguen como gastos comunes de Personal. El «Ticket por ítems» del gasto compartido sigue igual.
 
-## Mercado Pago (v0.22)
+## Mercado Pago (v0.22 → v0.23)
 
-Apps Script llama a `GET /v1/payments/search` (`collector.id=me` y `payer.id=me`) con el token de las Propiedades del script; no hay ningún otro verbo ni endpoint. `mpMovimientos` exige el código de enlace (`MP_LINK`), devuelve solo id, fecha, monto, moneda, sentido, tipo, medio, descripción y, en los cobros, nombre + inicial (nunca emails ni documentos), y no escribe en la Sheet. La app concilia en el celular (`P.conciliarMP`) y guarda eventos cifrados de Personal (`r` cobros, `g` con `src:'mp'`, `o` vistos). Revocar: menú «Desconectar Mercado Pago» y revocar la credencial en Mercado Pago Developers.
+La API de pagos (`/v1/payments/search`) no ve la billetera común, así que desde v0.23 Apps Script solo hace dos GET de lectura: `/v1/account/settlement_report/list` y la descarga de los CSV ya generados (los que programás en Mercado Pago → Reportes). La acción `mpReportes` exige el código de enlace; el token vive solo en las Propiedades del script. La app lee los CSV, anota los gastos en Personal (cifrado) y deja «para revisar» los retiros y las transferencias. Nunca escribe en Mercado Pago ni crea reportes.
+
+## Mercado Pago por CSV (v0.23)
+
+La API solo ve lo que pasa por una integración (ventas, QR de cobro), no la billetera común: por eso el camino principal es importar el reporte CSV de Mercado Pago desde Personal. El lector (`leerCSVMP`, en `personal.js`) detecta el separador, la fila de títulos y las columnas por nombre (español o inglés), acepta importes con coma o punto y arma el id con el número de operación. Mismo número = mismo movimiento (`mp<id>`), así que se pueden subir reportes que se pisan sin duplicar; si no hay número de operación, el id sale de fecha, monto y descripción. Antes de importar se muestra una vista previa; la importación se puede deshacer (anula esos gastos, el historial queda). Lo que entra (ingresos) se ignora; las transferencias enviadas quedan «para revisar». La conexión por API sigue disponible para quien ya la conectó.
