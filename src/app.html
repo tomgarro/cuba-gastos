@@ -533,7 +533,6 @@ function viewInicio() {
   h += '<div class="actions"><button class="btn acc" data-act="new">+ Anotar gasto</button><button class="btn ghost" data-act="tab" data-v="cierre">Saldar</button></div>';
   if (S.mode === 'sheets') resumenFalta().forEach(function (r) { h += '<div class="card"><h3>Falta un resumen</h3><div class="stat"><span>Ya cerró la ' + esc(r.tarjeta) + ' (' + dLarga(r.proximo_cierre) + ')</span><button class="btn sm acc" data-act="rsir">Subirlo</button></div></div>'; });
   h += viewPorPagar();
-  h += viewEventos();
   if (tr.length) {
     h += '<div class="card"><h3>Quién le debe a quién</h3>' + tr.map(function (t) { return '<div class="transfer">' + avatar(t.from) + '<div class="grow"><b>' + esc(firstName(t.from)) + '</b> <span class="mut">→</span> <b>' + esc(firstName(t.to)) + '</b></div><div class="amt">' + C.fmt(t.cents, t.cur) + '</div></div>'; }).join('') + '</div>';
   }
@@ -614,7 +613,7 @@ function viewCierre() {
 }
 function foldCards(h) {
   return h.replace(/<div class="card"><h3>([^<]*)<\/h3>/g, function (m, t) {
-    var open = S.fold[t] || (/Splitwise/.test(t) && S.imp) || (/Categor/.test(t) && S.catBusy) || (/tarjeta/i.test(t) && S.rs);
+    var open = S.fold[t] || (/Viajes/.test(t) && S.evId) || (/Splitwise/.test(t) && S.imp) || (/Categor/.test(t) && S.catBusy) || (/tarjeta/i.test(t) && S.rs);
     var badge = /Categor/.test(t) && S.dudosas.length && !open ? ' <span class="mut">(' + dudososGrupos().length + ' para confirmar)</span>' : '';
     return '<div class="card fold' + (open ? ' open' : '') + '"><h3 data-act="fold" data-t="' + esc(t) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' + t + badge + '<i aria-hidden="true">▾</i></h3>';
   });
@@ -624,7 +623,7 @@ function viewAjustes() {
     return '<div class="row" style="margin-bottom:8px">' + avatar(m.id) + '<input data-in="rename" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '" maxlength="30"></div>';
   }).join('') + (members().length < 8 ? '<div class="row" style="margin-top:6px"><input data-in="newmember" placeholder="Agregar otra persona" maxlength="30"><button class="btn sm" data-act="addmember">Agregar</button></div>' : '') +
     '<label class="f">Yo soy</label><select data-in="me">' + members().map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === S.meId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div>';
-  h += viewSueldo() + viewRecs() + viewResumen() + viewCategorias();
+  h += viewSueldo() + viewRecs() + viewEventos() + viewResumen() + viewCategorias();
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
@@ -678,15 +677,17 @@ function openRecForm(r) {
 
 // ---------------- viajes y eventos ----------------
 // Un viaje o evento tiene sus propias cuentas (moneda, reparto y saldos) y no entra en el mes ni en «Quién le debe a quién».
+function evOn() { if (S.eventos.length) return true; try { return localStorage.getItem('cuba:ev') === '1'; } catch (e) { return false; } }
 function viewEventos() {
   if (S.mode !== 'sheets') return '';
   var abiertos = S.eventos.filter(function (v) { return v.open; });
   var h = '<div class="card"><h3>Viajes y eventos</h3>';
-  if (!S.eventos.length) h += '<p class="mut" style="margin:0 0 10px;font-size:14px">Para un viaje, un asado o una fiesta: lleva sus propias cuentas y no se mezcla con el mes.</p>';
+  if (!evOn()) return h + '<p class="mut" style="margin:0 0 10px;font-size:14px">Para un viaje, un asado o una fiesta: lleva sus propias cuentas y no se mezcla con el mes. Está apagado para no ocupar lugar.</p><button class="btn sm full" data-act="evon">Habilitar viaje o evento</button></div>';
+  if (!S.eventos.length) h += '<p class="mut" style="margin:0 0 10px;font-size:14px">Todavía no hay ninguno. Cada viaje o evento lleva sus propias cuentas y no se mezcla con el mes.</p>';
   h += abiertos.map(function (v) { var k = CubaSheets.eventoCuentas(S.evAll, v.id, []); return evItem(v, k); }).join('');
   var cerrados = S.eventos.filter(function (v) { return !v.open; });
   if (cerrados.length) h += '<details style="margin-top:6px"><summary class="mut" style="font-size:14px">Cerrados (' + cerrados.length + ')</summary>' + cerrados.map(function (v) { return evItem(v, CubaSheets.eventoCuentas(S.evAll, v.id, [])); }).join('') + '</details>';
-  return h + '<button class="btn ghost sm full" style="margin-top:8px" data-act="evnew"' + (S.readOnly ? ' disabled' : '') + '>+ Viaje o evento</button></div>';
+  return h + '<button class="btn sm full" style="margin-top:8px" data-act="evnew"' + (S.readOnly ? ' disabled' : '') + '>+ Viaje o evento</button>' + (S.eventos.length ? '' : '<button class="btn ghost sm full" style="margin-top:6px" data-act="evoff">Deshabilitar</button>') + '</div>';
 }
 function evItem(v, k) {
   var sub = k.count ? k.count + (k.count === 1 ? ' gasto' : ' gastos') : 'sin gastos todavía';
@@ -1164,6 +1165,8 @@ var A = {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(desde || '')) { toast('Elegí desde qué fecha rige.'); return; }
     Store.saveSueldo({ id: rid(), persona: S.meId, desde: desde, cents: cents, cur: cur, note: '', by: S.meId }).then(function () { toast('Sueldo guardado. Desde ahora reparto en proporción.'); }).catch(fail);
   },
+  evon: function () { try { localStorage.setItem('cuba:ev', '1'); } catch (e) {} S.fold['Viajes y eventos'] = true; render(); },
+  evoff: function () { try { localStorage.removeItem('cuba:ev'); } catch (e) {} render(); },
   evnew: function () { if (S.readOnly) { toast('Solo lectura.'); return; } openEvForm(null); },
   evedit: function (el) { var v = S.eventos.filter(function (x) { return x.id === el.dataset.id; })[0]; if (v) openEvForm(v); },
   evopen: function (el) { S.evId = el.dataset.id; window.scrollTo(0, 0); render(); },

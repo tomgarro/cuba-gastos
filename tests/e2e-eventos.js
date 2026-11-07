@@ -46,8 +46,10 @@ const J = x => JSON.parse(JSON.stringify(x));
   await B.p.waitForSelector('text=Todavía no hay gastos');
 
   // --- Crear el evento ---
-  assert.ok(!(await A.txt()).includes('Quién le debe a quién'));
-  await A.p.waitForSelector('[data-act=evnew]'); await A.p.click('[data-act=evnew]');
+  assert.ok(!(await A.txt()).includes('Viajes y eventos'), 'apagado: no aparece en Inicio');
+  await A.p.click('.nav [data-v=ajustes]'); await openAll(A.p);
+  assert.ok((await A.txt()).includes('Habilitar viaje o evento'));
+  await A.p.click('[data-act=evon]'); await A.p.waitForSelector('[data-act=evnew]'); await A.p.click('[data-act=evnew]');
   await A.p.fill('[data-in=evname]', 'Bariloche'); await A.p.click('[data-act=evsave]');
   await A.p.waitForSelector('text=no entra en el resumen del mes'); await sinPend(A.p);
   assert.strictEqual(sheet.grids.Eventos.length, 2);
@@ -76,7 +78,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   await A.p.click('.nav [data-v=cierre]'); assert.ok(!/Cabaña|100\.000/.test(await A.txt()), 'Cierre no incluye el viaje');
 
   // --- B lo ve y salda dentro del evento ---
-  await B.p.reload(); await B.p.waitForSelector('text=Viajes y eventos');
+  await B.p.reload(); await B.p.waitForSelector('.nav'); await B.p.click('.nav [data-v=ajustes]'); await openAll(B.p);
   await B.p.click('[data-act=evopen]'); await B.p.waitForSelector('text=Pau le paga a');
   await B.p.click('[data-act=evpay]'); await B.p.waitForSelector('text=Están a mano en este evento'); await sinPend(B.p);
   const pay = ult();
@@ -84,7 +86,7 @@ const J = x => JSON.parse(JSON.stringify(x));
   await A.p.click('.nav [data-v=inicio]'); await A.p.waitForTimeout(100);
 
   // --- Editar un gasto del evento conserva el evento; cerrar y reabrir ---
-  await A.p.reload(); await A.p.waitForSelector('[data-act=evopen]'); await A.p.click('[data-act=evopen]');
+  await A.p.reload(); await A.p.waitForSelector('.nav'); await A.p.click('.nav [data-v=ajustes]'); await openAll(A.p); await A.p.click('[data-act=evopen]');
   await A.p.locator('.item', { hasText: 'Cabaña' }).first().click(); await A.p.click('[data-act=edit]'); await A.p.waitForSelector('#fdesc');
   await A.p.fill('[data-in=amount]', '120.000'); await A.p.click('[data-act=save]'); await sinPend(A.p);
   const nuevo = sheet.grids.Movimientos.filter(r => r[col('reemplaza_id')] !== '' && r[col('descripcion')].toUpperCase().includes('CABA'))[0];
