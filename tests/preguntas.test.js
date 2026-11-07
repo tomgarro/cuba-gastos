@@ -41,6 +41,15 @@ t('deudas: quién le debe a quién, por persona nombrada o alias, y a mano', () 
   assert.ok(/a mano/.test(P.responder(q('estamos a mano'), [g('X', '2026-11-01', 1000, 'super', { sp: [['a', 1000]] })], ctx).texto));
 });
 
+t('entiende el año explícito: «de agua en 2026», «en 2025», «octubre de 2025»', () => {
+  const c = q('cuanto gastamos de agua en 2026?');
+  assert.deepStrictEqual([c.cat, c.desde, c.hasta, c.porDefecto], ['agua', '2026-01', '2026-11', false]);
+  assert.deepStrictEqual([q('cuánto gastamos en 2025').desde, q('cuánto gastamos en 2025').hasta], ['2025-01', '2025-12']);
+  assert.strictEqual(q('cuánto fue la luz en octubre de 2025').desde, '2025-10');
+  const r = P.responder(q('cuánto gastamos de luz en 2026'), E, ctx);
+  assert.ok(/\$\s?22\.300/.test(r.texto) && /lo que va de 2026/.test(r.texto), r.texto);
+});
+
 t('lo que más se va', () => {
   const r = P.responder(q('en qué gastamos más este mes'), E, ctx);
   assert.ok(/^En este mes lo que más se va es luz/.test(r.texto), r.texto);

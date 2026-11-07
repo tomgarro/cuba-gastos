@@ -17,6 +17,13 @@
   // Período: {desde, hasta, etiqueta} con claves de mes AAAA-MM inclusivas.
   function periodo(q, hoy) {
     var cur = hoy.slice(0, 7), y = +hoy.slice(0, 4), i;
+    var ym = q.match(/\b(20\d\d)\b/);   // año explícito: «en 2026», «octubre de 2025»
+    if (ym && +ym[1] <= y) {
+      var yr = +ym[1], mi = -1;
+      for (i = 0; i < 12; i++) if (new RegExp('\\b' + MESES[i].normalize('NFD').replace(/[̀-ͯ]/g, '') + '\\b').test(q) || (i === 8 && /\bsetiembre\b/.test(q))) { mi = i; break; }
+      if (mi >= 0) { var mk = mesKey(yr, mi + 1); if (mk <= cur) return { desde: mk, hasta: mk, etiqueta: MESES[mi] + (yr !== y ? ' de ' + yr : '') }; }
+      else return { desde: yr + '-01', hasta: yr === y ? cur : yr + '-12', etiqueta: yr === y ? 'lo que va de ' + yr : yr + '' };
+    }
     if (/\bmes (pasado|anterior)\b|\bel mes que paso\b/.test(q)) { var p = mesAtras(hoy, 1); return { desde: p, hasta: p, etiqueta: 'el mes pasado' }; }
     if (/\best(e|a) ano\b|\ben el ano\b/.test(q) && !/ano pasado/.test(q)) return { desde: y + '-01', hasta: cur, etiqueta: 'este año' };
     if (/\bano pasado\b/.test(q)) return { desde: (y - 1) + '-01', hasta: (y - 1) + '-12', etiqueta: 'el año pasado' };

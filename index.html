@@ -1420,6 +1420,13 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
   // Período: {desde, hasta, etiqueta} con claves de mes AAAA-MM inclusivas.
   function periodo(q, hoy) {
     var cur = hoy.slice(0, 7), y = +hoy.slice(0, 4), i;
+    var ym = q.match(/\b(20\d\d)\b/);   // año explícito: «en 2026», «octubre de 2025»
+    if (ym && +ym[1] <= y) {
+      var yr = +ym[1], mi = -1;
+      for (i = 0; i < 12; i++) if (new RegExp('\\b' + MESES[i].normalize('NFD').replace(/[̀-ͯ]/g, '') + '\\b').test(q) || (i === 8 && /\bsetiembre\b/.test(q))) { mi = i; break; }
+      if (mi >= 0) { var mk = mesKey(yr, mi + 1); if (mk <= cur) return { desde: mk, hasta: mk, etiqueta: MESES[mi] + (yr !== y ? ' de ' + yr : '') }; }
+      else return { desde: yr + '-01', hasta: yr === y ? cur : yr + '-12', etiqueta: yr === y ? 'lo que va de ' + yr : yr + '' };
+    }
     if (/\bmes (pasado|anterior)\b|\bel mes que paso\b/.test(q)) { var p = mesAtras(hoy, 1); return { desde: p, hasta: p, etiqueta: 'el mes pasado' }; }
     if (/\best(e|a) ano\b|\ben el ano\b/.test(q) && !/ano pasado/.test(q)) return { desde: y + '-01', hasta: cur, etiqueta: 'este año' };
     if (/\bano pasado\b/.test(q)) return { desde: (y - 1) + '-01', hasta: (y - 1) + '-12', etiqueta: 'el año pasado' };
@@ -2040,7 +2047,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.17.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.17.1</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
