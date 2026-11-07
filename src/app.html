@@ -990,8 +990,8 @@ function viewResumen() {
     if (S.rsMsg) h += '<div class="preview neg" style="margin-top:8px">' + esc(S.rsMsg) + '</div>';
     return h + '</div>';
   }
-  var R = S.rs, its = R.items, nuevos = its.filter(function (x) { return x.estado === 'nuevo'; }), reglas = its.filter(function (x) { return x.estado === 'regla'; }), ya = its.filter(function (x) { return x.estado === 'ya'; });
-  var sel = its.filter(function (x) { return x.estado !== 'ya' && x.comparte; });
+  var R = S.rs, its = R.items, posibles = its.filter(function (x) { return x.estado === 'posible' && !x.otro; }), nuevos = its.filter(function (x) { return x.estado === 'nuevo' || (x.estado === 'posible' && x.otro); }), reglas = its.filter(function (x) { return x.estado === 'regla'; }), ya = its.filter(function (x) { return x.estado === 'ya'; });
+  var sel = its.filter(function (x) { return rsVivo(x) && x.comparte; });
   h += '<div class="stat"><span><b>' + esc(R.tarjeta) + '</b> · cierre ' + dLarga(R.cierre) + '</span><b class="mut">' + its.length + ' consumos</b></div>';
   var row = function (x) {
     var i = its.indexOf(x), c = C.catInfo(x.cat);
@@ -999,10 +999,14 @@ function viewResumen() {
       '<span class="r"><div class="a">' + (x.cur === 'USD' ? C.fmt(x.cents, 'USD') + (rsPesos(x).cur === 'ARS' ? '<div class="s">≈ ' + C.fmt(rsPesos(x).cents, 'ARS', { noDecimals: true }) + '</div>' : '') : C.fmt(x.cents, x.cur, { noDecimals: x.cur === 'ARS' })) + '</div><button class="chip' + (x.comparte ? ' on' : '') + '" data-act="rstog" data-i="' + i + '" aria-pressed="' + !!x.comparte + '">' + (x.comparte ? 'Compartido' : 'Personal') + '</button></span></div>';
   };
   if (S.rsBusy) h += '<p class="mut" style="font-size:14px">Cuba está pensando qué es cada cosa…</p>';
+  if (posibles.length) h += '<h3 style="margin:14px 0 4px">¿Ya estaba cargado? (' + posibles.length + ')</h3><p class="mut" style="font-size:13px;margin:0 0 4px">Mismo monto y fecha cercana a algo que ya subieron. No se cargan salvo que digas que es otro gasto.</p>' + posibles.map(function (x) {
+    var i = its.indexOf(x);
+    return '<div class="rsrow"><span class="grow"><div class="t">' + esc(x.nombre) + '</div><div class="s">' + dLarga(x.fecha) + ' · ' + C.fmt(x.cents, x.cur, { noDecimals: x.cur === 'ARS' }) + '</div><div class="s">Parecido a «' + esc(x.parecido.desc) + '» del ' + dLabel(x.parecido.fecha) + ' en ' + esc(x.parecido.donde) + '</div></span><button class="chip" data-act="rsotro" data-i="' + i + '">Es otro gasto</button></div>';
+  }).join('');
   if (nuevos.length) h += '<h3 style="margin:14px 0 4px">Para decidir (' + nuevos.length + ')</h3>' + nuevos.map(row).join('');
   if (reglas.length) h += '<h3 style="margin:14px 0 4px">Ya sabía (' + reglas.length + ')</h3>' + reglas.map(row).join('');
-  if (ya.length) h += '<p class="mut" style="font-size:13px;margin:10px 0 0">' + ya.length + ' ya estaban cargados en Cuba.</p>';
-  if (its.some(function (x) { return x.cur === 'USD' && x.estado !== 'ya'; })) {
+  if (ya.length) h += '<p class="mut" style="font-size:13px;margin:10px 0 0">' + ya.length + ' ya estaban cargados en Cuba o en tu Personal.</p>';
+  if (its.some(function (x) { return x.cur === 'USD' && rsVivo(x); })) {
     var dz2 = S.rs.dolar;
     h += '<div class="preview" style="margin-top:10px"><b>Dólar tarjeta</b> (solo para los consumos en USD)<div class="row" style="display:flex;gap:8px;margin-top:6px;align-items:center"><label class="grow" style="font-size:13px">Cotización<input id="rstc" inputmode="decimal" value="' + esc(dz2.tc) + '" placeholder="TC vendedor"></label><label style="width:90px;font-size:13px">Percepción %<input id="rspct" inputmode="decimal" value="' + esc(dz2.pct) + '"></label></div>' +
       '<div class="mut" style="font-size:12px;margin-top:4px">' + (dz2.det ? 'Leído del resumen: ' + esc(dz2.det) + '.' : 'No pude leerlo del resumen: poné la cotización.') + ' Se carga en pesos.' + (dz2.extra ? ' El IVA y el IIBB (+' + dz2.extra + '%) se suman solo a los consumos donde el banco los cobró.' : '') + '</div></div>';
@@ -1016,12 +1020,13 @@ function viewResumen() {
     '<button class="btn ghost full" style="margin-top:6px" data-act="rsclear">Cancelar</button>';
   return h + '</div>';
 }
-function rsPersonales() { return S.rs ? S.rs.items.filter(function (x) { return x.estado !== 'ya' && !x.comparte; }) : []; }
+function rsVivo(x) { return x.estado === 'nuevo' || x.estado === 'regla' || (x.estado === 'posible' && !!x.otro); }   // «ya» y «posible» (sin confirmar que es otro gasto) no se cargan
+function rsPersonales() { return S.rs ? S.rs.items.filter(function (x) { return rsVivo(x) && !x.comparte; }) : []; }
 function rsDe(texto) {
   var res = CubaResumen.parseResumen(texto);
   if (res.error) { S.rsMsg = res.error; render(); return; }
   var vivos = C.live(S.entries); // lo que ya está cargado
-  var items = CubaResumen.clasificar(res, S.reglas, vivos, S.recs);
+  var items = CubaResumen.clasificar(res, S.reglas, vivos, S.recs, Per.ready() ? Per.state().gastos.map(function (g) { return { id: g.id, c: g.c, m: g.m, f: g.f, d: g.d }; }) : []);
   var dz = res.dolar; S.rs = { dolar: { tc: dz ? String(dz.tc).replace('.', ',') : '', pct: dz ? String(dz.pct) : '30', extra: dz ? dz.extra : 0, ids: dz ? dz.ids : [], det: dz ? dz.detalle : '' }, tarjeta: res.tarjeta, cierre: res.cierre, vencimiento: res.vencimiento, proximoCierre: res.proximoCierre, items: items, cargos: res.cargos }; S.rsMsg = ''; S.rsBusy = false;
   render();
   var duda = items.filter(function (x) { return x.estado === 'nuevo' && x.cat === 'otros'; });
@@ -1491,7 +1496,7 @@ var A = {
   rstog: function (el) { var x = S.rs && S.rs.items[+el.dataset.i]; if (!x) return; x.comparte = !x.comparte; x.why = x.comparte ? 'lo marcaste compartido' : 'lo marcaste personal'; render(); },
   rsgo: function () {
     var R = S.rs; if (!R || S.readOnly || S.rsBusy) return;
-    var sel = R.items.filter(function (x) { return x.estado !== 'ya' && x.comparte; }), pers = R.pers !== false && Per.ready() ? rsPersonales() : []; if (!sel.length && !pers.length) return;
+    var sel = R.items.filter(function (x) { return rsVivo(x) && x.comparte; }), pers = R.pers !== false && Per.ready() ? rsPersonales() : []; if (!sel.length && !pers.length) return;
     var ids = members().map(function (m) { return m.id; }), loteId = 'L' + rid(), now = new Date().toISOString(), problema = '';
     // Lo que ya está cargado y vigente no se vuelve a cargar nunca (un reintento no puede duplicar).
     var vivos = C.live(S.entries), yaVivo = function (id) { return vivos.some(function (e) { return e.id === id || e.id.indexOf(id + '-r') === 0; }); };
@@ -1506,8 +1511,8 @@ var A = {
         note: R.tarjeta + ' · cierre ' + R.cierre + q.nota, by: S.meId, at: now, src: 'resumen', lote: loteId };
     });
     if (problema || entries.indexOf(null) >= 0) { toast(problema || 'No pude calcular el reparto.'); return; }
-    var reglas = R.items.filter(function (x) { return x.estado !== 'ya'; }).map(function (x) { return { descripcion: CubaResumen.limpiar(x.bruto), comparte: x.comparte ? 'si' : 'no', categoria: x.comparte ? x.cat : '' }; });
-    var reg = { tarjeta: R.tarjeta, persona_id: S.meId, cierre: R.cierre, vencimiento: R.vencimiento || '', proximo_cierre: R.proximoCierre || '', consumos: R.items.length, compartidos: R.items.filter(function (x) { return x.estado !== 'ya' && x.comparte; }).length, creado_por: S.meId };
+    var reglas = R.items.filter(function (x) { return rsVivo(x); }).map(function (x) { return { descripcion: CubaResumen.limpiar(x.bruto), comparte: x.comparte ? 'si' : 'no', categoria: x.comparte ? x.cat : '' }; });
+    var reg = { tarjeta: R.tarjeta, persona_id: S.meId, cierre: R.cierre, vencimiento: R.vencimiento || '', proximo_cierre: R.proximoCierre || '', consumos: R.items.length, compartidos: R.items.filter(function (x) { return rsVivo(x) && x.comparte; }).length, creado_por: S.meId };
     S.rsBusy = true; render();
     var cargar = entries.length ? Store.putEntries(entries, { lote: { id: loteId, origen: 'resumen', archivo: '', fecha: today(), cantidad: entries.length, moneda_original: 'ARS' } }) : Promise.resolve();
     cargar.then(function () {
@@ -1678,6 +1683,7 @@ var A = {
       fin(r, d.confianza < 0.6 ? 'Lo leí con dudas: revisá bien los datos.' : 'Revisá los datos y guardá.');
     }).catch(function (er) { if (!S.sh) return; var m = er && er.message === 'img' ? 'No pude abrir esa imagen: cargalo a mano.' : 'No pude leerla ahora: cargalo a mano.'; fin(null, m); });
   },
+  rsotro: function (el) { var x = S.rs && S.rs.items[+el.dataset.i]; if (x) { x.otro = true; render(); } },
   rsper: function (el) { if (S.rs) { S.rs.pers = !!el.checked; render(); } },
   recnew: function () { openRecForm(null); },
   recedit: function (el) { var r = S.recs.filter(function (x) { return x.id === el.dataset.id; })[0]; if (r) openRecForm(r); },

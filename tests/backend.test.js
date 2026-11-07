@@ -691,3 +691,35 @@ t('Personal: mueve el contador para que el otro celular no se confunda', () => {
   b.call('savePersonal', { persona_id: 'm1', filas: [{ id: 'p1', blob: 'QUJDREVGR0hJSktMTU5PUA==' }] });
   assert.ok(!b.call('read', { rev: r1.rev, persona: 'm1' }).unchanged);
 });
+
+t('IA nueva: leerTicket, entenderGastos e iaTexto validan, limpian y no filtran detalles', () => {
+  const b = withPeople();
+  const img = Buffer.alloc(300, 7).toString('base64');
+  const gem = (obj) => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }) });
+  assert.strictEqual(b.call('leerTicket', { imagen: img, mime: 'image/jpeg' }).sin_clave, true);
+  assert.strictEqual(b.call('entenderGastos', { texto: 'el super 15 mil' }).sin_clave, true);
+  assert.strictEqual(b.call('iaTexto', { tipo: 'carta', datos: { total: 1 } }).sin_clave, true);
+  b.log.props.GEMINI_API_KEY = 'K'.repeat(30);
+  [{ imagen: 'x', mime: 'image/jpeg' }, { imagen: img, mime: 'application/pdf' }, {}].forEach(o => assert.strictEqual(err(() => b.call('leerTicket', o)).code, 'pedido_invalido'));
+  const sent = [];
+  b.ctx.UrlFetchApp = { fetch: (u, o) => { sent.push(JSON.parse(o.payload)); return gem({ comercio: ' Coto\u0000 ', moneda: 'ARS', fecha: '2026-02-30', total: 1500.5, items: [{ descripcion: 'Leche', monto: 1000.25 }, { descripcion: 'Basura', monto: -4 }, { descripcion: '', monto: 5 }, { descripcion: 'Pan', monto: 500.25 }] }); } };
+  const r = J(b.call('leerTicket', { imagen: img, mime: 'image/png' }));
+  assert.deepStrictEqual([r.comercio, r.fecha, r.total_centavos, r.items.map(x => x.descripcion + ':' + x.monto_centavos).join()], ['Coto', '', 150050, 'Leche:100025,Pan:50025']);
+  assert.ok(sent[0].contents[0].parts[1].inlineData && !JSON.stringify(sent[0]).includes('creado_por'));
+  // entenderGastos
+  b.ctx.UrlFetchApp = { fetch: () => gem({ gastos: [{ descripcion: 'Súper', monto: 15000, moneda: 'ARS', categoria: 'super', fecha: '2026-11-06' }, { descripcion: 'Café', monto: 3000, moneda: 'EUR', categoria: 'inventada', fecha: '2999-01-01' }, { descripcion: 'Nada', monto: 0, moneda: 'ARS', categoria: 'otros', fecha: '' }] }) };
+  const g = J(b.call('entenderGastos', { texto: 'ayer el super 15 mil y un cafe 3 mil', hoy: '2026-11-07' }));
+  assert.deepStrictEqual(g.gastos.map(x => [x.descripcion, x.monto_centavos, x.moneda, x.categoria, x.fecha]), [['Súper', 1500000, 'ARS', 'super', '2026-11-06'], ['Café', 300000, 'ARS', 'otros', '']]);
+  ['', 'ab', 'x'.repeat(401)].forEach(texto => assert.strictEqual(err(() => b.call('entenderGastos', { texto })).code, 'pedido_invalido'));
+  // iaTexto
+  b.ctx.UrlFetchApp = { fetch: (u, o) => { sent.push(JSON.parse(o.payload)); return gem({ texto: '  Hola, soy Cuba 🐾  ' }); } };
+  assert.strictEqual(b.call('iaTexto', { tipo: 'carta', datos: { total: 123 } }).texto, 'Hola, soy Cuba 🐾');
+  assert.ok(/"total":123/.test(sent[sent.length - 1].contents[0].parts[0].text));
+  assert.strictEqual(err(() => b.call('iaTexto', { tipo: 'hackear', datos: {} })).code, 'pedido_invalido');
+  assert.strictEqual(err(() => b.call('iaTexto', { tipo: 'carta', datos: 'texto' })).code, 'pedido_invalido');
+  assert.strictEqual(err(() => b.call('iaTexto', { tipo: 'carta', datos: { x: 'a'.repeat(3000) } })).code, 'pedido_invalido');
+  b.ctx.UrlFetchApp = { fetch: () => { throw new Error('boom KKKK'); } };
+  assert.strictEqual(b.call('iaTexto', { tipo: 'explica', datos: { a: 1 } }).error, 'gemini_respuesta');
+  const rev = b.call('read').rev; b.ctx.UrlFetchApp = { fetch: () => gem({ texto: 'x' }) }; b.call('iaTexto', { tipo: 'caro', datos: { a: 1 } });
+  assert.strictEqual(b.call('read').rev, rev, 'no escribe nada');
+});

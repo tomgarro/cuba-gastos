@@ -105,14 +105,34 @@
    * Para cada línea: ya está en Cuba / lo sabe por una regla / sugerencia por pistas / no sabe.
    * reglas: { patron: {comparte:'si'|'no', categoria} } · entries: movimientos vivos · recs: recurrentes
    */
-  function clasificar(res, reglas, entries, recs) {
+  function clasificar(res, reglas, entries, recs, personales) {
     var usados = {};
+    var dias = function (a, b) { return Math.abs(Date.parse(a) - Date.parse(b)) / 86400000; };
+    var palabras = function (t) { return String(t || '').split(' ').filter(function (w) { return w.length >= 3; }); };
+    var parecido = function (p, desc) {   // ¿se llaman parecido? («COTO SUC 12» ≈ «Coto | octubre»)
+      var q = patron(desc || ''); if (!p || !q) return false;
+      if (p.indexOf(q) >= 0 || q.indexOf(p) >= 0) return true;
+      var pw = palabras(p); return palabras(q).some(function (w) { return pw.indexOf(w) >= 0; });
+    };
     return res.lineas.map(function (l) {
       var nombre = nombreGasto(l), p = patron(limpiar(l.bruto)), sv = C.servicioDesc(limpiar(l.bruto), l.fecha);
       var cat = (sv && sv.cat) || C.guessCategory(limpiar(l.bruto));
       var o = { id: l.id, fecha: l.fecha, bruto: l.bruto, cuota: l.cuota, cents: l.cents, cur: l.cur, nombre: nombre, patron: p, cat: cat, estado: 'nuevo', comparte: false, why: '' };
-      var ex = (entries || []).filter(function (e) { return e.id === l.id || e.id.indexOf(l.id + '-r') === 0 || (!usados[e.id] && e.cents === l.cents && e.cur === l.cur && Math.abs(Date.parse(e.date) - Date.parse(l.fecha)) <= 7 * 86400000); })[0];
+      // Contraste con lo ya cargado: el mismo id (esta misma importación), o el mismo monto en fechas cercanas.
+      // Si además se llama parecido (o la carga no tiene descripción), seguro es el mismo: «ya». Si solo coincide el monto: «posible», y la persona decide.
+      var ex = null, dudoso = null;
+      (entries || []).forEach(function (e) {
+        if (ex || usados[e.id]) return;
+        if (e.id === l.id || String(e.id).indexOf(l.id + '-r') === 0) { ex = e; return; }
+        if (e.cents !== l.cents || e.cur !== l.cur) return;
+        var d = dias(e.date, l.fecha);
+        if (d <= 10 && (!e.desc || parecido(p, e.desc))) ex = e;
+        else if (d <= 5 && !dudoso) dudoso = e;
+      });
       if (ex) { usados[ex.id] = true; o.estado = 'ya'; return o; }
+      if (dudoso) { usados[dudoso.id] = true; o.estado = 'posible'; o.parecido = { desc: dudoso.desc, fecha: dudoso.date, donde: 'Cuba' }; return o; }
+      var pe = (personales || []).filter(function (g) { return g.c === l.cents && g.m === l.cur && dias(g.f, l.fecha) <= 5 && !usados['p' + g.id]; })[0];
+      if (pe) { usados['p' + pe.id] = true; o.estado = parecido(p, pe.d) ? 'ya' : 'posible'; o.parecido = { desc: pe.d, fecha: pe.f, donde: 'tu Personal' }; return o; }
       var r = reglas && reglas[p];
       if (r) { o.estado = 'regla'; o.comparte = r.comparte === 'si'; if (r.categoria) o.cat = r.categoria; o.why = o.comparte ? 'lo marcaste compartido' : 'lo marcaste personal'; return o; }
       var rec = (recs || []).filter(function (x) { var q = patron(x.desc || x.descripcion || ''); return q && (p.indexOf(q) >= 0 || q.indexOf(p) >= 0); })[0];

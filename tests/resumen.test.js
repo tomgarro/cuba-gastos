@@ -36,6 +36,21 @@ t('clasificar: reglas aprendidas, ya cargados, coincidencia con vencimientos y p
   assert.strictEqual(cl.MERPAGO.comparte, false);
 });
 
+t('clasificar: contrasta con lo ya subido (mismo comercio = ya; solo el monto = posible; lejos en el tiempo = nuevo; también contra Personal)', () => {
+  const res = R.parseResumen(TXT), coto = res.lineas.find(l => /^COTO/.test(l.bruto)), farm = res.lineas.find(l => /^FARMACIA/.test(l.bruto));
+  const by = (entries, pers) => Object.fromEntries(R.clasificar(res, {}, entries, [], pers).map(x => [x.bruto.match(/^[A-Za-z]+/)[0], x]));
+  const mk = (l, desc, date) => ({ id: 'm' + desc, desc, cents: l.cents, cur: l.cur, date: date || l.fecha });
+  assert.strictEqual(by([mk(coto, 'Coto | octubre')]).COTO.estado, 'ya', 'mismo comercio y monto');
+  const pos = by([mk(coto, 'Verdulería de la esquina')]).COTO;
+  assert.strictEqual(pos.estado, 'posible'); assert.strictEqual(pos.parecido.desc, 'Verdulería de la esquina'); assert.strictEqual(pos.parecido.donde, 'Cuba');
+  assert.strictEqual(by([mk(coto, 'Coto', '2026-05-01')]).COTO.estado, 'nuevo', 'mismo monto pero meses antes: otro gasto');
+  assert.strictEqual(by([{ id: 'x', desc: 'Coto', cents: coto.cents + 1, cur: coto.cur, date: coto.fecha }]).COTO.estado, 'nuevo', 'otro monto');
+  assert.strictEqual(by([mk(coto, 'Coto'), mk(coto, 'Coto 2')]).COTO.estado, 'ya');
+  const g = (l, d) => ({ id: 'p' + d, c: l.cents, m: l.cur, f: l.fecha, d });
+  assert.strictEqual(by([], [g(farm, 'Farmacia del barrio')]).FARMACIA.estado, 'ya', 'ya estaba en Personal');
+  const pp = by([], [g(farm, 'Cosa rara')]).FARMACIA; assert.strictEqual(pp.estado, 'posible'); assert.strictEqual(pp.parecido.donde, 'tu Personal');
+});
+
 t('pdfTexto: lee un PDF comprimido sin librerías y da lo mismo que el texto', async () => {
   const txt = await R.pdfTexto(fs.readFileSync(path.join(__dirname, 'fixtures', 'resumen_demo.pdf')));
   const a = R.parseResumen(txt), b = R.parseResumen(TXT);

@@ -95,6 +95,26 @@ const URL_APP = require('url').pathToFileURL(path.resolve(__dirname, '..', 'inde
   await A.p.click('[data-act=save]'); await settle(A.p);
   assert.ok(sheet.grids.Movimientos.length > nm, 'el pago se guardó');
 
+  // Resumen de tarjeta: contrasta con lo ya subido (Coto por el mismo monto, distinto nombre; Farmacia ya cargada en Personal)
+  {
+    const openAll = async p => { for (let i = 0; i < 12; i++) { const more = await p.evaluate(() => { const h = document.querySelector('.fold:not(.open)>h3'); if (h) h.click(); return !!h; }); if (!more) break; } };
+    await A.p.click('.nav button:has-text("Inicio")'); await A.p.click('[data-act=new]');
+    await A.p.fill('[data-in=desc]', 'Verdulería de la esquina'); await A.p.fill('[data-in=amount]', '26863,38'); await A.p.fill('[data-in=date]', '2026-10-08');
+    await A.p.click('[data-act=mode][data-v=equal]'); await A.p.click('[data-act=save]'); await settle(A.p);
+    await A.p.click('.nav button:has-text("Ajustes")'); await openAll(A.p);
+    await A.p.setInputFiles('#rsfile', path.resolve(__dirname, 'fixtures', 'resumen_demo.pdf'));
+    await A.p.waitForSelector('.rsrow', { timeout: 10000 });
+    const t2 = await A.txt();
+    assert.ok(/¿Ya estaba cargado\? \(1\)/i.test(t2) && /Parecido a «VERDULERIA LA ESQUINA/i.test(t2), t2.slice(0, 600));
+    assert.ok(/Cargar \d+ gastos? compartidos?/.test(await A.p.locator('[data-act=rsgo]').innerText()));
+    const antesBtn = await A.p.locator('[data-act=rsgo]').innerText();
+    await A.p.click('[data-act=rsotro]');
+    assert.ok(!/¿Ya estaba cargado\?/i.test(await A.txt()), 'al decir que es otro gasto sale de la lista de dudas');
+    assert.strictEqual(await A.p.locator('.rsrow').count(), 7 - 0, 'siguen los consumos');
+    void antesBtn;
+    await A.p.click('.nav button:has-text("Personal")');
+  }
+
   // CSV
   await A.p.click('.nav button:has-text("Personal")');
   const [dl] = await Promise.all([A.p.waitForEvent('download'), A.p.click('[data-act=percsv]')]);

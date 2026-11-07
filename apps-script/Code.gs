@@ -129,6 +129,9 @@ var ACTIONS = {
   undoLote: actionUndoLote_,
   categorizar: actionCategorizar_,
   leerComprobante: actionLeerComprobante_,
+  leerTicket: actionLeerTicket_,
+  entenderGastos: actionEntenderGastos_,
+  iaTexto: actionIaTexto_,
   entenderPregunta: actionEntenderPregunta_,
   aprender: actionAprender_,
   etiquetar: actionEtiquetar_,
@@ -137,8 +140,8 @@ var ACTIONS = {
 };
 
 /** Acciones que solo leen o llaman afuera: no toman el candado (Gemini tarda y no debe frenar las cargas). */
-var SIN_CANDADO = { categorizar: true, leerComprobante: true, entenderPregunta: true, read: true, ping: true };   // leer no frena a quien está escribiendo
-var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true, entenderPregunta: true };
+var SIN_CANDADO = { categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true, read: true, ping: true };   // leer no frena a quien está escribiendo
+var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true, leerTicket: true, entenderGastos: true, iaTexto: true, entenderPregunta: true };
 
 /* ------------------------------------------------------------------ */
 /* Acciones                                                            */
@@ -824,6 +827,73 @@ function actionLeerComprobante_(req) {
   var monto = Number(r && r.monto), cents = isFinite(monto) && monto > 0 && monto < 1e11 ? Math.round(monto * 100) : 0;
   return { ok: true, comercio: text_(r && r.comercio, 60).replace(/\s+/g, ' '), monto_centavos: cents, moneda: r && r.moneda === 'USD' ? 'USD' : 'ARS',
     fecha: r && isDate_(String(r.fecha)) ? String(r.fecha) : '', confianza: Math.max(0, Math.min(1, Number(r && r.confianza) || 0)) };
+}
+
+/** Una llamada a Gemini que devuelve JSON con el esquema pedido. Sin clave: {sin_clave}. Con falla: {error} (sin detalles). */
+function geminiJson_(parts, schema) {
+  var key = PropertiesService.getScriptProperties().getProperty(IA.KEY_PROP);
+  if (!key) return { sin_clave: true };
+  var model = PropertiesService.getScriptProperties().getProperty(IA.MODEL_PROP) || IA.MODEL;
+  var body = { contents: [{ parts: parts }], generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema } };
+  try {
+    var resp = UrlFetchApp.fetch(IA.URL + encodeURIComponent(model) + ':generateContent', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body) });
+    var code = resp.getResponseCode();
+    if (code !== 200) return { error: 'gemini_http_' + code };
+    return { r: JSON.parse(JSON.parse(resp.getContentText()).candidates[0].content.parts[0].text) };
+  } catch (e) { return { error: 'gemini_respuesta' }; }
+}
+function centavosDe_(m) { var n = Number(m); return isFinite(n) && n > 0 && n < 1e11 ? Math.round(n * 100) : 0; }
+
+/** Ticket largo (súper, asado, farmacia) → ítems con su monto. La imagen se descarta al responder. */
+function actionLeerTicket_(req) {
+  var img = req.imagen, mime = String(req.mime || '');
+  if (typeof img !== 'string' || img.length < 100 || img.length > 2500000 || !/^[A-Za-z0-9+\/]+={0,2}$/.test(img)) fail_('pedido_invalido', 'La imagen no es válida o es muy grande.');
+  if (['image/jpeg', 'image/png', 'image/webp'].indexOf(mime) < 0) fail_('pedido_invalido', 'Solo leo fotos JPG, PNG o WebP.');
+  var prompt = 'Leé este ticket o factura de un comercio en Argentina y devolvé cada ítem comprado con su importe final (con descuentos aplicados), el comercio, la moneda (ARS o USD), la fecha (AAAA-MM-DD, vacío si no se ve) y el total. ' +
+    'Un ítem por renglón del ticket; si un renglón tiene cantidad, el importe es el de ese renglón. No incluyas subtotales, IVA, propinas ni medios de pago como ítems. Ignorá tarjetas, CBU, CUIT, DNI y datos personales. No inventes ítems ni importes.';
+  var g = geminiJson_([{ text: prompt }, { inlineData: { mimeType: mime, data: img } }], { type: 'OBJECT', properties: { comercio: { type: 'STRING' }, moneda: { type: 'STRING', enum: ['ARS', 'USD'] }, fecha: { type: 'STRING' }, total: { type: 'NUMBER' },
+    items: { type: 'ARRAY', items: { type: 'OBJECT', properties: { descripcion: { type: 'STRING' }, monto: { type: 'NUMBER' } }, required: ['descripcion', 'monto'] } } }, required: ['comercio', 'moneda', 'total', 'items'] });
+  if (!g.r) return { ok: true, sin_clave: !!g.sin_clave, error: g.error };
+  var items = (Array.isArray(g.r.items) ? g.r.items : []).slice(0, 60).map(function (x) { return { descripcion: text_(x && x.descripcion, 50).replace(/\s+/g, ' '), monto_centavos: centavosDe_(x && x.monto) }; })
+    .filter(function (x) { return x.descripcion && x.monto_centavos; });
+  return { ok: true, comercio: text_(g.r.comercio, 60).replace(/\s+/g, ' '), moneda: g.r.moneda === 'USD' ? 'USD' : 'ARS', fecha: isDate_(String(g.r.fecha)) ? String(g.r.fecha) : '', total_centavos: centavosDe_(g.r.total), items: items };
+}
+
+/** Una frase dictada con varios gastos («el súper 15 mil, un café 3 mil») → lista de gastos. Solo recibe el texto (la app ya le sacó nombres). */
+function actionEntenderGastos_(req) {
+  var t = typeof req.texto === 'string' ? req.texto.replace(/[\u0000-\u001f]/g, ' ').trim() : '';
+  if (t.length < 4 || t.length > 400) fail_('pedido_invalido', 'El texto tiene que tener entre 4 y 400 letras.');
+  var hoy = /^\d{4}-\d{2}-\d{2}$/.test(String(req.hoy)) ? String(req.hoy) : new Date().toISOString().slice(0, 10);
+  var prompt = 'Alguien dictó en Argentina los gastos que hizo. Separalos uno por uno: descripción corta del comercio o concepto, monto (número; "15 mil" = 15000, "una luca" = 1000, "un palo" = 1000000), moneda (ARS salvo que diga dólares), ' +
+    'categoría entre: ' + Object.keys(CATEGORIAS_IA).join(', ') + ', y fecha AAAA-MM-DD (hoy es ' + hoy + '; "ayer" es el día anterior; vacío si no dice). No inventes gastos ni montos que no se dijeron.\n\nTexto: ' + t;
+  var g = geminiJson_([{ text: prompt }], { type: 'OBJECT', properties: { gastos: { type: 'ARRAY', items: { type: 'OBJECT', properties: { descripcion: { type: 'STRING' }, monto: { type: 'NUMBER' }, moneda: { type: 'STRING', enum: ['ARS', 'USD'] }, categoria: { type: 'STRING' }, fecha: { type: 'STRING' } }, required: ['descripcion', 'monto', 'moneda', 'categoria', 'fecha'] } } }, required: ['gastos'] });
+  if (!g.r) return { ok: true, sin_clave: !!g.sin_clave, error: g.error };
+  var out = (Array.isArray(g.r.gastos) ? g.r.gastos : []).slice(0, 12).map(function (x) {
+    return { descripcion: text_(x && x.descripcion, 60).replace(/\s+/g, ' '), monto_centavos: centavosDe_(x && x.monto), moneda: x && x.moneda === 'USD' ? 'USD' : 'ARS',
+      categoria: categoriaValida_(String(x && x.categoria)) ? String(x.categoria) : 'otros', fecha: x && isDate_(String(x.fecha)) && String(x.fecha) <= hoy ? String(x.fecha) : '' };
+  }).filter(function (x) { return x.descripcion && x.monto_centavos; });
+  return { ok: true, gastos: out };
+}
+
+/** Textos de Cuba (carta del mes, qué pasó, regalos, compra, ¿es caro?). Recibe números agregados y conceptos: nunca nombres ni sueldos. */
+var IA_TEXTOS = {
+  carta: 'Escribí una carta corta y cálida (máximo 120 palabras) de Cuba, la perra Doberman guardiana de la plata de una pareja, contando cómo les fue el mes con la plata. Tono tierno y con un toque de humor, sin retos. Mencioná 2 o 3 datos reales de los números. Firmá "Cuba 🐾". Hablá en femenino de Cuba y en voseo rioplatense.',
+  explica: 'Explicá en 4 o 5 frases cortas, en voseo rioplatense y tono de amiga que cuida la plata, qué pasó con los gastos de este mes comparado con el anterior: qué categorías subieron o bajaron y por qué podría ser (usando solo los datos). Cerrá con una sugerencia concreta. No inventes causas que los datos no sugieran: decí "puede ser".',
+  regalos: 'Proponé 5 ideas de regalo concretas y variadas dentro del presupuesto, para Argentina, en voseo rioplatense. Una línea por idea, con un precio orientativo. Terminá con una frase cálida de Cuba (perra Doberman) sin inventar datos de la persona.',
+  compra: 'Comentá en 3 o 4 frases, en voseo rioplatense y sin retar, qué significa para el bolsillo esta compra según los porcentajes dados (peso de la cuota sobre lo que se suele gastar al mes, meses de compromiso). Si conviene, sugerí una alternativa (esperar, menos cuotas, ahorrar antes). No inventes cifras.',
+  caro: 'Decí en 2 o 3 frases si este precio parece caro, normal o barato para Argentina en 2026, con un rango orientativo, en voseo rioplatense. Aclarás que es una estimación y que los precios cambian rápido por la inflación. No inventes datos precisos.'
+};
+function actionIaTexto_(req) {
+  var tipo = String(req.tipo || '');
+  if (!Object.prototype.hasOwnProperty.call(IA_TEXTOS, tipo)) fail_('pedido_invalido', 'Tipo de texto desconocido.');
+  var d = req.datos;
+  if (!d || typeof d !== 'object' || Array.isArray(d)) fail_('pedido_invalido', 'Faltan los datos.');
+  var datos = JSON.stringify(d).replace(/[\u0000-\u001f]/g, ' ');
+  if (datos.length > 2500) fail_('pedido_invalido', 'Los datos son demasiados.');
+  var g = geminiJson_([{ text: IA_TEXTOS[tipo] + '\n\nDatos (JSON):\n' + datos }], { type: 'OBJECT', properties: { texto: { type: 'STRING' } }, required: ['texto'] });
+  if (!g.r) return { ok: true, sin_clave: !!g.sin_clave, error: g.error };
+  var out = text_(g.r.texto, 1200);
+  return out ? { ok: true, texto: out } : { ok: true, error: 'gemini_respuesta' };
 }
 
 /** Traduce una pregunta corta a una consulta ({tipo, categoria, mes}). Solo recibe el texto de la pregunta (la app ya le sacó nombres y números largos); no ve movimientos ni montos. */
