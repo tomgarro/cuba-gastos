@@ -231,6 +231,7 @@ var Outbox = {
       Store.call(j.a, j.b).then(function () { self.q.shift(); self.save(); S.sync = ''; pill(); next(); }, function (e) {
         var pasajero = !e || !e.code || e.code === 'red' || e.code === 'ocupado' || e.code === 'respuesta';
         if (pasajero) { self.running = false; S.sync = 'espera'; pill(); self.timer = setTimeout(function () { self.run(); }, 6000); return; }   // sin señal o backend ocupado: sigue en la cola
+        if (j.a === 'savePersonal' && e.code === 'accion_desconocida') { Per.sinBackend = true; self.q.shift(); self.save(); next(); return; }   // el Apps Script todavía no es el nuevo: Personal queda en este celular y no se reintenta en bucle
         self.q.shift(); self.save(); fail(e); next();                                         // lo rechazó el backend: se avisa y se vuelve a la Sheet
       });
     };
@@ -1063,7 +1064,7 @@ var Per = {
   state: function () { this.load(); return this.st || (this.st = P.armar(this.ev)); },
   guardar: function () { this.st = null; try { localStorage.setItem(LSPE + S.meId, JSON.stringify(this.ev)); } catch (e) {} },
   subir: function (lista) {   // cifra y manda a la Sheet: llega ilegible; si no hay señal queda en la cola
-    if (S.mode !== 'sheets' || !this.key || !lista.length) return Promise.resolve();
+    if (S.mode !== 'sheets' || !this.key || !lista.length || this.sinBackend) return Promise.resolve();
     var key = this.key, me = S.meId;
     return Promise.all(lista.map(function (e) { return P.cifrar(key, e).then(function (b) { return { id: e.id, blob: b }; }); })).then(function (filas) {
       for (var i = 0; i < filas.length; i += 150) Outbox.push('savePersonal', { persona_id: me, filas: filas.slice(i, i + 150) });
@@ -1152,7 +1153,7 @@ function viewPersonal() {
     return '<div style="margin:8px 0"><div class="stat" style="padding:0;align-items:center"><span>🎯 ' + esc(m.n) + '</span><button class="chip" data-act="peraporte" data-id="' + esc(m.id) + '">+ Aportar</button></div><div class="bar"><i style="width:' + pct + '%"></i></div>' +
       '<div class="mut" style="font-size:13px">' + perMonto(m.aportado, m.m) + ' de ' + perMonto(m.c, m.m) + ' · ' + pct + '%</div></div>';
   }).join('') : '<div class="mut" style="font-size:14px">Viaje, fondo de emergencia, lo que sea: poné una meta y andá sumando.</div>') + '<button class="btn ghost sm full" style="margin-top:8px" data-act="permeta">+ Nueva meta</button></div>';
-  h += '<div class="card"><h3>Mi llave y mis copias</h3>' + (Per.bad ? '<div class="preview neg" style="margin-bottom:8px">' + Per.bad + ' registros de la Sheet no se pudieron abrir con esta llave (¿otro código?).</div>' : '') +
+  h += '<div class="card"><h3>Mi llave y mis copias</h3>' + (Per.sinBackend ? '<div class="preview neg" style="margin-bottom:8px">Tu Sheet todavía tiene el Apps Script viejo: lo de Personal queda solo en este celular. Pegá el Code.gs nuevo y volvé a publicarlo para sincronizar.</div>' : '') + (Per.bad ? '<div class="preview neg" style="margin-bottom:8px">' + Per.bad + ' registros de la Sheet no se pudieron abrir con esta llave (¿otro código?).</div>' : '') +
     '<p class="mut" style="font-size:13px;margin:0 0 8px">Todo está cifrado en este celular' + (S.mode === 'sheets' ? ' y en tu pestaña Personal de la Sheet (ilegible sin tu código)' : '') + '.</p>' +
     '<button class="btn ghost sm full" data-act="perver">Ver mi código de recuperación</button><button class="btn ghost sm full" style="margin-top:6px" data-act="percsv">Bajar mis gastos (CSV)</button></div>';
   return h;

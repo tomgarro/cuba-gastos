@@ -8,7 +8,7 @@ const cfg = Buffer.from(JSON.stringify({ u: EXEC, t: 'TOK' })).toString('base64'
 const URL_APP = require('url').pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
 
 (async () => {
-  const sheet = boot(), errs = [], wire = [];
+  const sheet = boot(), errs = [], wire = [], viejo = { v: false, n: 0 };
   const browser = await chromium.launch();
   async function phone(name) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
@@ -17,6 +17,7 @@ const URL_APP = require('url').pathToFileURL(path.resolve(__dirname, '..', 'inde
       const req = route.request();
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } });
       wire.push(req.postData());
+      if (viejo.v && /"action":"savePersonal"/.test(req.postData())) { viejo.n++; return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ ok: false, error: 'accion_desconocida', message: 'Acción desconocida: savePersonal' }) }); }
       const out = sheet.ctx.doPost({ postData: { contents: req.postData() } }).getContent();
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: out });
     });
@@ -104,7 +105,18 @@ const URL_APP = require('url').pathToFileURL(path.resolve(__dirname, '..', 'inde
   txt = await C.txt(); assert.ok(/Viaje/.test(txt) && /25%/.test(txt), 'recuperó gastos y metas');
   assert.ok(!/Terapia/i.test(txt) && !/Tele \(1\/6\)/.test(txt), 'lo anulado sigue anulado en el celular nuevo');
 
+  // ---- Apps Script viejo (sin savePersonal): no entra en bucle, avisa y conserva lo local ----
+  viejo.v = true;
+  await C.p.fill('#perq', 'cafe 1000'); await C.p.press('#perq', 'Enter');
+  await C.p.waitForTimeout(2500);
+  const n1 = viejo.n; await C.p.waitForTimeout(2500);
+  assert.ok(n1 >= 1 && viejo.n === n1 && n1 <= 3, 'no reintenta en bucle: ' + viejo.n);
+  assert.ok(/Apps Script viejo/.test(await C.txt()) && /Cafe/i.test(await C.txt()), 'avisa y lo guarda acá');
+  assert.ok(!(await C.p.locator('#pend').isVisible()), 'sin cartel de guardando');
+  viejo.v = false;
+
   // ---- Resumen de tarjeta: lo no compartido va a Personal sin duplicarse ----
+  errs.splice(0, errs.length, ...errs.filter(e => !/accion_desconocida|Acción desconocida/.test(e)));
   assert.deepStrictEqual(errs, [], errs.join('\n'));
   console.log('E2E PERSONAL OK (' + (sheet.grids.Personal.length - 1) + ' filas cifradas, Pau no ve nada, recuperación con código)');
   await browser.close();
