@@ -139,6 +139,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 <script>/*CUBA*/</script>
 <script>/*SHEETS*/</script>
 <script>/*RESUMEN*/</script>
+<script>/*AVISOS*/</script>
 <script>
 (function () {
 'use strict';
@@ -532,7 +533,7 @@ function viewInicio() {
   var h = '<div class="hero"><div style="flex:none">' + cuba(mood, 150) + '</div><div class="bubble">' + msg + '</div></div>';
   h += '<div class="actions"><button class="btn acc" data-act="new">+ Anotar gasto</button><button class="btn ghost" data-act="tab" data-v="cierre">Saldar</button></div>';
   if (S.mode === 'sheets') resumenFalta().forEach(function (r) { h += '<div class="card"><h3>Falta un resumen</h3><div class="stat"><span>Ya cerró la ' + esc(r.tarjeta) + ' (' + dLarga(r.proximo_cierre) + ')</span><button class="btn sm acc" data-act="rsir">Subirlo</button></div></div>'; });
-  h += viewPorPagar();
+  h += viewPorPagar() + viewAjuste() + viewAvisos();
   if (tr.length) {
     h += '<div class="card"><h3>Quién le debe a quién</h3>' + tr.map(function (t) { return '<div class="transfer">' + avatar(t.from) + '<div class="grow"><b>' + esc(firstName(t.from)) + '</b> <span class="mut">→</span> <b>' + esc(firstName(t.to)) + '</b></div><div class="amt">' + C.fmt(t.cents, t.cur) + '</div></div>'; }).join('') + '</div>';
   }
@@ -585,7 +586,7 @@ function viewGastos() {
 }
 function viewCierre() {
   var mk = S.closeMonth, ms = monthsAvailable();
-  var r = allTransfers(), h = '';
+  var r = allTransfers(), h = viewMiMes();
   h += '<div class="card"><h3>Para saldar ahora</h3>';
   if (!r.transfers.length) h += '<div class="empty">' + cuba('happy', 130) + '<br>Están a mano. Nada para saldar.</div>';
   else {
@@ -623,7 +624,7 @@ function viewAjustes() {
     return '<div class="row" style="margin-bottom:8px">' + avatar(m.id) + '<input data-in="rename" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '" maxlength="30"></div>';
   }).join('') + (members().length < 8 ? '<div class="row" style="margin-top:6px"><input data-in="newmember" placeholder="Agregar otra persona" maxlength="30"><button class="btn sm" data-act="addmember">Agregar</button></div>' : '') +
     '<label class="f">Yo soy</label><select data-in="me">' + members().map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === S.meId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div>';
-  h += viewSueldo() + viewRecs() + viewEventos() + viewResumen() + viewCategorias();
+  h += viewSueldo() + viewCalc() + viewRecs() + viewSuscripciones() + viewEventos() + viewResumen() + viewCategorias();
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
@@ -656,20 +657,21 @@ function viewRecs() {
   if (S.mode !== 'sheets') return '';
   var h = '<div class="card"><h3>Recurrentes</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Servicios y débitos automáticos. El monto es una estimación: cuando lo anotás con el valor real, se actualiza para el mes que viene y te aviso cuánto subió.</p>';
   h += S.recs.length ? S.recs.map(function (r) {
-    return '<div class="stat" style="align-items:center"><span>' + C.catInfo(r.cat).e + ' ' + esc(r.desc) + '<br><span class="mut" style="font-size:13px">día ' + r.day + ' · ≈ ' + C.fmt(r.cents, r.cur, { noDecimals: true }) + ' · ' + (r.active ? 'paga ' + esc(firstName(r.paidBy)) : 'en pausa') + '</span></span><span><button class="btn ghost sm" data-act="recedit" data-id="' + esc(r.id) + '">Editar</button></span></div>';
+    return '<div class="stat" style="align-items:center"><span>' + C.catInfo(r.cat).e + ' ' + esc(r.desc) + '<br><span class="mut" style="font-size:13px">día ' + r.day + ' · ≈ ' + C.fmt(r.cents, r.cur, { noDecimals: true }) + ' · ' + (r.active ? 'paga ' + esc(firstName(r.paidBy)) : 'en pausa') + (r.adj ? ' · ajusta cada ' + r.adj + ' meses (próx. ' + dLabel(r.adjNext) + ')' : '') + '</span></span><span><button class="btn ghost sm" data-act="recedit" data-id="' + esc(r.id) + '">Editar</button></span></div>';
   }).join('') : '<div class="mut" style="font-size:14px;margin-bottom:8px">Todavía no hay ninguno: sumá alquiler, luz, agua, internet, streaming…</div>';
   return h + '<button class="btn sm full" style="margin-top:8px" data-act="recnew">+ Agregar recurrente</button></div>';
 }
 function openRecForm(r) {
   var ms = activeMembers();
-  S.rf = r ? { id: r.id, desc: r.desc, amount: String(C.centsDot(r.cents)).replace('.', ','), cur: r.cur, day: String(r.day), cat: r.cat, paid: r.paidBy, active: r.active, catAuto: false }
-    : { id: null, desc: '', amount: '', cur: 'ARS', day: '10', cat: 'otros', paid: S.meId || (ms[0] && ms[0].id), active: true, catAuto: true };
+  S.rf = r ? { id: r.id, desc: r.desc, amount: String(C.centsDot(r.cents)).replace('.', ','), cur: r.cur, day: String(r.day), cat: r.cat, paid: r.paidBy, active: r.active, catAuto: false, adj: r.adj ? String(r.adj) : '', adjNext: r.adjNext || '' }
+    : { id: null, desc: '', amount: '', cur: 'ARS', day: '10', cat: 'otros', paid: S.meId || (ms[0] && ms[0].id), active: true, catAuto: true, adj: '', adjNext: '' };
   var F = S.rf;
   var h = '<div class="sh-head"><h2>' + (r ? 'Editar recurrente' : 'Nuevo recurrente') + '</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div>';
   h += '<label class="f">Qué es</label><input data-in="rdesc" value="' + esc(F.desc) + '" placeholder="Aysa, Edenor, Personal Flow…" maxlength="60" autocomplete="off">';
   h += '<div class="two"><div><label class="f">Monto estimado</label><input data-in="ramount" inputmode="decimal" value="' + esc(F.amount) + '" placeholder="0,00" autocomplete="off"></div><div><label class="f">Moneda</label><select data-in="rcur"><option' + (F.cur === 'ARS' ? ' selected' : '') + '>ARS</option><option' + (F.cur === 'USD' ? ' selected' : '') + '>USD</option></select></div></div>';
   h += '<div class="two"><div><label class="f">Vence el día</label><input data-in="rday" inputmode="numeric" value="' + esc(F.day) + '" maxlength="2"></div><div><label class="f">Lo paga</label><select data-in="rpaid">' + ms.map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === F.paid ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div></div>';
   h += '<label class="f">Categoría</label><select data-in="rcat">' + C.CATS.filter(function (c) { return c.k !== 'pago'; }).map(function (c) { return '<option value="' + c.k + '"' + (c.k === F.cat ? ' selected' : '') + '>' + c.e + ' ' + esc(c.n) + '</option>'; }).join('') + '</select>';
+  h += '<label class="f">Ajuste por índice (opcional, ej. alquiler)</label><div class="two"><div><input data-in="radj" inputmode="numeric" value="' + esc(F.adj) + '" placeholder="Cada cuántos meses" maxlength="2" autocomplete="off"></div><div><input type="date" data-in="radjn" value="' + esc(F.adjNext) + '" aria-label="Fecha del próximo ajuste"></div></div><p class="mut" style="font-size:13px;margin:4px 0 0">Ese día te aviso para que cargues cuánto subió y recalculo el monto.</p>';
   h += '<button class="btn acc full" style="margin-top:14px" data-act="recsave">Guardar</button>';
   if (r) h += '<button class="btn ghost full" style="margin-top:8px" data-act="rectoggle">' + (r.active ? 'Pausar (ya no se paga)' : 'Reactivar') + '</button>';
   openSheet(h);
@@ -718,6 +720,68 @@ function openEvForm(v) {
   h += '<label class="f">Moneda de los gastos</label><select data-in="evcur"' + (F.used ? ' disabled' : '') + '><option' + (F.cur === 'ARS' ? ' selected' : '') + '>ARS</option><option' + (F.cur === 'USD' ? ' selected' : '') + '>USD</option></select>' + (F.used ? '<p class="mut" style="font-size:13px;margin:4px 0 0">Ya tiene gastos: la moneda no se puede cambiar.</p>' : '');
   h += '<button class="btn acc full" style="margin-top:14px" data-act="evsave">Guardar</button>';
   openSheet(h);
+}
+
+// ---------------- avisos, suscripciones, «¿me alcanza?», ajuste del alquiler y calculadora ----------------
+var LSAV = 'cuba:av';
+function avHechos() { try { return JSON.parse(localStorage.getItem(LSAV) || '[]') || []; } catch (e) { return []; } }
+function viewAjuste() {
+  if (S.mode !== 'sheets') return '';
+  return S.recs.filter(function (r) { return CubaAvisos.ajusteToca(r, today()); }).map(function (r) {
+    return '<div class="card"><h3>Toca ajustar: ' + esc(r.desc) + '</h3><p class="mut" style="margin:0 0 8px;font-size:14px">Hoy es ' + C.fmt(r.cents, r.cur, { noDecimals: true }) + '. Cargá cuánto subió el índice en estos ' + r.adj + ' meses.</p>' +
+      '<div class="row"><input data-in="ajpct" data-id="' + esc(r.id) + '" inputmode="decimal" placeholder="Ej. 10,5" autocomplete="off" style="max-width:110px"><span class="mut">%</span><span class="grow"></span><button class="btn acc sm" data-act="ajaplicar" data-id="' + esc(r.id) + '"' + (S.readOnly ? ' disabled' : '') + '>Aplicar</button></div>' +
+      '<div class="mut" id="ajprev" style="font-size:14px;margin-top:6px"></div></div>';
+  }).join('');
+}
+function avisosItems() {
+  if (S.mode !== 'sheets') return [];
+  var hechos = avHechos(), out = [];
+  CubaAvisos.aumentos(S.entries, today()).forEach(function (x) {
+    out.push({ key: x.key, e: C.catInfo(x.cat).e, t: '<b>' + esc(C.catInfo(x.cat).n) + '</b> subió <b>' + x.pct + ' %</b> (de ' + C.fmt(x.prev, x.cur, { noDecimals: true }) + ' a ' + C.fmt(x.last, x.cur, { noDecimals: true }) + ')' });
+  });
+  CubaAvisos.faltantes(S.entries, S.recs, today()).forEach(function (x) {
+    out.push({ key: x.key, e: C.catInfo(x.cat).e, t: 'Todavía no cargaste <b>' + esc(x.label.toLowerCase()) + '</b> de este mes <span class="mut">(lo cargás cerca del día ' + x.day + ')</span>', add: x });
+  });
+  return out.filter(function (i) { return hechos.indexOf(i.key) < 0; }).slice(0, 3);
+}
+function viewAvisos() {
+  var it = avisosItems(); if (!it.length) return '';
+  return '<div class="card"><h3>Para revisar</h3>' + it.map(function (i, n) {
+    return '<div class="stat" style="align-items:center;gap:8px"><span>' + i.e + ' ' + i.t + '</span><span style="display:flex;gap:6px;flex:none">' + (i.add ? '<button class="btn acc sm" data-act="avadd" data-i="' + n + '"' + (S.readOnly ? ' disabled' : '') + '>Anotar</button>' : '') + '<button class="btn ghost sm" data-act="avok" data-i="' + n + '" aria-label="Ya lo vi">✓</button></span></div>';
+  }).join('') + '</div>';
+}
+function viewSuscripciones() {
+  if (S.mode !== 'sheets') return '';
+  var r = CubaAvisos.suscripciones(S.recs, S.entries, today());
+  var h = '<div class="card"><h3>Suscripciones</h3>';
+  if (!r.list.length) return h + '<div class="mut" style="font-size:14px">Cuando cargues Netflix, Spotify, HBO o similares, los junto acá con lo que cuestan al año.</div></div>';
+  h += r.list.map(function (x) { return '<div class="stat"><span>' + esc(x.label) + '</span><b>' + C.fmt(x.cents, x.cur, { noDecimals: true }) + '<span class="mut" style="font-weight:400"> /mes</span></b></div>'; }).join('');
+  h += Object.keys(r.mensual).map(function (c) { return '<div class="stat" style="border-top:1px solid var(--line);margin-top:4px"><span>Total en ' + c + '</span><b>' + C.fmt(r.mensual[c], c, { noDecimals: true }) + ' /mes · ' + C.fmt(r.anual[c], c, { noDecimals: true }) + ' al año</b></div>'; }).join('');
+  return h + '</div>';
+}
+function viewMiMes() {
+  if (S.mode !== 'sheets') return '';
+  var r = CubaAvisos.meAlcanza({ entries: S.entries, recs: S.recs, sueldos: S.sueldos, me: S.meId, ids: activeMembers().map(function (m) { return m.id; }), today: today() });
+  if (!r) return '';
+  var f = function (c) { return C.fmt(c, r.cur, { noDecimals: true }); };
+  var h = '<div class="card"><h3>¿Me alcanza este mes?</h3>';
+  h += '<div class="stat"><span>Tu sueldo</span><b>' + f(r.sueldo) + '</b></div>';
+  h += '<div class="stat"><span>Tu parte de lo compartido que ya va</span><b>− ' + f(r.gastado) + '</b></div>';
+  h += '<div class="stat"><span>Tu parte de lo que vence este mes' + (r.items.length ? ' <span class="mut" style="font-size:13px">(' + r.items.map(function (i) { return esc(i.desc); }).join(', ') + ')</span>' : '') + '</span><b>− ' + f(r.porPagar) + '</b></div>';
+  h += '<div class="stat" style="border-top:1px solid var(--line);margin-top:4px"><span><b>Te queda para lo tuyo</b></span><b class="' + (r.queda < 0 ? 'neg' : 'pos') + '">' + f(r.queda) + '</b></div>';
+  return h + '<p class="mut" style="font-size:13px;margin:8px 0 0">Estimado: cuenta solo lo compartido y los recurrentes (los montos son aproximados). Tus gastos personales no están.</p></div>';
+}
+// Calculadora: un monto cualquiera repartido según los sueldos vigentes hoy (no anota nada).
+function calcRepartoHtml(txt) {
+  var cents = C.parseAmount(txt || ''); if (!cents || cents <= 0) return '<span class="mut">Poné un monto para ver cuánto le toca a cada uno.</span>';
+  var ids = activeMembers().map(function (m) { return m.id; }), r = C.salarySplit(cents, ids, S.sueldos, today());
+  if (r.mixed) return '<span class="neg">Los sueldos están en monedas distintas: no puedo calcular la proporción.</span>';
+  if (!r.sp) return '<span class="neg">Falta el sueldo de ' + (r.missing || []).map(function (i) { return esc(firstName(i)); }).join(' y ') + ' (Mi sueldo, arriba).</span>';
+  return r.sp.map(function (x) { return '<div class="stat"><span>' + avatar(x[0]) + ' &nbsp;' + esc(mem(x[0]).name) + ' <span class="mut">(' + Math.round(x[1] * 100 / cents) + ' %)</span></span><b>' + C.fmt(x[1], (S.group && S.group.cur) || 'ARS') + '</b></div>'; }).join('');
+}
+function viewCalc() {
+  if (S.mode !== 'sheets') return '';
+  return '<div class="card"><h3>Calculadora de reparto</h3><p class="mut" style="margin:0 0 8px;font-size:14px">Poné un monto y te digo cuánto le toca a cada uno según los sueldos de hoy. No anota nada.</p><input data-in="calcamt" inputmode="decimal" placeholder="Monto" value="' + esc(S.calcAmt || '') + '" autocomplete="off"><div id="calcout" style="margin-top:8px">' + calcRepartoHtml(S.calcAmt) + '</div></div>';
 }
 function viewPorPagar() {
   if (S.mode !== 'sheets') return '';
@@ -1201,6 +1265,19 @@ var A = {
     var v = S.eventos.filter(function (x) { return x.id === el.dataset.id; })[0]; if (!v || S.readOnly) return;
     Store.saveEvento(Object.assign({}, v, { open: !v.open })).then(function () { toast(v.open ? 'Evento cerrado' : 'Evento reabierto'); render(); }).catch(fail);
   },
+  ajaplicar: function (el) {
+    var r = S.recs.filter(function (x) { return x.id === el.dataset.id; })[0]; if (!r || S.readOnly) return;
+    var inp = document.querySelector('[data-in="ajpct"][data-id="' + el.dataset.id + '"]'), pct = parseFloat(String((inp || {}).value || '').replace(',', '.'));
+    var n = isFinite(pct) ? CubaAvisos.aplicarAjuste(r, pct, CubaSheets.addMonth) : null;
+    if (!n) { toast('Poné el porcentaje (ej. 10,5).'); return; }
+    el.disabled = true;
+    Store.saveRec(n).then(function () { toast(r.desc + ' ahora ≈ ' + C.fmt(n.cents, n.cur, { noDecimals: true }) + '. Próximo ajuste: ' + dLabel(n.adjNext)); render(); }).catch(function (er) { el.disabled = false; fail(er); });
+  },
+  avok: function (el) { var it = avisosItems()[+el.dataset.i]; if (!it) return; var h = avHechos().concat([it.key]).slice(-60); try { localStorage.setItem(LSAV, JSON.stringify(h)); } catch (e) {} render(); },
+  avadd: function (el) {
+    var it = avisosItems()[+el.dataset.i]; if (!it || !it.add || S.readOnly) return;
+    var F = newForm('expense'); F.desc = it.add.label; F.cat = it.add.cat; F.catAuto = false; S.form = F; renderForm();
+  },
   recnew: function () { openRecForm(null); },
   recedit: function (el) { var r = S.recs.filter(function (x) { return x.id === el.dataset.id; })[0]; if (r) openRecForm(r); },
   recsave: function () {
@@ -1210,7 +1287,10 @@ var A = {
     if (!cents || cents <= 0) { toast('Poné un monto estimado.'); return; }
     if (!(day >= 1 && day <= 31)) { toast('El día va de 1 a 31.'); return; }
     var old = F.id ? S.recs.filter(function (x) { return x.id === F.id; })[0] : null;
-    var r = { id: F.id || rid(), desc: desc, cents: cents, cur: F.cur, day: day, cat: F.cat, paidBy: F.paid, active: old ? old.active : true, next: old && old.day === day ? old.next : CubaSheets.firstDue(today(), day) };
+    var adj = parseInt(F.adj, 10) || 0;
+    if (adj < 0 || adj > 24) { toast('El ajuste va de 1 a 24 meses (o vacío si no ajusta).'); return; }
+    if (adj > 0 && !/^\d{4}-\d{2}-\d{2}$/.test(F.adjNext || '')) { toast('Elegí la fecha del próximo ajuste.'); return; }
+    var r = { id: F.id || rid(), desc: desc, cents: cents, cur: F.cur, day: day, cat: F.cat, paidBy: F.paid, active: old ? old.active : true, next: old && old.day === day ? old.next : CubaSheets.firstDue(today(), day), adj: adj, adjNext: adj ? F.adjNext : '' };
     var btn = document.querySelector('[data-act="recsave"]'); if (btn) btn.disabled = true;
     Store.saveRec(r).then(function () { closeSheet(); toast('Guardado'); }).catch(function (er) { if (btn) btn.disabled = false; fail(er); });
   },
@@ -1329,6 +1409,12 @@ document.addEventListener('input', function (ev) {
   if (k === 'obname') { S.ob.names[+el.dataset.i] = el.value; }
   else if (k === 'search') { S.q = el.value; var l = $('#list'); if (l) l.innerHTML = listHtml(); }
   else if (S.ef && k === 'evname') { S.ef.name = el.value; }
+  else if (k === 'calcamt') { S.calcAmt = el.value; var co = $('#calcout'); if (co) co.innerHTML = calcRepartoHtml(el.value); }
+  else if (S.rf && (k === 'radj' || k === 'radjn')) { S.rf[k === 'radj' ? 'adj' : 'adjNext'] = el.value; }
+  else if (k === 'ajpct') {
+    var rr = S.recs.filter(function (x) { return x.id === el.dataset.id; })[0], pv = $('#ajprev'), pc = parseFloat(String(el.value).replace(',', '.')), nn = rr && isFinite(pc) ? CubaAvisos.aplicarAjuste(rr, pc, CubaSheets.addMonth) : null;
+    if (pv) pv.textContent = nn ? 'Pasa a ≈ ' + C.fmt(nn.cents, nn.cur, { noDecimals: true }) + ' por mes.' : '';
+  }
   else if (S.rf && (k === 'rdesc' || k === 'ramount' || k === 'rday')) {
     S.rf[k.slice(1)] = el.value;
     if (k === 'rdesc' && S.rf.catAuto) { S.rf.cat = C.guessCategory(el.value); var sel = $('[data-in="rcat"]'); if (sel) sel.value = S.rf.cat; }

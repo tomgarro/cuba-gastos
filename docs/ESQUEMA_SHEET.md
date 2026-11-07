@@ -47,7 +47,8 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 `id | nombre | emoji | presupuesto_mensual_centavos | moneda`
 
 ## Recurrentes
-`id | descripcion | monto_estimado_centavos | moneda | dia_mes | categoria | pagador_id | proximo_vencimiento | activo`
+`id | descripcion | monto_estimado_centavos | moneda | dia_mes | categoria | pagador_id | proximo_vencimiento | activo | ajuste_meses | proximo_ajuste`
+- `ajuste_meses` (0 = sin ajuste) y `proximo_ajuste` (fecha): para el alquiler u otro monto que se actualiza por índice. Ese día la app avisa, se carga el % y se recalcula `monto_estimado_centavos` a pesos enteros. Desde v0.15; una hoja anterior se completa sola.
 
 ## Eventos
 `id | nombre | moneda | desde | hasta | estado | creado_por | creado_en`

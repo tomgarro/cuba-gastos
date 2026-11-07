@@ -124,7 +124,7 @@ t('recurrentes: fechas (fin de mes, año nuevo) y próximos vencimientos', () =>
   const recs = [{ id: 'a', active: true, next: '2026-11-10' }, { id: 'b', active: true, next: '2026-11-30' }, { id: 'c', active: false, next: '2026-11-08' }, { id: 'd', active: true, next: '2026-11-01' }];
   assert.deepStrictEqual(S.dueSoon(recs, '2026-11-06', 7).map(r => r.id), ['d', 'a'], 'atrasados y próximos 7 días, en orden; los pausados no');
   const r = { id: 'r', desc: 'Aysa', cents: 450000, cur: 'ARS', day: 10, cat: 'agua', paidBy: 'm1', next: '2026-11-10', active: true };
-  assert.deepStrictEqual(S.rowToRec({ id: 'r', descripcion: 'Aysa', monto_estimado_centavos: 450000, moneda: 'ARS', dia_mes: 10, categoria: 'agua', pagador_id: 'm1', proximo_vencimiento: '2026-11-10', activo: true }), r);
+  assert.deepStrictEqual(S.rowToRec({ id: 'r', descripcion: 'Aysa', monto_estimado_centavos: 450000, moneda: 'ARS', dia_mes: 10, categoria: 'agua', pagador_id: 'm1', proximo_vencimiento: '2026-11-10', activo: true }), Object.assign({ adj: 0, adjNext: '' }, r));
   assert.strictEqual(S.recToPayload(r).monto_estimado_centavos, 450000);
 });
 

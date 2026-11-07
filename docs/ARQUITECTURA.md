@@ -57,3 +57,6 @@ Dos caminos: consultar sus reportes cada cierto tiempo desde Apps Script, o reci
 ## Cola de envíos (v0.13)
 
 Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, deshacer, resúmenes) se aplica al instante en el celular y se manda a la Sheet por una cola (`Outbox`) guardada en `localStorage` (`cuba:outbox`). Sale en orden; si no hay señal o el backend está ocupado reintenta solo (cada 6 s y al volver la conexión); si el backend rechaza un pedido avisa y vuelve a leer la Sheet. Los pedidos son idempotentes (mismo id = no se duplica). Mientras hay envíos pendientes no se relee la Sheet (para no pisar lo recién anotado). La lectura usa `rev` (contador de cambios + largo de pestañas): si no cambió nada responde `unchanged` sin bajar la Sheet; cada 10 min se hace una lectura completa.
+
+## Avisos y proyecciones (v0.15)
+`src/avisos.js` (puro, con tests) calcula en el celular, sin mandar nada afuera: aumentos («la luz subió 23 %»), faltantes («no cargaste el agua»), suscripciones con costo anual, «¿me alcanza?» (tu sueldo menos tu parte de lo compartido y de lo que vence) y el ajuste por índice de recurrentes. Cada persona ve solo su sueldo. La calculadora de reparto usa los sueldos vigentes y no anota nada.

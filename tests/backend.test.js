@@ -315,7 +315,7 @@ t('recurrentes: alta, edición en el lugar (monto y vencimiento) y validaciones'
   assert.strictEqual(b.call('saveRecurrente', { recurrente: { id: 'r1', monto_estimado_centavos: 486000, proximo_vencimiento: '2026-12-10' } }).creado, false);
   assert.strictEqual(b.grids.Recurrentes.length, 2, 'editar no crea otra fila');
   const r = b.call('read').recurrentes[0];
-  assert.deepStrictEqual(J(r), { id: 'r1', descripcion: 'Aysa', monto_estimado_centavos: 486000, moneda: 'ARS', dia_mes: 10, categoria: 'agua', pagador_id: 'm1', proximo_vencimiento: '2026-12-10', activo: true });
+  assert.deepStrictEqual(J(r), { id: 'r1', descripcion: 'Aysa', monto_estimado_centavos: 486000, moneda: 'ARS', dia_mes: 10, categoria: 'agua', pagador_id: 'm1', proximo_vencimiento: '2026-12-10', activo: true, ajuste_meses: 0, proximo_ajuste: '' });
   b.call('saveRecurrente', { recurrente: { id: 'r1', activo: false } });
   assert.strictEqual(b.call('read').recurrentes[0].activo, false);
   assert.strictEqual(b.call('read').recurrentes[0].monto_estimado_centavos, 486000, 'pausar no cambia el resto');
@@ -326,6 +326,27 @@ t('recurrentes: alta, edición en el lugar (monto y vencimiento) y validaciones'
   assert.strictEqual(b.grids.Recurrentes.length, 2);
 });
 
+
+t('recurrente con ajuste trimestral: se guarda, se valida y una hoja vieja se completa sola', () => {
+  const b = withPeople();
+  const rec = (o) => ({ id: 'alq', descripcion: 'Alquiler', monto_estimado_centavos: 77000000, moneda: 'ARS', dia_mes: 5, categoria: 'alquiler', pagador_id: 'm1', proximo_vencimiento: '2026-12-05', activo: true, ajuste_meses: 3, proximo_ajuste: '2027-02-01', ...(o || {}) });
+  b.call('saveRecurrente', { recurrente: rec() });
+  let r = b.call('read').recurrentes[0]; assert.deepStrictEqual([r.ajuste_meses, r.proximo_ajuste], [3, '2027-02-01']);
+  b.call('saveRecurrente', { recurrente: { id: 'alq', monto_estimado_centavos: 84700000, proximo_ajuste: '2027-05-01' } });
+  r = b.call('read').recurrentes[0]; assert.deepStrictEqual([r.monto_estimado_centavos, r.ajuste_meses, r.proximo_ajuste], [84700000, 3, '2027-05-01']);
+  b.call('saveRecurrente', { recurrente: { id: 'alq', ajuste_meses: 0 } });
+  r = b.call('read').recurrentes[0]; assert.deepStrictEqual([r.ajuste_meses, r.proximo_ajuste], [0, ''], 'sin ajuste no queda fecha');
+  [{ ajuste_meses: 25 }, { ajuste_meses: -1 }, { ajuste_meses: 1.5 }, { ajuste_meses: 3, proximo_ajuste: '' }, { ajuste_meses: 3, proximo_ajuste: '2027-13-01' }].forEach((o) => {
+    assert.strictEqual(err(() => b.call('saveRecurrente', { recurrente: rec(Object.assign({ id: 'x' }, o)) })).code, 'recurrente_invalido', JSON.stringify(o));
+  });
+  // hoja anterior: Recurrentes de 9 columnas con una fila
+  const c = boot(); c.call('savePersonas', { personas: P });
+  c.grids.Recurrentes.length = 0; c.grids.Recurrentes.push(c.TABS.Recurrentes.slice(0, 9)); c.grids.Recurrentes.push(['r1', 'Aysa', 450000, 'ARS', 10, 'agua', 'm1', '2026-11-10', 'TRUE']);
+  const v = c.call('read').recurrentes[0];
+  assert.deepStrictEqual([v.descripcion, v.ajuste_meses, v.proximo_ajuste], ['Aysa', 0, '']);
+  assert.strictEqual(c.grids.Recurrentes[0][9], 'ajuste_meses');
+  assert.strictEqual(c.grids.Recurrentes[1][1], 'Aysa', 'los datos no se tocan');
+});
 
 t('eventos: alta, edición en el lugar, validaciones y gastos con evento_id', () => {
   const b = withPeople();

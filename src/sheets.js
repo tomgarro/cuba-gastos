@@ -131,10 +131,10 @@
   }
 
   function rowToRec(r) {
-    return { id: r.id, desc: r.descripcion, cents: r.monto_estimado_centavos, cur: r.moneda, day: r.dia_mes, cat: r.categoria || 'otros', paidBy: r.pagador_id, next: r.proximo_vencimiento, active: !!r.activo };
+    return { id: r.id, desc: r.descripcion, cents: r.monto_estimado_centavos, cur: r.moneda, day: r.dia_mes, cat: r.categoria || 'otros', paidBy: r.pagador_id, next: r.proximo_vencimiento, active: !!r.activo, adj: Number(r.ajuste_meses) || 0, adjNext: r.proximo_ajuste || '' };
   }
   function recToPayload(r) {
-    return { id: r.id, descripcion: r.desc, monto_estimado_centavos: r.cents, moneda: r.cur, dia_mes: r.day, categoria: r.cat, pagador_id: r.paidBy, proximo_vencimiento: r.next, activo: !!r.active };
+    return { id: r.id, descripcion: r.desc, monto_estimado_centavos: r.cents, moneda: r.cur, dia_mes: r.day, categoria: r.cat, pagador_id: r.paidBy, proximo_vencimiento: r.next, activo: !!r.active, ajuste_meses: r.adj || 0, proximo_ajuste: r.adj ? (r.adjNext || '') : '' };
   }
   // Mismo día del mes siguiente (el 31 en un mes de 30 días cae el 30).
   function addMonth(iso, day) {

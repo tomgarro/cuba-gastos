@@ -32,7 +32,7 @@ var TABS = {
     'excepcion', 'motivo_excepcion', 'categoria', 'confianza', 'nota', 'lote_id', 'origen', 'creado_por', 'creado_en', 'anulado', 'reemplaza_id', 'evento_id'],
   Sueldos: ['id', 'persona_id', 'desde', 'monto_centavos', 'moneda', 'nota', 'creado_por', 'creado_en'],
   Lotes: ['id', 'origen', 'archivo', 'fecha', 'cantidad', 'moneda_original', 'estado'],
-  Recurrentes: ['id', 'descripcion', 'monto_estimado_centavos', 'moneda', 'dia_mes', 'categoria', 'pagador_id', 'proximo_vencimiento', 'activo'],
+  Recurrentes: ['id', 'descripcion', 'monto_estimado_centavos', 'moneda', 'dia_mes', 'categoria', 'pagador_id', 'proximo_vencimiento', 'activo', 'ajuste_meses', 'proximo_ajuste'],
   Categorias: ['id', 'nombre', 'emoji', 'presupuesto_mensual_centavos', 'moneda'],
   Comercios: ['patron', 'comercio', 'categoria', 'veces', 'actualizado'],
   Etiquetas: ['id', 'movimiento_id', 'categoria', 'confianza', 'fuente', 'estado', 'creado_por', 'creado_en'],
@@ -44,7 +44,7 @@ var TABS = {
 
 /** Pestañas que se crean solas si faltan, y columnas agregadas al final de pestañas viejas (se completan en el encabezado sin tocar los datos). */
 var TABS_NUEVAS = ['Etiquetas', 'Comercios', 'ReglasResumen', 'Resumenes', 'Eventos'];
-var COLS_VIEJAS = { Movimientos: 20 };
+var COLS_VIEJAS = { Movimientos: 20, Recurrentes: 9 };
 
 var ENUM = {
   tipo: ['gasto', 'pago'],
@@ -269,16 +269,21 @@ function actionSaveRecurrente_(req) {
     categoria: has('categoria') ? text_(x.categoria, 40) : (old ? String(old.categoria) : 'otros'),
     pagador_id: has('pagador_id') ? x.pagador_id : (old ? String(old.pagador_id) : ''),
     proximo_vencimiento: has('proximo_vencimiento') ? x.proximo_vencimiento : (old ? String(old.proximo_vencimiento) : ''),
-    activo: has('activo') ? x.activo === true : (old ? bool_(old.activo) : true)
+    activo: has('activo') ? x.activo === true : (old ? bool_(old.activo) : true),
+    ajuste_meses: has('ajuste_meses') ? x.ajuste_meses : (old ? Number(old.ajuste_meses) || 0 : 0),
+    proximo_ajuste: has('proximo_ajuste') ? x.proximo_ajuste : (old ? String(old.proximo_ajuste) : '')
   };
   if (!v.descripcion) bad('Poné una descripción.');
   if (!isInt_(v.monto_estimado_centavos) || v.monto_estimado_centavos <= 0 || v.monto_estimado_centavos > 1e13) bad('El monto tiene que ser un entero de centavos mayor a cero.');
   if (ENUM.moneda.indexOf(v.moneda) < 0) bad('moneda debe ser ARS o USD.');
   if (!isInt_(v.dia_mes) || v.dia_mes < 1 || v.dia_mes > 31) bad('El día del mes tiene que ir de 1 a 31.');
   if (!isDate_(v.proximo_vencimiento)) bad('El próximo vencimiento es inválido (usá AAAA-MM-DD).');
+  if (!isInt_(v.ajuste_meses) || v.ajuste_meses < 0 || v.ajuste_meses > 24) bad('El ajuste va de 0 (sin ajuste) a 24 meses.');
+  if (v.ajuste_meses > 0 && !isDate_(v.proximo_ajuste)) bad('Poné la fecha del próximo ajuste (AAAA-MM-DD).');
+  if (v.ajuste_meses === 0) v.proximo_ajuste = '';
   var persona = readTab_('Personas').filter(function (p) { return String(p.id) === v.pagador_id; })[0];
   if (!persona) bad('El pagador no existe en Personas.');
-  var row = [v.id, v.descripcion, v.monto_estimado_centavos, v.moneda, v.dia_mes, v.categoria, v.pagador_id, v.proximo_vencimiento, v.activo ? 'TRUE' : 'FALSE'];
+  var row = [v.id, v.descripcion, v.monto_estimado_centavos, v.moneda, v.dia_mes, v.categoria, v.pagador_id, v.proximo_vencimiento, v.activo ? 'TRUE' : 'FALSE', v.ajuste_meses, v.proximo_ajuste];
   if (at >= 0) sheet.getRange(at + 2, 1, 1, cols.length).setValues([row]);
   else appendRows_(sheet, [row], cols.length);
   return { ok: true, creado: at < 0 };
@@ -558,7 +563,7 @@ function sueldoOut_(r) {
 }
 function recOut_(r) {
   return { id: String(r.id), descripcion: String(r.descripcion), monto_estimado_centavos: Number(r.monto_estimado_centavos), moneda: String(r.moneda),
-    dia_mes: Number(r.dia_mes), categoria: String(r.categoria), pagador_id: String(r.pagador_id), proximo_vencimiento: String(r.proximo_vencimiento), activo: bool_(r.activo) };
+    dia_mes: Number(r.dia_mes), categoria: String(r.categoria), pagador_id: String(r.pagador_id), proximo_vencimiento: String(r.proximo_vencimiento), activo: bool_(r.activo), ajuste_meses: Number(r.ajuste_meses) || 0, proximo_ajuste: String(r.proximo_ajuste || '') };
 }
 function bool_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
 
