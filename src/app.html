@@ -119,6 +119,14 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 @media (prefers-reduced-motion:reduce){.cuba svg,.cuba img,.zz{animation:none}.zz{opacity:.7}}
 @media (prefers-reduced-motion:no-preference){.perk .cuba svg{animation-duration:.5s}.perk .cuba img{animation-duration:.45s}}
 .chips{display:flex;flex-wrap:wrap;gap:6px}.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 12px;font-size:14px;font-family:inherit;cursor:pointer}.chip.on{background:var(--acc);color:#1b1208;border-color:var(--acc)}
+/* Preguntarle a Cuba: escucha, olfatea y responde */
+.askbox{display:flex;gap:12px;align-items:flex-end;margin:6px 0 12px}
+.askbox .bubble{font-size:16px;min-height:56px}
+.askchips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.askchips button{border:1px solid var(--line);background:var(--card);color:inherit;border-radius:999px;padding:7px 12px;font:inherit;font-size:14px}
+.sniff img{animation:sniff .5s ease-in-out infinite !important}
+@keyframes sniff{0%,100%{transform:translate(0,0) rotate(0)}50%{transform:translate(4%,2%) rotate(2.5deg)}}
+@media (prefers-reduced-motion:reduce){.sniff img{animation:none !important}}
 /* Acariciar a Cuba: al tocarla alterna dos poses mimado y salen corazones */
 .petting img{animation:petlean .76s ease-in-out infinite !important}
 @keyframes petlean{0%,100%{transform:rotate(-2.5deg) translateY(0)}50%{transform:rotate(2.5deg) translateY(1.5%)}}
@@ -141,6 +149,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 <script>/*RESUMEN*/</script>
 <script>/*AVISOS*/</script>
 <script>/*COMPARTIR*/</script>
+<script>/*PREGUNTAS*/</script>
 <script>
 (function () {
 'use strict';
@@ -533,6 +542,7 @@ function viewInicio() {
   }
   var h = '<div class="hero"><div style="flex:none">' + cuba(mood, 150) + '</div><div class="bubble">' + msg + '</div></div>';
   h += '<div class="actions"><button class="btn acc" data-act="new">+ Anotar gasto</button><button class="btn ghost" data-act="tab" data-v="cierre">Saldar</button></div>';
+  if (live.length) h += '<button class="btn ghost full" style="margin:-4px 0 12px" data-act="ask">💬 Preguntale a Cuba</button>';
   if (S.mode === 'sheets') resumenFalta().forEach(function (r) { h += '<div class="card"><h3>Falta un resumen</h3><div class="stat"><span>Ya cerró la ' + esc(r.tarjeta) + ' (' + dLarga(r.proximo_cierre) + ')</span><button class="btn sm acc" data-act="rsir">Subirlo</button></div></div>'; });
   h += viewPorPagar() + viewAjuste() + viewAvisos();
   if (tr.length) {
@@ -629,7 +639,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v__VERSION__</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '<p class="mut" style="font-size:13px;margin:8px 0 0">Próximamente: bot de Telegram con audio y fotos, Gemini para categorizar, importar resúmenes de tarjeta y vencimientos.</p></div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v__VERSION__</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
@@ -1012,7 +1022,7 @@ function newForm(kind) {
   return { kind: kind || 'expense', id: null, desc: '', amount: '', cur: (S.group && S.group.cur) || 'ARS', date: today(), paidBy: S.meId, to: other, mode: (kind || 'expense') === 'expense' && salaryOk(today()) ? 'salary' : 'equal', why: '', rec: null, ev: null, who: who, vals: {}, cat: 'otros', catAuto: true, note: '', quick: '' };
 }
 function openSheet(html) { $('#sheet').innerHTML = html; $('#scrim').className = 'scrim show'; }
-function closeSheet() { $('#scrim').className = 'scrim'; $('#sheet').innerHTML = ''; S.form = null; S.rf = null; S.ef = null; Share.clear(); S.confirmDel = null; if (pendingRender) render(); }
+function closeSheet() { $('#scrim').className = 'scrim'; $('#sheet').innerHTML = ''; S.form = null; S.rf = null; S.ef = null; Share.clear(); S.confirmDel = null; Ask.stop(); if (pendingRender) render(); }
 function renderForm() {
   var F = S.form, ms = members(), isPay = F.kind === 'payment';
   var evv = F.ev ? S.eventos.filter(function (x) { return x.id === F.ev; })[0] : null;
@@ -1102,6 +1112,57 @@ function copyText(text, okMsg) {
 }
 
 // ---------------- acciones ----------------
+// ---------- Preguntarle a Cuba: la respuesta sale de las cuentas locales; Gemini (si hace falta) solo traduce la pregunta, sin nombres ----------
+var Ask = {
+  busy: false, tm: null, iv: null,
+  frames: function (k) {
+    var I = window.CUBA_IMG || {}, set = { escucha: ['escucha_a', 'escucha_b'], olfatea: ['olfatea_a', 'olfatea_b'], responde: ['responde_a', 'responde_b'], no_encuentra: ['no_encuentra'], reposo: ['tranquilo'] }[k] || ['tranquilo'];
+    var fb = { olfatea: ['tranquilo'], responde: ['feliz'], no_encuentra: ['alerta'], escucha: ['tranquilo'] }[k] || ['tranquilo'];
+    var ok = set.filter(function (n) { return I[n]; });
+    return (ok.length ? ok : fb.filter(function (n) { return I[n]; })).map(function (n) { return I[n]; });
+  },
+  pose: function (k) {
+    var box = $('#askc'); if (!box) return; var img = box.querySelector('img'); if (!img) return;
+    clearInterval(Ask.iv); var fr = Ask.frames(k), calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (fr.length) img.src = fr[0];
+    box.classList.toggle('sniff', k === 'olfatea');
+    if (fr.length > 1 && !calm) { var i = 0; Ask.iv = setInterval(function () { if (!img.isConnected) { clearInterval(Ask.iv); return; } i++; img.src = fr[i % fr.length]; }, 420); }
+  },
+  say: function (html) { var b = $('#askans'); if (b) b.innerHTML = html; },
+  stop: function () { clearTimeout(Ask.tm); clearTimeout(Ask.t1); clearInterval(Ask.iv); Ask.busy = false; },
+  ctx: function () { return { hoy: today(), personas: members().map(function (m) { return { id: m.id, name: m.name, alias: m.alias }; }) }; },
+  open: function () {
+    var chips = ['¿Cuánto gastamos este mes?', '¿Quién le debe a quién?', '¿En qué gastamos más?', '¿Cuándo fue la última luz?'];
+    openSheet('<h2>Preguntale a Cuba</h2><div class="askbox"><div id="askc" style="flex:none">' + cuba('idle', 120) + '</div><div class="bubble" id="askans">Preguntame lo que quieras de la plata de la casa. Yo hago las cuentas.</div></div>' +
+      '<div class="askchips">' + chips.map(function (c) { return '<button data-act="askchip" data-q="' + esc(c) + '">' + esc(c) + '</button>'; }).join('') + '</div>' +
+      '<div class="row"><input id="askq" data-in="askq" class="grow" maxlength="160" placeholder="Ej: ¿cuánto gastamos en el súper en octubre?" autocomplete="off"><button class="btn acc" data-act="askgo">Preguntar</button></div>' +
+      '<p class="mut" style="font-size:13px;margin:10px 0 0">Las cuentas las hago en tu celular. Si no entiendo la pregunta, le pido ayuda a Gemini <b>solo con el texto</b>, sin nombres ni montos.</p><button class="btn ghost full" style="margin-top:8px" data-act="close">Cerrar</button>');
+    Ask.pose('reposo');
+  },
+  go: function (texto) {
+    texto = String(texto || '').trim(); if (Ask.busy) return;
+    if (texto.length < 4) { Ask.say('Contame un poco más: por ejemplo «¿cuánto gastamos en luz este mes?».'); Ask.pose('no_encuentra'); return; }
+    Ask.busy = true; Ask.pose('escucha'); Ask.say('<i>' + esc(texto) + '</i>');
+    clearTimeout(Ask.t1); Ask.t1 = setTimeout(function () { if (Ask.busy) Ask.pose('olfatea'); }, 700);
+    var t0 = Date.now(), ctx = Ask.ctx(), P = CubaPreguntas, q = P.entender(texto, ctx);
+    var fin = function (r, huevo) {
+      var wait = Math.max(0, 1500 - (Date.now() - t0));   // escucha ~0,7 s, olfatea hasta ~1,5 s y recién ahí responde
+      Ask.tm = setTimeout(function () {
+        Ask.busy = false; if (!$('#askc')) return;
+        Ask.pose(r.sprite); Ask.say(esc(r.texto));
+        if (huevo) { var bx = $('#askc .cuba'); if (bx && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) { petHeart(bx); setTimeout(function () { if (bx.isConnected) petHeart(bx); }, 250); } }
+      }, wait);
+    };
+    var nada = { texto: 'Eso no lo entendí. Probá con «¿cuánto gastamos en luz este mes?» o «¿quién le debe a quién?».', sprite: 'no_encuentra' };
+    if (/\b(buena|la mejor|linda)\s+(perra|nena|perrita|chica)\b|\bquien es (la|una) (mejor|buena)\b/i.test(P.sinTildes(texto))) { fin({ texto: '¡Yo! 🐾', sprite: 'responde' }, true); return; }
+    if (q) { fin(P.responder(q, S.entries, ctx)); return; }
+    if (S.mode !== 'sheets' || S.offline) { fin(nada); return; }
+    Store.call('entenderPregunta', { pregunta: P.anonimizar(texto, ctx.personas), hoy: ctx.hoy }).then(function (d) {
+      var c = d && !d.error && !d.sin_clave ? P.validarConsulta({ tipo: d.tipo, categoria: d.categoria, mes: d.mes }, ctx) : null;
+      fin(c ? P.responder(c, S.entries, ctx) : nada);
+    }).catch(function () { fin(nada); });
+  }
+};
 var A = {
   tab: function (el) { S.tab = el.dataset.v; S.evId = null; closeSheet(); render(); window.scrollTo(0, 0); },
   ob: function (el) {
@@ -1123,6 +1184,9 @@ var A = {
     }).then(function () { S.obBusy = false; S.tab = 'inicio'; render(); }).catch(function (e) { S.obBusy = false; render(); fail(e); });
   },
   who: function (el) { Store.setMe(el.dataset.id).then(function () { render(); }); render(); },
+  ask: function () { Ask.open(); },
+  askgo: function () { var i = $('#askq'); Ask.go(i && i.value); },
+  askchip: function (el) { var i = $('#askq'); if (i) i.value = el.dataset.q; Ask.go(el.dataset.q); },
   new: function () { if (S.readOnly) { toast('Solo lectura.'); return; } S.form = newForm('expense'); renderForm(); },
   close: function () { closeSheet(); },
   kind: function (el) { var F = S.form; F.kind = el.dataset.v; renderForm(); },
@@ -1517,6 +1581,7 @@ document.addEventListener('focusout', function () { setTimeout(function () { if 
 document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape') closeSheet();
   if (ev.key === 'Enter' && ev.target.id === 'quick') { ev.preventDefault(); A.quick(); }
+  if (ev.key === 'Enter' && ev.target.id === 'askq') { ev.preventDefault(); A.askgo(); }
 });
 
 try { if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && location.hostname.indexOf('claude') < 0) navigator.serviceWorker.register('sw.js').catch(function () {}); } catch (e) {}

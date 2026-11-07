@@ -68,7 +68,7 @@
     if (typeof CUBA_IMG !== 'undefined' && CUBA_IMG && CUBA_IMG[POSE[mood]]) return sprite(mood, size);
     var lift = mood === 'alert' ? 5 : 0, turn = mood === 'sleepy' ? 9 : mood === 'alert' ? -3 : 0;
     var leftEar = ear(lift, turn), rightEar = mirror(ear(lift, turn));
-    return '<span class="cuba" style="display:inline-block;line-height:0"><svg width="' + size + '" height="' + Math.round(size * 1.05) + '" viewBox="0 0 200 210" role="img" aria-label="Cuba, el doberman">' +
+    return '<span class="cuba" style="display:inline-block;line-height:0"><svg width="' + size + '" height="' + Math.round(size * 1.05) + '" viewBox="0 0 200 210" role="img" aria-label="Cuba, la doberman">' +
       // cuerpo y manchas del pecho
       '<path d="M44 210C46 172 70 154 100 154C130 154 154 172 156 210Z" fill="' + FUR + '" stroke="' + LINE + '" stroke-width="3" stroke-linejoin="round"/>' +
       '<path d="M82 178C72 178 66 187 71 197C77 203 90 197 92 187C93 181 89 178 82 178Z" fill="' + TAN + '"/>' +

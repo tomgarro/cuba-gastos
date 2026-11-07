@@ -127,6 +127,7 @@ var ACTIONS = {
   undoLote: actionUndoLote_,
   categorizar: actionCategorizar_,
   leerComprobante: actionLeerComprobante_,
+  entenderPregunta: actionEntenderPregunta_,
   aprender: actionAprender_,
   etiquetar: actionEtiquetar_,
   registrarResumen: actionRegistrarResumen_,
@@ -134,8 +135,8 @@ var ACTIONS = {
 };
 
 /** Acciones que solo leen o llaman afuera: no toman el candado (Gemini tarda y no debe frenar las cargas). */
-var SIN_CANDADO = { categorizar: true, leerComprobante: true, read: true, ping: true };   // leer no frena a quien está escribiendo
-var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true };
+var SIN_CANDADO = { categorizar: true, leerComprobante: true, entenderPregunta: true, read: true, ping: true };   // leer no frena a quien está escribiendo
+var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true, entenderPregunta: true };
 
 /* ------------------------------------------------------------------ */
 /* Acciones                                                            */
@@ -799,6 +800,33 @@ function actionLeerComprobante_(req) {
   var monto = Number(r && r.monto), cents = isFinite(monto) && monto > 0 && monto < 1e11 ? Math.round(monto * 100) : 0;
   return { ok: true, comercio: text_(r && r.comercio, 60).replace(/\s+/g, ' '), monto_centavos: cents, moneda: r && r.moneda === 'USD' ? 'USD' : 'ARS',
     fecha: r && isDate_(String(r.fecha)) ? String(r.fecha) : '', confianza: Math.max(0, Math.min(1, Number(r && r.confianza) || 0)) };
+}
+
+/** Traduce una pregunta corta a una consulta ({tipo, categoria, mes}). Solo recibe el texto de la pregunta (la app ya le sacó nombres y números largos); no ve movimientos ni montos. */
+function actionEntenderPregunta_(req) {
+  var q = typeof req.pregunta === 'string' ? req.pregunta.replace(/[\u0000-\u001f]/g, ' ').trim() : '';
+  if (q.length < 4 || q.length > 160) fail_('pedido_invalido', 'La pregunta tiene que tener entre 4 y 160 letras.');
+  var hoy = /^\d{4}-\d{2}-\d{2}$/.test(String(req.hoy)) ? String(req.hoy) : new Date().toISOString().slice(0, 10);
+  var key = PropertiesService.getScriptProperties().getProperty(IA.KEY_PROP);
+  if (!key) return { ok: true, sin_clave: true };
+  var model = PropertiesService.getScriptProperties().getProperty(IA.MODEL_PROP) || IA.MODEL, cats = Object.keys(CATEGORIAS_IA);
+  var prompt = 'Un hogar en Argentina le pregunta a su app de gastos. Traducí la pregunta a una consulta. Tipos: "total" (cuánto se gastó, en un mes y quizá una categoría), "ultimo" (cuándo y cuánto fue el último gasto de una categoría), ' +
+    '"deuda" (quién le debe a quién), "top" (en qué categorías se gasta más). Categorías: ' + cats.join(', ') + '. Mes en formato AAAA-MM; hoy es ' + hoy + ' ("este mes" = el mes de hoy, "el mes pasado" = el anterior). ' +
+    'Si no corresponde categoría o mes, dejalos vacíos. Si la pregunta no es sobre gastos del hogar, poné tipo "ninguno". No inventes.\n\nPregunta: ' + q;
+  var body = { contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json',
+      responseSchema: { type: 'OBJECT', properties: { tipo: { type: 'STRING', enum: ['total', 'ultimo', 'deuda', 'top', 'ninguno'] }, categoria: { type: 'STRING' }, mes: { type: 'STRING' } }, required: ['tipo', 'categoria', 'mes'] } } };
+  var r;
+  try {
+    var resp = UrlFetchApp.fetch(IA.URL + encodeURIComponent(model) + ':generateContent', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body) });
+    var code = resp.getResponseCode();
+    if (code !== 200) return { ok: true, error: 'gemini_http_' + code };
+    r = JSON.parse(JSON.parse(resp.getContentText()).candidates[0].content.parts[0].text);
+  } catch (e) { return { ok: true, error: 'gemini_respuesta' }; }
+  var tipo = r && ['total', 'ultimo', 'deuda', 'top'].indexOf(r.tipo) >= 0 ? r.tipo : 'ninguno';
+  var cat = r && categoriaValida_(String(r.categoria)) ? String(r.categoria) : '';
+  var mes = r && /^\d{4}-(0[1-9]|1[0-2])$/.test(String(r.mes)) ? String(r.mes) : '';
+  return { ok: true, tipo: tipo, categoria: cat, mes: mes };
 }
 
 function gemini_(grupo, key) {

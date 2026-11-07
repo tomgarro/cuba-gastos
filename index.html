@@ -119,6 +119,14 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 @media (prefers-reduced-motion:reduce){.cuba svg,.cuba img,.zz{animation:none}.zz{opacity:.7}}
 @media (prefers-reduced-motion:no-preference){.perk .cuba svg{animation-duration:.5s}.perk .cuba img{animation-duration:.45s}}
 .chips{display:flex;flex-wrap:wrap;gap:6px}.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 12px;font-size:14px;font-family:inherit;cursor:pointer}.chip.on{background:var(--acc);color:#1b1208;border-color:var(--acc)}
+/* Preguntarle a Cuba: escucha, olfatea y responde */
+.askbox{display:flex;gap:12px;align-items:flex-end;margin:6px 0 12px}
+.askbox .bubble{font-size:16px;min-height:56px}
+.askchips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.askchips button{border:1px solid var(--line);background:var(--card);color:inherit;border-radius:999px;padding:7px 12px;font:inherit;font-size:14px}
+.sniff img{animation:sniff .5s ease-in-out infinite !important}
+@keyframes sniff{0%,100%{transform:translate(0,0) rotate(0)}50%{transform:translate(4%,2%) rotate(2.5deg)}}
+@media (prefers-reduced-motion:reduce){.sniff img{animation:none !important}}
 /* Acariciar a Cuba: al tocarla alterna dos poses mimado y salen corazones */
 .petting img{animation:petlean .76s ease-in-out infinite !important}
 @keyframes petlean{0%,100%{transform:rotate(-2.5deg) translateY(0)}50%{transform:rotate(2.5deg) translateY(1.5%)}}
@@ -711,7 +719,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     if (typeof CUBA_IMG !== 'undefined' && CUBA_IMG && CUBA_IMG[POSE[mood]]) return sprite(mood, size);
     var lift = mood === 'alert' ? 5 : 0, turn = mood === 'sleepy' ? 9 : mood === 'alert' ? -3 : 0;
     var leftEar = ear(lift, turn), rightEar = mirror(ear(lift, turn));
-    return '<span class="cuba" style="display:inline-block;line-height:0"><svg width="' + size + '" height="' + Math.round(size * 1.05) + '" viewBox="0 0 200 210" role="img" aria-label="Cuba, el doberman">' +
+    return '<span class="cuba" style="display:inline-block;line-height:0"><svg width="' + size + '" height="' + Math.round(size * 1.05) + '" viewBox="0 0 200 210" role="img" aria-label="Cuba, la doberman">' +
       // cuerpo y manchas del pecho
       '<path d="M44 210C46 172 70 154 100 154C130 154 154 172 156 210Z" fill="' + FUR + '" stroke="' + LINE + '" stroke-width="3" stroke-linejoin="round"/>' +
       '<path d="M82 178C72 178 66 187 71 197C77 203 90 197 92 187C93 181 89 178 82 178Z" fill="' + TAN + '"/>' +
@@ -1393,6 +1401,156 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
   return { leerTexto: leerTexto, deRespuesta: deRespuesta, candidatos: candidatos, fecha: fecha };
 });
 </script>
+<script>(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./core.js'));
+  else root.CubaPreguntas = factory(root.CubaCore);
+})(typeof self !== 'undefined' ? self : this, function (C) {
+  'use strict';
+
+  // «Preguntarle a Cuba»: entiende una pregunta corta sobre los gastos y la contesta con las cuentas de la app.
+  // Todo se calcula acá, con los datos locales. Gemini (si hace falta) solo traduce la pregunta a una consulta
+  // y nunca recibe nombres, montos ni movimientos.
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var TIPOS = ['total', 'ultimo', 'deuda', 'top'];
+
+  function sinTildes(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[¿?¡!.,;:]/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function mesKey(y, m) { return y + '-' + (m < 10 ? '0' : '') + m; }
+  function mesAtras(hoy, n) { var y = +hoy.slice(0, 4), m = +hoy.slice(5, 7) - n; while (m < 1) { m += 12; y--; } return mesKey(y, m); }
+
+  // Período: {desde, hasta, etiqueta} con claves de mes AAAA-MM inclusivas.
+  function periodo(q, hoy) {
+    var cur = hoy.slice(0, 7), y = +hoy.slice(0, 4), i;
+    if (/\bmes (pasado|anterior)\b|\bel mes que paso\b/.test(q)) { var p = mesAtras(hoy, 1); return { desde: p, hasta: p, etiqueta: 'el mes pasado' }; }
+    if (/\best(e|a) ano\b|\ben el ano\b/.test(q) && !/ano pasado/.test(q)) return { desde: y + '-01', hasta: cur, etiqueta: 'este año' };
+    if (/\bano pasado\b/.test(q)) return { desde: (y - 1) + '-01', hasta: (y - 1) + '-12', etiqueta: 'el año pasado' };
+    if (/\bultimos? 3 meses\b|\btres meses\b/.test(q)) return { desde: mesAtras(hoy, 2), hasta: cur, etiqueta: 'los últimos 3 meses' };
+    if (/\bultimos? 6 meses\b|\bseis meses\b/.test(q)) return { desde: mesAtras(hoy, 5), hasta: cur, etiqueta: 'los últimos 6 meses' };
+    for (i = 0; i < 12; i++) {
+      if (new RegExp('\\b' + MESES[i].normalize('NFD').replace(/[̀-ͯ]/g, '') + '\\b').test(q) || (i === 8 && /\bsetiembre\b/.test(q))) {
+        var yy = i + 1 > +hoy.slice(5, 7) ? y - 1 : y, k = mesKey(yy, i + 1);   // un mes que todavía no llegó es del año pasado
+        return { desde: k, hasta: k, etiqueta: MESES[i] + (yy !== y ? ' de ' + yy : '') };
+      }
+    }
+    return { desde: cur, hasta: cur, etiqueta: 'este mes', porDefecto: true };
+  }
+
+  function categoria(q) {
+    var best = null;
+    C.CATS.forEach(function (c) {
+      if (c.k === 'pago' || c.k === 'otros') return;
+      var ws = [c.k, c.n].concat(c.w || []);
+      for (var i = 0; i < ws.length; i++) {
+        var w = sinTildes(ws[i]); if (!w || w.length < 3) continue;
+        var re = new RegExp('(^| )' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( |$)');
+        if (re.test(q) && (!best || w.length > best.len)) best = { cat: c.k, len: w.length };
+      }
+    });
+    return best ? best.cat : null;
+  }
+
+  // personas: [{id, name, alias?}]. Devuelve el id de la persona nombrada o null.
+  function persona(q, personas) {
+    for (var i = 0; i < personas.length; i++) {
+      var p = personas[i], ns = [String(p.name || '').split(' ')[0]].concat(p.alias ? String(p.alias).split(/[,;]/) : []);
+      for (var j = 0; j < ns.length; j++) {
+        var n = sinTildes(ns[j]); if (n.length < 2) continue;
+        if (new RegExp('(^| )' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( |$)').test(q)) return p.id;
+      }
+    }
+    return null;
+  }
+
+  // Pregunta -> consulta {tipo, cat, desde, hasta, etiqueta, quien} o null si no la entiende.
+  function entender(texto, ctx) {
+    var q = sinTildes(texto), hoy = ctx.hoy;
+    if (!q || q.length < 4) return null;
+    var per = periodo(q, hoy), cat = categoria(q), quien = persona(q, ctx.personas || []);
+    var base = { cat: cat, desde: per.desde, hasta: per.hasta, etiqueta: per.etiqueta, quien: quien, porDefecto: !!per.porDefecto };
+    var tipo = null;
+    if (/\b(debo|debe|deben|deuda|adeuda|saldo|saldos|a mano|estamos a mano)\b/.test(q)) tipo = 'deuda';
+    else if (/\b(ultim[oa]s?|cuando fue|cuando pague|cuando pagamos|cuando cargamos)\b/.test(q)) tipo = 'ultimo';
+    else if (/\b(mas|mayor|mayores)\b/.test(q) && /\b(gastamos|gaste|gasto|gastos|plata|se va|se nos va)\b/.test(q) && !cat) tipo = 'top';
+    else if (/\b(cuanto|cuantos|total|gastamos|gaste|gastaron|gasto|gastos|pagamos|pague|salio|salieron|va de)\b/.test(q)) tipo = 'total';
+    if (!tipo) return null;
+    if (tipo === 'ultimo' && !cat) return null;
+    base.tipo = tipo;
+    return base;
+  }
+
+  function validarConsulta(c, ctx) {
+    if (!c || TIPOS.indexOf(c.tipo) < 0) return null;
+    var cat = c.categoria || c.cat || null;
+    if (cat && !C.CATS.some(function (x) { return x.k === cat; })) cat = null;
+    if (c.tipo === 'ultimo' && !cat) return null;
+    var hoy = ctx.hoy, desde = null, hasta = null, etiqueta;
+    if (c.mes && /^\d{4}-(0[1-9]|1[0-2])$/.test(c.mes) && c.mes <= hoy.slice(0, 7)) {
+      desde = hasta = c.mes; etiqueta = MESES[+c.mes.slice(5) - 1] + (c.mes.slice(0, 4) !== hoy.slice(0, 4) ? ' de ' + c.mes.slice(0, 4) : '');
+    } else { desde = hasta = hoy.slice(0, 7); etiqueta = 'este mes'; }
+    return { tipo: c.tipo, cat: cat, desde: desde, hasta: hasta, etiqueta: etiqueta, quien: null, porDefecto: etiqueta === 'este mes' };
+  }
+
+  // Quita nombres y alias de las personas antes de mandar nada afuera.
+  function anonimizar(texto, personas) {
+    var t = String(texto || '').slice(0, 160);
+    (personas || []).forEach(function (p) {
+      [String(p.name || '').split(' ')[0]].concat(p.alias ? String(p.alias).split(/[,;]/) : []).forEach(function (n) {
+        n = String(n).trim(); if (n.length < 2) return;
+        t = t.replace(new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), 'PERSONA');
+      });
+    });
+    return t.replace(/\d[\d.,]{3,}/g, 'N');   // sin números largos (montos, cuentas)
+  }
+
+  function catNombre(k) { var c = C.CATS.filter(function (x) { return x.k === k; })[0]; return c ? c.n.toLowerCase() : k; }
+  function enRango(e, c) { var m = C.monthKey(e.date); return m >= c.desde && m <= c.hasta; }
+
+  // Respuesta: { texto, sprite: 'responde' | 'no_encuentra', filas?: [[etiqueta, monto]] }
+  function responder(c, entries, ctx) {
+    var live = C.live(entries).filter(function (e) { return !e.ev && e.type !== 'payment'; });
+    var nombre = function (id) { var p = (ctx.personas || []).filter(function (x) { return x.id === id; })[0]; return p ? String(p.name).split(' ')[0] : 'alguien'; };
+    var fmt = function (cents, cur) { return C.fmt(cents, cur, { noDecimals: true }); };
+    var i, out;
+
+    if (c.tipo === 'deuda') {
+      var ids = (ctx.personas || []).map(function (p) { return p.id; }), bal = C.balances(C.live(entries).filter(function (e) { return !e.ev; }), ids), curs = Object.keys(bal), lineas = [];
+      curs.forEach(function (cur) {
+        C.simplify(bal[cur]).forEach(function (t) {
+          if (c.quien && t.from !== c.quien && t.to !== c.quien) return;
+          lineas.push(nombre(t.from) + ' le debe ' + fmt(t.cents, cur) + ' a ' + nombre(t.to));
+        });
+      });
+      if (!lineas.length) return { texto: c.quien ? 'Con ' + nombre(c.quien) + ' están a mano: no se debe nada.' : 'Están a mano: no se debe nada.', sprite: 'responde' };
+      return { texto: lineas.join('. ') + '.', sprite: 'responde' };
+    }
+
+    var rows = live.filter(function (e) { return enRango(e, c) && (!c.cat || e.cat === c.cat); });
+    var quien = c.cat ? ' en ' + catNombre(c.cat) : '';
+
+    if (c.tipo === 'ultimo') {
+      var todos = live.filter(function (e) { return e.cat === c.cat; }).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+      if (!todos.length) return { texto: 'No encuentro ningún gasto de ' + catNombre(c.cat) + '.', sprite: 'no_encuentra' };
+      var u = todos[0];
+      return { texto: 'Lo último en ' + catNombre(c.cat) + ': ' + u.desc + ', ' + fmt(u.cents, u.cur || 'ARS') + ' el ' + u.date.slice(8, 10) + '/' + u.date.slice(5, 7) + '/' + u.date.slice(0, 4) + '.', sprite: 'responde' };
+    }
+
+    if (!rows.length) return { texto: 'No encuentro gastos' + quien + ' en ' + c.etiqueta + '.', sprite: 'no_encuentra' };
+
+    var porMoneda = {};
+    rows.forEach(function (e) { var cur = e.cur || 'ARS'; (porMoneda[cur] = porMoneda[cur] || { total: 0, cats: {}, n: 0 }); porMoneda[cur].total += e.cents; porMoneda[cur].n++; porMoneda[cur].cats[e.cat || 'otros'] = (porMoneda[cur].cats[e.cat || 'otros'] || 0) + e.cents; });
+    var monedas = Object.keys(porMoneda).sort(function (a, b) { return a === 'ARS' ? -1 : b === 'ARS' ? 1 : a < b ? -1 : 1; });
+
+    if (c.tipo === 'top') {
+      var m0 = monedas[0], cats = porMoneda[m0].cats, orden = Object.keys(cats).sort(function (a, b) { return cats[b] - cats[a]; }).slice(0, 3);
+      return { texto: 'En ' + c.etiqueta + ' lo que más se va es ' + orden.map(function (k) { return catNombre(k) + ' (' + fmt(cats[k], m0) + ')'; }).join(', ') + '.', sprite: 'responde' };
+    }
+
+    out = monedas.map(function (cur) { return fmt(porMoneda[cur].total, cur) + ' (' + porMoneda[cur].n + (porMoneda[cur].n === 1 ? ' gasto' : ' gastos') + ')'; }).join(' y ');
+    return { texto: 'En ' + c.etiqueta + ' gastaron ' + out + quien + '.', sprite: 'responde' };
+  }
+
+  return { entender: entender, validarConsulta: validarConsulta, responder: responder, anonimizar: anonimizar, sinTildes: sinTildes };
+});
+</script>
 <script>
 (function () {
 'use strict';
@@ -1785,6 +1943,7 @@ function viewInicio() {
   }
   var h = '<div class="hero"><div style="flex:none">' + cuba(mood, 150) + '</div><div class="bubble">' + msg + '</div></div>';
   h += '<div class="actions"><button class="btn acc" data-act="new">+ Anotar gasto</button><button class="btn ghost" data-act="tab" data-v="cierre">Saldar</button></div>';
+  if (live.length) h += '<button class="btn ghost full" style="margin:-4px 0 12px" data-act="ask">💬 Preguntale a Cuba</button>';
   if (S.mode === 'sheets') resumenFalta().forEach(function (r) { h += '<div class="card"><h3>Falta un resumen</h3><div class="stat"><span>Ya cerró la ' + esc(r.tarjeta) + ' (' + dLarga(r.proximo_cierre) + ')</span><button class="btn sm acc" data-act="rsir">Subirlo</button></div></div>'; });
   h += viewPorPagar() + viewAjuste() + viewAvisos();
   if (tr.length) {
@@ -1881,7 +2040,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.16.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '<p class="mut" style="font-size:13px;margin:8px 0 0">Próximamente: bot de Telegram con audio y fotos, Gemini para categorizar, importar resúmenes de tarjeta y vencimientos.</p></div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.17.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
@@ -2264,7 +2423,7 @@ function newForm(kind) {
   return { kind: kind || 'expense', id: null, desc: '', amount: '', cur: (S.group && S.group.cur) || 'ARS', date: today(), paidBy: S.meId, to: other, mode: (kind || 'expense') === 'expense' && salaryOk(today()) ? 'salary' : 'equal', why: '', rec: null, ev: null, who: who, vals: {}, cat: 'otros', catAuto: true, note: '', quick: '' };
 }
 function openSheet(html) { $('#sheet').innerHTML = html; $('#scrim').className = 'scrim show'; }
-function closeSheet() { $('#scrim').className = 'scrim'; $('#sheet').innerHTML = ''; S.form = null; S.rf = null; S.ef = null; Share.clear(); S.confirmDel = null; if (pendingRender) render(); }
+function closeSheet() { $('#scrim').className = 'scrim'; $('#sheet').innerHTML = ''; S.form = null; S.rf = null; S.ef = null; Share.clear(); S.confirmDel = null; Ask.stop(); if (pendingRender) render(); }
 function renderForm() {
   var F = S.form, ms = members(), isPay = F.kind === 'payment';
   var evv = F.ev ? S.eventos.filter(function (x) { return x.id === F.ev; })[0] : null;
@@ -2354,6 +2513,57 @@ function copyText(text, okMsg) {
 }
 
 // ---------------- acciones ----------------
+// ---------- Preguntarle a Cuba: la respuesta sale de las cuentas locales; Gemini (si hace falta) solo traduce la pregunta, sin nombres ----------
+var Ask = {
+  busy: false, tm: null, iv: null,
+  frames: function (k) {
+    var I = window.CUBA_IMG || {}, set = { escucha: ['escucha_a', 'escucha_b'], olfatea: ['olfatea_a', 'olfatea_b'], responde: ['responde_a', 'responde_b'], no_encuentra: ['no_encuentra'], reposo: ['tranquilo'] }[k] || ['tranquilo'];
+    var fb = { olfatea: ['tranquilo'], responde: ['feliz'], no_encuentra: ['alerta'], escucha: ['tranquilo'] }[k] || ['tranquilo'];
+    var ok = set.filter(function (n) { return I[n]; });
+    return (ok.length ? ok : fb.filter(function (n) { return I[n]; })).map(function (n) { return I[n]; });
+  },
+  pose: function (k) {
+    var box = $('#askc'); if (!box) return; var img = box.querySelector('img'); if (!img) return;
+    clearInterval(Ask.iv); var fr = Ask.frames(k), calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (fr.length) img.src = fr[0];
+    box.classList.toggle('sniff', k === 'olfatea');
+    if (fr.length > 1 && !calm) { var i = 0; Ask.iv = setInterval(function () { if (!img.isConnected) { clearInterval(Ask.iv); return; } i++; img.src = fr[i % fr.length]; }, 420); }
+  },
+  say: function (html) { var b = $('#askans'); if (b) b.innerHTML = html; },
+  stop: function () { clearTimeout(Ask.tm); clearTimeout(Ask.t1); clearInterval(Ask.iv); Ask.busy = false; },
+  ctx: function () { return { hoy: today(), personas: members().map(function (m) { return { id: m.id, name: m.name, alias: m.alias }; }) }; },
+  open: function () {
+    var chips = ['¿Cuánto gastamos este mes?', '¿Quién le debe a quién?', '¿En qué gastamos más?', '¿Cuándo fue la última luz?'];
+    openSheet('<h2>Preguntale a Cuba</h2><div class="askbox"><div id="askc" style="flex:none">' + cuba('idle', 120) + '</div><div class="bubble" id="askans">Preguntame lo que quieras de la plata de la casa. Yo hago las cuentas.</div></div>' +
+      '<div class="askchips">' + chips.map(function (c) { return '<button data-act="askchip" data-q="' + esc(c) + '">' + esc(c) + '</button>'; }).join('') + '</div>' +
+      '<div class="row"><input id="askq" data-in="askq" class="grow" maxlength="160" placeholder="Ej: ¿cuánto gastamos en el súper en octubre?" autocomplete="off"><button class="btn acc" data-act="askgo">Preguntar</button></div>' +
+      '<p class="mut" style="font-size:13px;margin:10px 0 0">Las cuentas las hago en tu celular. Si no entiendo la pregunta, le pido ayuda a Gemini <b>solo con el texto</b>, sin nombres ni montos.</p><button class="btn ghost full" style="margin-top:8px" data-act="close">Cerrar</button>');
+    Ask.pose('reposo');
+  },
+  go: function (texto) {
+    texto = String(texto || '').trim(); if (Ask.busy) return;
+    if (texto.length < 4) { Ask.say('Contame un poco más: por ejemplo «¿cuánto gastamos en luz este mes?».'); Ask.pose('no_encuentra'); return; }
+    Ask.busy = true; Ask.pose('escucha'); Ask.say('<i>' + esc(texto) + '</i>');
+    clearTimeout(Ask.t1); Ask.t1 = setTimeout(function () { if (Ask.busy) Ask.pose('olfatea'); }, 700);
+    var t0 = Date.now(), ctx = Ask.ctx(), P = CubaPreguntas, q = P.entender(texto, ctx);
+    var fin = function (r, huevo) {
+      var wait = Math.max(0, 1500 - (Date.now() - t0));   // escucha ~0,7 s, olfatea hasta ~1,5 s y recién ahí responde
+      Ask.tm = setTimeout(function () {
+        Ask.busy = false; if (!$('#askc')) return;
+        Ask.pose(r.sprite); Ask.say(esc(r.texto));
+        if (huevo) { var bx = $('#askc .cuba'); if (bx && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) { petHeart(bx); setTimeout(function () { if (bx.isConnected) petHeart(bx); }, 250); } }
+      }, wait);
+    };
+    var nada = { texto: 'Eso no lo entendí. Probá con «¿cuánto gastamos en luz este mes?» o «¿quién le debe a quién?».', sprite: 'no_encuentra' };
+    if (/\b(buena|la mejor|linda)\s+(perra|nena|perrita|chica)\b|\bquien es (la|una) (mejor|buena)\b/i.test(P.sinTildes(texto))) { fin({ texto: '¡Yo! 🐾', sprite: 'responde' }, true); return; }
+    if (q) { fin(P.responder(q, S.entries, ctx)); return; }
+    if (S.mode !== 'sheets' || S.offline) { fin(nada); return; }
+    Store.call('entenderPregunta', { pregunta: P.anonimizar(texto, ctx.personas), hoy: ctx.hoy }).then(function (d) {
+      var c = d && !d.error && !d.sin_clave ? P.validarConsulta({ tipo: d.tipo, categoria: d.categoria, mes: d.mes }, ctx) : null;
+      fin(c ? P.responder(c, S.entries, ctx) : nada);
+    }).catch(function () { fin(nada); });
+  }
+};
 var A = {
   tab: function (el) { S.tab = el.dataset.v; S.evId = null; closeSheet(); render(); window.scrollTo(0, 0); },
   ob: function (el) {
@@ -2375,6 +2585,9 @@ var A = {
     }).then(function () { S.obBusy = false; S.tab = 'inicio'; render(); }).catch(function (e) { S.obBusy = false; render(); fail(e); });
   },
   who: function (el) { Store.setMe(el.dataset.id).then(function () { render(); }); render(); },
+  ask: function () { Ask.open(); },
+  askgo: function () { var i = $('#askq'); Ask.go(i && i.value); },
+  askchip: function (el) { var i = $('#askq'); if (i) i.value = el.dataset.q; Ask.go(el.dataset.q); },
   new: function () { if (S.readOnly) { toast('Solo lectura.'); return; } S.form = newForm('expense'); renderForm(); },
   close: function () { closeSheet(); },
   kind: function (el) { var F = S.form; F.kind = el.dataset.v; renderForm(); },
@@ -2769,6 +2982,7 @@ document.addEventListener('focusout', function () { setTimeout(function () { if 
 document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape') closeSheet();
   if (ev.key === 'Enter' && ev.target.id === 'quick') { ev.preventDefault(); A.quick(); }
+  if (ev.key === 'Enter' && ev.target.id === 'askq') { ev.preventDefault(); A.askgo(); }
 });
 
 try { if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && location.hostname.indexOf('claude') < 0) navigator.serviceWorker.register('sw.js').catch(function () {}); } catch (e) {}

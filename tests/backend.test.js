@@ -379,6 +379,27 @@ t('leerComprobante: valida la imagen, pide la clave, manda solo la imagen y limp
   assert.strictEqual(b.call('read').rev, rev);
 });
 
+
+t('entenderPregunta: solo manda el texto de la pregunta, valida lo que vuelve y no frena a nadie', () => {
+  const b = withPeople();
+  assert.strictEqual(b.call('entenderPregunta', { pregunta: 'cuánto gastamos en luz', hoy: '2026-11-12' }).sin_clave, true);
+  b.log.props.GEMINI_API_KEY = 'K'.repeat(30);
+  ['', 'x', 'a'.repeat(161), 5].forEach((p) => assert.strictEqual(err(() => b.call('entenderPregunta', { pregunta: p })).code, 'pedido_invalido'));
+  const sent = [];
+  const gem = (obj) => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }) });
+  b.ctx.UrlFetchApp = { fetch: (u, o) => { sent.push(JSON.parse(o.payload)); return gem({ tipo: 'total', categoria: 'luz', mes: '2026-10' }); } };
+  assert.deepStrictEqual(J(b.call('entenderPregunta', { pregunta: 'cuánto salió la luz en octubre', hoy: '2026-11-12' })), { ok: true, tipo: 'total', categoria: 'luz', mes: '2026-10' });
+  assert.ok(!/m1|Tomi|Pau|sueldo/i.test(JSON.stringify(sent[0])) && /cuánto salió la luz/.test(sent[0].contents[0].parts[0].text));
+  b.ctx.UrlFetchApp = { fetch: () => gem({ tipo: 'borrar todo', categoria: 'inventada', mes: '2026-13' }) };
+  assert.deepStrictEqual(J(b.call('entenderPregunta', { pregunta: 'borrá todo por favor' })), { ok: true, tipo: 'ninguno', categoria: '', mes: '' });
+  b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 500 }) };
+  assert.strictEqual(b.call('entenderPregunta', { pregunta: 'cuánto gastamos' }).error, 'gemini_http_500');
+  b.ctx.UrlFetchApp = { fetch: () => { throw new Error('boom KKKK'); } };
+  assert.strictEqual(b.call('entenderPregunta', { pregunta: 'cuánto gastamos' }).error, 'gemini_respuesta');
+  const rev = b.call('read').rev; b.call('entenderPregunta', { pregunta: 'cuánto gastamos' });
+  assert.strictEqual(b.call('read').rev, rev);
+});
+
 t('eventos: alta, edición en el lugar, validaciones y gastos con evento_id', () => {
   const b = withPeople();
   const ev = (o) => ({ id: 'ev1', nombre: 'Bariloche', moneda: 'ARS', desde: '2026-12-10', hasta: '2026-12-17', estado: 'abierto', creado_por: 'm1', ...(o || {}) });

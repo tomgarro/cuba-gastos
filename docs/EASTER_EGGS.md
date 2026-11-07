@@ -27,3 +27,8 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 
 - **Se activa:** al saldar la última deuda de un viaje o evento («Pagado ✓» hasta quedar a mano), un avión cruza la pantalla y el aviso dice «¡Cuentas del viaje claras!».
 - **Se apaga:** borrar el bloque `if (!quedan && …) {…}` en `A.evpay` y la regla `.plane` del CSS (`src/app.html`). No aparece con «reducir movimiento».
+
+## v0.17 · ¿Quién es la mejor perra?
+
+- **Se activa:** en «Preguntale a Cuba», preguntar «¿quién es la mejor perra?» (o «buena perra», «buena nena»…): contesta «¡Yo! 🐾» y salen corazones.
+- **Se apaga:** borrar la línea `if (/\b(buena|la mejor|linda)…/.test(…)) { fin(…, true); return; }` en `Ask.go` (`src/app.html`). Sin corazones con «reducir movimiento».

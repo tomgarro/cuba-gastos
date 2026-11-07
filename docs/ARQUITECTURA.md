@@ -66,3 +66,8 @@ Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, desha
 - **iPhone:** iOS no tiene Web Share Target. Se usa **+ → 📎 Leer un comprobante** (elige la captura o foto de la galería).
 - **Texto y PDF** se leen en el celular (`src/compartir.js`), sin mandar nada afuera.
 - **Imágenes:** solo con un OK explícito cada vez («Sí, leerla»). Se achican a 1280 px y se mandan al backend (`leerComprobante`), que le pide a Gemini únicamente comercio, monto, moneda y fecha. La imagen se descarta al responder: no se guarda en la Sheet, el repo ni el caché. Lo leído abre el formulario de gasto para revisar; nunca se guarda solo.
+
+## Preguntarle a Cuba (v0.17)
+- **Inicio → 💬 Preguntale a Cuba** abre una hoja con Cuba animada: *escucha* (`escucha_a/b`), *olfatea* (`olfatea_a/b`) y *responde* (`responde_a/b`) o *no encuentra* (`no_encuentra`). Cada pose usa su sprite si existe y, si falta, uno de repuesto (`tranquilo`, `feliz`, `alerta`), así que funciona hoy y mejora solo cuando se sumen los `.webp` a `assets/cuba/`.
+- `src/preguntas.js` (puro, con tests) entiende la pregunta en el celular (total por categoría y período, lo último de una categoría, quién le debe a quién, en qué se gasta más) y la contesta con las cuentas locales: sin eventos, sin anulados y sin mezclar monedas.
+- Si no la entiende, el backend (`entenderPregunta`) le pide a Gemini que la traduzca a una consulta `{tipo, categoria, mes}`. A Gemini va **solo el texto de la pregunta**, con nombres y alias reemplazados por «PERSONA» y sin números largos; nunca ve movimientos ni montos. Lo que vuelve se valida de nuevo en la app. Solo lee: no mueve el contador de cambios ni frena las cargas.
