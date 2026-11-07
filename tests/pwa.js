@@ -25,6 +25,21 @@ const srv = http.createServer((req, res) => {
   await p.reload(); await p.waitForSelector('text=Soy Cuba');
   await ctx.setOffline(true);
   await p.reload(); await p.waitForSelector('text=Soy Cuba', { timeout: 5000 });
+  // «Compartir» → Cuba: el manifiesto lo declara y el service worker guarda lo recibido y abre la app; la app lo lee una vez y lo borra
+  assert.ok(man.share_target && man.share_target.method === 'POST' && man.share_target.params.files[0].name === 'media', 'falta share_target');
+  await ctx.setOffline(false); await p.reload(); await p.waitForSelector('text=Soy Cuba');
+  const sh = await p.evaluate(async () => {
+    const fd = new FormData(); fd.append('title', 't'); fd.append('text', 'Compraste $1.500,00 en ZORBA');
+    fd.append('media', new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' }));
+    const res = await fetch('share-target', { method: 'POST', body: fd });
+    const c = await caches.open('cuba-share');
+    return { redirected: res.redirected, url: res.url, keys: (await c.keys()).map(k => new URL(k.url).pathname.split('/').pop()).sort() };
+  });
+  assert.ok(/\?share=1$/.test(sh.url), 'redirige a la app: ' + sh.url);
+  assert.deepStrictEqual(sh.keys, ['share-file', 'share-meta']);
+  await p.goto(base + '?share=1'); await p.waitForSelector('text=Soy Cuba');
+  await p.waitForFunction(async () => (await (await caches.open('cuba-share')).keys()).length === 0, null, { timeout: 5000 });
+  assert.ok(!/share=1/.test(p.url()), 'se limpia la dirección');
   assert.deepStrictEqual(bad, [], 'respuestas con error: ' + bad.join(', '));
   console.log('PWA OK (manifiesto, íconos, service worker, sin conexión)');
   await b.close(); srv.close();

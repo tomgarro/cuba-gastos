@@ -126,6 +126,7 @@ var ACTIONS = {
   anularMovimientos: actionAnularMovimientos_,
   undoLote: actionUndoLote_,
   categorizar: actionCategorizar_,
+  leerComprobante: actionLeerComprobante_,
   aprender: actionAprender_,
   etiquetar: actionEtiquetar_,
   registrarResumen: actionRegistrarResumen_,
@@ -133,8 +134,8 @@ var ACTIONS = {
 };
 
 /** Acciones que solo leen o llaman afuera: no toman el candado (Gemini tarda y no debe frenar las cargas). */
-var SIN_CANDADO = { categorizar: true, read: true, ping: true };   // leer no frena a quien está escribiendo
-var SOLO_LEE = { read: true, ping: true, categorizar: true };
+var SIN_CANDADO = { categorizar: true, leerComprobante: true, read: true, ping: true };   // leer no frena a quien está escribiendo
+var SOLO_LEE = { read: true, ping: true, categorizar: true, leerComprobante: true };
 
 /* ------------------------------------------------------------------ */
 /* Acciones                                                            */
@@ -773,6 +774,31 @@ function actionCategorizar_(req) {
     }
   }
   return { ok: true, resultados: Object.keys(out).map(function (k) { return out[k]; }), sin_clave: !key && orden.length > 0, gemini_llamadas: usadas, error: error };
+}
+
+/** Lee la foto o captura de un comprobante (solo comercio, monto, moneda y fecha). La imagen se manda a Gemini, se descarta al responder y nunca se guarda. */
+function actionLeerComprobante_(req) {
+  var img = req.imagen, mime = String(req.mime || '');
+  if (typeof img !== 'string' || img.length < 100 || img.length > 2500000 || !/^[A-Za-z0-9+\/]+={0,2}$/.test(img)) fail_('pedido_invalido', 'La imagen no es válida o es muy grande.');
+  if (['image/jpeg', 'image/png', 'image/webp'].indexOf(mime) < 0) fail_('pedido_invalido', 'Solo leo fotos JPG, PNG o WebP.');
+  var key = PropertiesService.getScriptProperties().getProperty(IA.KEY_PROP);
+  if (!key) return { ok: true, sin_clave: true };
+  var model = PropertiesService.getScriptProperties().getProperty(IA.MODEL_PROP) || IA.MODEL;
+  var prompt = 'Leé este comprobante o captura de un pago en Argentina. Devolvé solo: comercio (nombre corto de quien cobra o recibe), monto (el total pagado, número con decimales, sin símbolos), moneda (ARS o USD), fecha (AAAA-MM-DD, vacío si no se ve) y confianza de 0 a 1. ' +
+    'Ignorá números de cuenta, CBU, tarjeta, DNI y datos personales: no los devuelvas. Si no ves un monto claro, poné monto 0. No inventes nada.';
+  var body = { contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: mime, data: img } }] }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json',
+      responseSchema: { type: 'OBJECT', properties: { comercio: { type: 'STRING' }, monto: { type: 'NUMBER' }, moneda: { type: 'STRING', enum: ['ARS', 'USD'] }, fecha: { type: 'STRING' }, confianza: { type: 'NUMBER' } }, required: ['comercio', 'monto', 'moneda', 'fecha', 'confianza'] } } };
+  var r;
+  try {
+    var resp = UrlFetchApp.fetch(IA.URL + encodeURIComponent(model) + ':generateContent', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body) });
+    var code = resp.getResponseCode();
+    if (code !== 200) return { ok: true, error: 'gemini_http_' + code };
+    r = JSON.parse(JSON.parse(resp.getContentText()).candidates[0].content.parts[0].text);
+  } catch (e) { return { ok: true, error: 'gemini_respuesta' }; }
+  var monto = Number(r && r.monto), cents = isFinite(monto) && monto > 0 && monto < 1e11 ? Math.round(monto * 100) : 0;
+  return { ok: true, comercio: text_(r && r.comercio, 60).replace(/\s+/g, ' '), monto_centavos: cents, moneda: r && r.moneda === 'USD' ? 'USD' : 'ARS',
+    fecha: r && isDate_(String(r.fecha)) ? String(r.fecha) : '', confianza: Math.max(0, Math.min(1, Number(r && r.confianza) || 0)) };
 }
 
 function gemini_(grupo, key) {

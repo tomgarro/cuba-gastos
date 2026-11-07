@@ -348,6 +348,37 @@ t('recurrente con ajuste trimestral: se guarda, se valida y una hoja vieja se co
   assert.strictEqual(c.grids.Recurrentes[1][1], 'Aysa', 'los datos no se tocan');
 });
 
+t('leerComprobante: valida la imagen, pide la clave, manda solo la imagen y limpia la respuesta', () => {
+  const b = withPeople();
+  const img = Buffer.alloc(300, 7).toString('base64');
+  assert.strictEqual(b.call('leerComprobante', { imagen: img, mime: 'image/jpeg' }).sin_clave, true, 'sin clave de Gemini no llama a nadie');
+  b.log.props.GEMINI_API_KEY = 'K'.repeat(30);
+  [{ imagen: 'x', mime: 'image/jpeg' }, { imagen: img + '!!', mime: 'image/jpeg' }, { imagen: img, mime: 'application/pdf' }, { imagen: 'A'.repeat(2600000), mime: 'image/png' }, {}].forEach((o) => {
+    assert.strictEqual(err(() => b.call('leerComprobante', o)).code, 'pedido_invalido', JSON.stringify(o).slice(0, 60));
+  });
+  const sent = [];
+  const gem = (obj) => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }) });
+  b.ctx.UrlFetchApp = { fetch: (u, o) => { sent.push({ u, o, p: JSON.parse(o.payload) }); return gem({ comercio: '  ZORBA\u0000 MARKET ', monto: 15230.5, moneda: 'ARS', fecha: '2026-11-05', confianza: 0.93 }); } };
+  const r = b.call('leerComprobante', { imagen: img, mime: 'image/png', creado_por: 'm1' });
+  assert.deepStrictEqual(J(r), { ok: true, comercio: 'ZORBA MARKET', monto_centavos: 1523050, moneda: 'ARS', fecha: '2026-11-05', confianza: 0.93 });
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].o.headers['x-goog-api-key'], 'K'.repeat(30), 'la clave va en el encabezado, no en la URL');
+  assert.ok(!sent[0].u.includes('KKKK'));
+  const partes = sent[0].p.contents[0].parts; assert.strictEqual(partes.length, 2);
+  assert.strictEqual(partes[1].inlineData.mimeType, 'image/png');
+  assert.ok(!/m1|Tomi|Pau|sueldo/i.test(JSON.stringify(partes[0])), 'el texto no lleva nombres ni sueldos');
+  // respuestas raras se limpian: monto negativo/absurdo → 0, fecha inválida → vacía, moneda desconocida → ARS
+  b.ctx.UrlFetchApp = { fetch: () => gem({ comercio: 'X', monto: -5, moneda: 'EUR', fecha: '2026-02-30', confianza: 7 }) };
+  assert.deepStrictEqual(J(b.call('leerComprobante', { imagen: img, mime: 'image/jpeg' })), { ok: true, comercio: 'X', monto_centavos: 0, moneda: 'ARS', fecha: '', confianza: 1 });
+  b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 500 }) };
+  assert.strictEqual(b.call('leerComprobante', { imagen: img, mime: 'image/jpeg' }).error, 'gemini_http_500');
+  b.ctx.UrlFetchApp = { fetch: () => { throw new Error('boom KKKK'); } };
+  assert.strictEqual(b.call('leerComprobante', { imagen: img, mime: 'image/jpeg' }).error, 'gemini_respuesta', 'no filtra el detalle del error');
+  // no frena a las cargas ni mueve el contador de cambios
+  const rev = b.call('read').rev; b.ctx.UrlFetchApp = { fetch: () => gem({ comercio: 'X', monto: 1, moneda: 'ARS', fecha: '', confianza: 1 }) }; b.call('leerComprobante', { imagen: img, mime: 'image/jpeg' });
+  assert.strictEqual(b.call('read').rev, rev);
+});
+
 t('eventos: alta, edición en el lugar, validaciones y gastos con evento_id', () => {
   const b = withPeople();
   const ev = (o) => ({ id: 'ev1', nombre: 'Bariloche', moneda: 'ARS', desde: '2026-12-10', hasta: '2026-12-17', estado: 'abierto', creado_por: 'm1', ...(o || {}) });

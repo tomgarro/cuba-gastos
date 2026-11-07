@@ -11,6 +11,7 @@ html = html.replace("/*CUBA*/", (r / "src/cuba.js").read_text())
 import json
 html = html.replace("__VERSION__", json.loads((r / "package.json").read_text())["version"])
 html = html.replace("/*RESUMEN*/", (r / "src/resumen.js").read_text())
+html = html.replace("/*COMPARTIR*/", (r / "src/compartir.js").read_text())
 html = html.replace("/*AVISOS*/", (r / "src/avisos.js").read_text())
 html = html.replace("/*SHEETS*/", (r / "src/sheets.js").read_text())
 (r / "index.html").write_text(html)

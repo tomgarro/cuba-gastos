@@ -60,3 +60,9 @@ Todo lo que se anota (gastos, borrados, sueldos, recurrentes, categorías, desha
 
 ## Avisos y proyecciones (v0.15)
 `src/avisos.js` (puro, con tests) calcula en el celular, sin mandar nada afuera: aumentos («la luz subió 23 %»), faltantes («no cargaste el agua»), suscripciones con costo anual, «¿me alcanza?» (tu sueldo menos tu parte de lo compartido y de lo que vence) y el ajuste por índice de recurrentes. Cada persona ve solo su sueldo. La calculadora de reparto usa los sueldos vigentes y no anota nada.
+
+## Compartir comprobantes (v0.16)
+- **Android y escritorio (app instalada):** «Compartir → Cuba». El manifiesto declara `share_target` (POST multipart); el service worker guarda lo recibido en el caché `cuba-share`, redirige a `?share=1` y la app lo lee una sola vez y lo borra.
+- **iPhone:** iOS no tiene Web Share Target. Se usa **+ → 📎 Leer un comprobante** (elige la captura o foto de la galería).
+- **Texto y PDF** se leen en el celular (`src/compartir.js`), sin mandar nada afuera.
+- **Imágenes:** solo con un OK explícito cada vez («Sí, leerla»). Se achican a 1280 px y se mandan al backend (`leerComprobante`), que le pide a Gemini únicamente comercio, monto, moneda y fecha. La imagen se descarta al responder: no se guarda en la Sheet, el repo ni el caché. Lo leído abre el formulario de gasto para revisar; nunca se guarda solo.

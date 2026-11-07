@@ -1329,6 +1329,70 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
   return { series: series, aumentos: aumentos, faltantes: faltantes, suscripciones: suscripciones, meAlcanza: meAlcanza, ajusteToca: ajusteToca, aplicarAjuste: aplicarAjuste };
 });
 </script>
+<script>(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./core.js'));
+  else root.CubaCompartir = factory(root.CubaCore);
+})(typeof self !== 'undefined' ? self : this, function (C) {
+  'use strict';
+
+  // Lee, sin salir del celular, el texto de un comprobante, una notificación del banco o un mensaje compartido a Cuba.
+  // Solo propone: el gasto se revisa y se guarda a mano.
+  var AMT = /(?:\$|ARS|AR\$|U\$S|USD|US\$)\s*(-?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|-?\d+(?:,\d{1,2})?)/gi;
+  var AMT_COMA = /(-?\d{1,3}(?:\.\d{3})*,\d{2})(?!\d)/g;
+  var CLAVES = /(?:^|[^a-záéíóúñ])(?:total|importe|monto)[^\d$\n]{0,24}$/i;
+  var DEBIL = /(?:^|[^a-záéíóúñ])(?:pagaste|pag[oó]|compraste|compra|transferiste|transferencia|abonaste|d[eé]bito|consumo)[^\d$\n]{0,24}$/i;
+
+  function aCentavos(s) { return C.parseAmount(String(s).replace(/^-/, '')); }
+
+  function candidatos(text) {
+    var out = [], m, re;
+    re = new RegExp(AMT.source, 'gi');
+    while ((m = re.exec(text))) { var c = aCentavos(m[1]); if (c > 0) out.push({ cents: c, at: m.index, pref: text.slice(Math.max(0, m.index - 30), m.index), raw: m[0] }); }
+    if (!out.length) { re = new RegExp(AMT_COMA.source, 'g'); while ((m = re.exec(text))) { var d = aCentavos(m[1]); if (d > 0) out.push({ cents: d, at: m.index, pref: text.slice(Math.max(0, m.index - 30), m.index), raw: m[0] }); } }
+    return out;
+  }
+
+  function fecha(text, hoy) {
+    var m = /(\d{4})-(\d{2})-(\d{2})/.exec(text), y, mo, d;
+    if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if ((m = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/.exec(text))) { d = +m[1]; mo = +m[2]; y = +m[3]; if (y < 100) y += 2000; }
+    else if ((m = /(\d{1,2})\/(\d{1,2})(?![\d\/])/.exec(text))) { d = +m[1]; mo = +m[2]; y = +String(hoy).slice(0, 4); }
+    else return hoy;
+    var dt = new Date(Date.UTC(y, mo - 1, d));
+    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return hoy;
+    var iso = dt.toISOString().slice(0, 10);
+    return iso > hoy ? hoy : iso;   // un comprobante no es del futuro
+  }
+
+  function comercio(text) {
+    var m = /(?:comercio|establecimiento|destinatario|beneficiario|raz[oó]n social)\s*[:\-]\s*([^\n]{2,40})/i.exec(text) ||
+      /(?:[Cc]ompraste|[Pp]agaste|[Aa]bonaste|[Cc]onsumo|[Cc]ompra)[^\n]{0,30}?\b(?:en|a)\s+([A-ZÁÉÍÓÚÑ0-9][^\n,.$]{1,40})/.exec(text) ||
+      /(?:[Tt]ransferiste|[Ee]nviaste)[^\n]{0,40}?\ba\s+([A-ZÁÉÍÓÚÑ][^\n,.$]{1,40})/.exec(text);
+    if (m) return m[1].replace(/\s+(el|con|por|desde|del)\s+.*$/i, '').replace(/\s+/g, ' ').trim();
+    var l = String(text).split(/\n/).map(function (x) { return x.trim(); }).filter(function (x) { return x && !/\d{3,}|\$/.test(x) && x.length <= 40; });
+    return l[0] || '';
+  }
+
+  function leerTexto(text, hoy) {
+    text = String(text || '').slice(0, 4000);
+    var cs = candidatos(text); if (!cs.length) return null;
+    var fuertes = cs.filter(function (c) { return CLAVES.test(c.pref); }), debiles = cs.filter(function (c) { return DEBIL.test(c.pref); });
+    var elegido = fuertes[fuertes.length - 1] || debiles[0] || cs.slice().sort(function (a, b) { return b.cents - a.cents; })[0];
+    var usd = /u\$s|usd|us\$|d[oó]lares/i.test(elegido.raw + ' ' + elegido.pref);
+    var desc = C.tidyDesc(comercio(text)) || 'Comprobante';
+    return { desc: desc, cents: elegido.cents, cur: usd ? 'USD' : 'ARS', date: fecha(text, hoy), cat: C.guessCategory(desc) };
+  }
+
+  // La respuesta de Gemini (ya limpiada por el backend) → lo mismo que arriba.
+  function deRespuesta(r, hoy) {
+    if (!r || !(r.monto_centavos > 0)) return null;
+    var desc = C.tidyDesc(r.comercio || '') || 'Comprobante';
+    return { desc: desc, cents: r.monto_centavos, cur: r.moneda === 'USD' ? 'USD' : 'ARS', date: r.fecha && r.fecha <= hoy ? r.fecha : hoy, cat: C.guessCategory(desc) };
+  }
+
+  return { leerTexto: leerTexto, deRespuesta: deRespuesta, candidatos: candidatos, fecha: fecha };
+});
+</script>
 <script>
 (function () {
 'use strict';
@@ -1817,7 +1881,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.15.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '<p class="mut" style="font-size:13px;margin:8px 0 0">Próximamente: bot de Telegram con audio y fotos, Gemini para categorizar, importar resúmenes de tarjeta y vencimientos.</p></div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.16.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '<p class="mut" style="font-size:13px;margin:8px 0 0">Próximamente: bot de Telegram con audio y fotos, Gemini para categorizar, importar resúmenes de tarjeta y vencimientos.</p></div>';
   return foldCards(h);
 }
 function pctLine(date) {
@@ -1972,6 +2036,76 @@ function viewCalc() {
   if (S.mode !== 'sheets') return '';
   return '<div class="card"><h3>Calculadora de reparto</h3><p class="mut" style="margin:0 0 8px;font-size:14px">Poné un monto y te digo cuánto le toca a cada uno según los sueldos de hoy. No anota nada.</p><input data-in="calcamt" inputmode="decimal" placeholder="Monto" value="' + esc(S.calcAmt || '') + '" autocomplete="off"><div id="calcout" style="margin-top:8px">' + calcRepartoHtml(S.calcAmt) + '</div></div>';
 }
+
+// ---------------- compartir comprobantes a Cuba ----------------
+// Texto y PDF se leen acá, sin salir del celular. La imagen solo se manda a Gemini si decís que sí, cada vez, y no se guarda.
+var Share = {
+  clear: function () { if (S.sh && S.sh.url) { try { URL.revokeObjectURL(S.sh.url); } catch (e) {} } S.sh = null; },
+  prefill: function (r, evId, nota) {
+    var F = newForm('expense'), v = evId ? S.eventos.filter(function (x) { return x.id === evId; })[0] : null;
+    if (v) { F.ev = v.id; F.cur = v.cur; F.mode = 'equal'; }
+    if (r) { F.desc = r.desc; F.amount = r.cents > 0 ? String(C.centsDot(r.cents)).replace('.', ',') : ''; if (!v) F.cur = r.cur; F.date = r.date; F.cat = r.cat; F.catAuto = r.cat === 'otros'; if (F.mode === 'salary' && !salaryOk(F.date)) F.mode = 'equal'; }
+    S.form = F; renderForm(); if (nota) toast(nota);
+  },
+  texto: function (txt, evId) {
+    var r = CubaCompartir.leerTexto(txt, today());
+    if (r) Share.prefill(r, evId, 'Revisá los datos y guardá.');
+    else { Share.prefill(null, evId, 'No encontré un monto: cargalo a mano.'); }
+  },
+  archivo: function (file, evId) {
+    if (!file) return;
+    if (/^image\//.test(file.type || '')) { Share.imagen(file, evId); return; }
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
+      var rd = new FileReader();
+      rd.onload = function () { CubaResumen.pdfTexto(rd.result).then(function (t) { Share.texto(t, evId); }).catch(function () { Share.prefill(null, evId, 'No pude leer ese PDF: cargalo a mano.'); }); };
+      rd.readAsArrayBuffer(file); return;
+    }
+    Share.prefill(null, evId, 'Ese tipo de archivo no lo leo.');
+  },
+  imagen: function (blob, evId) {
+    Share.clear(); closeSheet();
+    S.sh = { blob: blob, url: URL.createObjectURL(blob), ev: evId || null, busy: false };
+    Share.sheet();
+  },
+  sheet: function () {
+    var sh = S.sh; if (!sh) return;
+    var ok = S.mode === 'sheets' && !S.offline;
+    var h = '<div class="sh-head"><h2>Comprobante</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div>';
+    h += '<img src="' + sh.url + '" alt="Vista previa del comprobante" style="max-width:100%;max-height:230px;border-radius:12px;display:block;margin:0 auto 10px">';
+    h += ok ? '<p class="mut" style="font-size:14px;margin:0 0 10px">Para leerlo, Cuba manda esta imagen a Gemini (Google) y le pide solo el comercio, el monto y la fecha. La imagen no se guarda en ningún lado. ¿Dale?</p>'
+      : '<p class="mut" style="font-size:14px;margin:0 0 10px">Ahora no puedo leerla (hace falta conexión con la Sheet). Cargá el gasto a mano.</p>';
+    h += '<div class="row">' + (ok ? '<button class="btn acc grow" data-act="shread"' + (sh.busy ? ' disabled' : '') + '>' + (sh.busy ? 'Leyendo…' : 'Sí, leerla') + '</button>' : '') + '<button class="btn ghost grow" data-act="shmanual"' + (sh.busy ? ' disabled' : '') + '>' + (ok ? 'No, lo cargo a mano' : 'Cargar a mano') + '</button></div>';
+    openSheet(h);
+  },
+  achicar: function (blob, max) {
+    return new Promise(function (res, rej) {
+      var u = URL.createObjectURL(blob), im = new Image();
+      im.onload = function () {
+        var k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(u); res(c.toDataURL('image/jpeg', 0.8).split(',')[1]);
+      };
+      im.onerror = function () { URL.revokeObjectURL(u); rej(new Error('img')); };
+      im.src = u;
+    });
+  },
+  // Al abrir Cuba desde «Compartir» en el celular (el service worker deja lo recibido en un caché; se lee una vez y se borra).
+  pending: function () {
+    if (!/[?&]share=1/.test(location.search) || !('caches' in window)) return;
+    try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+    caches.open('cuba-share').then(function (c) {
+      return Promise.all([c.match('share-meta'), c.match('share-file')]).then(function (r) {
+        return Promise.all([r[0] ? r[0].json() : {}, r[1] ? r[1].blob() : null]).then(function (x) {
+          return c.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return c.delete(k); })); }).then(function () { return x; });
+        });
+      });
+    }).then(function (x) {
+      if (S.mode !== 'sheets' || !S.group || !S.meId) { toast('Abrí Cuba y elegí quién sos para cargar lo compartido.'); return; }
+      var meta = x[0] || {}, blob = x[1];
+      if (blob && blob.size) Share.archivo(new File([blob], (meta.file && meta.file.name) || 'comprobante', { type: (meta.file && meta.file.type) || blob.type }));
+      else Share.texto([meta.title, meta.text, meta.url].filter(Boolean).join('\n'));
+    }).catch(function () {});
+  }
+};
 function viewPorPagar() {
   if (S.mode !== 'sheets') return '';
   var due = CubaSheets.dueSoon(S.recs, today(), 7);
@@ -2130,12 +2264,13 @@ function newForm(kind) {
   return { kind: kind || 'expense', id: null, desc: '', amount: '', cur: (S.group && S.group.cur) || 'ARS', date: today(), paidBy: S.meId, to: other, mode: (kind || 'expense') === 'expense' && salaryOk(today()) ? 'salary' : 'equal', why: '', rec: null, ev: null, who: who, vals: {}, cat: 'otros', catAuto: true, note: '', quick: '' };
 }
 function openSheet(html) { $('#sheet').innerHTML = html; $('#scrim').className = 'scrim show'; }
-function closeSheet() { $('#scrim').className = 'scrim'; $('#sheet').innerHTML = ''; S.form = null; S.rf = null; S.ef = null; S.confirmDel = null; if (pendingRender) render(); }
+function closeSheet() { $('#scrim').className = 'scrim'; $('#sheet').innerHTML = ''; S.form = null; S.rf = null; S.ef = null; Share.clear(); S.confirmDel = null; if (pendingRender) render(); }
 function renderForm() {
   var F = S.form, ms = members(), isPay = F.kind === 'payment';
   var evv = F.ev ? S.eventos.filter(function (x) { return x.id === F.ev; })[0] : null;
   var h = '<div class="sh-head"><h2>' + (F.id ? 'Editar' : isPay ? 'Registrar un pago' : 'Nuevo gasto') + (evv ? ' · ✈️ ' + esc(evv.name) : '') + '</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div>';
   if (!F.id) h += '<div class="seg"><button class="' + (!isPay ? 'on' : '') + '" data-act="kind" data-v="expense">Gasto</button><button class="' + (isPay ? 'on' : '') + '" data-act="kind" data-v="payment">Pago entre nosotros</button></div>';
+  if (!F.id && !isPay) h += '<label class="chip" style="display:inline-block;margin:0 0 8px;cursor:pointer">📎 Leer un comprobante<input type="file" id="shfile" accept="image/*,application/pdf" hidden></label>';
   if (!F.id && !isPay) h += '<div class="quick"><input id="quick" data-in="quick" placeholder="Anotá rápido: «super 15.200»" value="' + esc(F.quick) + '" autocomplete="off"><button data-act="quick">Cuba, anotá</button></div>';
   h += '<label class="f">' + (isPay ? 'Nota' : 'Descripción') + '</label><input data-in="desc" id="fdesc" value="' + esc(F.desc) + '" placeholder="' + (isPay ? 'Transferencia, efectivo…' : '¿Qué fue?') + '" maxlength="80" autocomplete="off">';
   h += '<div class="two"><div><label class="f">Monto</label><input data-in="amount" inputmode="decimal" value="' + esc(F.amount) + '" placeholder="0,00" autocomplete="off"></div><div><label class="f">Moneda</label><select data-in="cur"' + (evv ? ' disabled' : '') + '><option value="ARS"' + (F.cur === 'ARS' ? ' selected' : '') + '>ARS</option><option value="USD"' + (F.cur === 'USD' ? ' selected' : '') + '>USD</option></select></div></div>';
@@ -2467,6 +2602,20 @@ var A = {
     var it = avisosItems()[+el.dataset.i]; if (!it || !it.add || S.readOnly) return;
     var F = newForm('expense'); F.desc = it.add.label; F.cat = it.add.cat; F.catAuto = false; S.form = F; renderForm();
   },
+  shmanual: function () { var ev = S.sh && S.sh.ev; Share.clear(); closeSheet(); Share.prefill(null, ev, null); },
+  shread: function () {
+    var sh = S.sh; if (!sh || sh.busy || S.readOnly) return;
+    sh.busy = true; Share.sheet();
+    var fin = function (r, msg) { var ev = sh.ev; Share.clear(); closeSheet(); Share.prefill(r, ev, msg); };
+    Share.achicar(sh.blob, 1280).then(function (b64) { return Store.call('leerComprobante', { imagen: b64, mime: 'image/jpeg' }); }).then(function (d) {
+      if (!S.sh) return;
+      if (d.sin_clave) { fin(null, 'Falta la clave de Gemini en el Apps Script: cargalo a mano.'); return; }
+      if (d.error) { fin(null, 'Gemini no respondió: cargalo a mano.'); return; }
+      var r = CubaCompartir.deRespuesta(d, today());
+      if (!r) { fin(d.comercio ? { desc: d.comercio, cents: 0, cur: d.moneda, date: today(), cat: C.guessCategory(d.comercio) } : null, 'No pude leer el monto: completalo.'); return; }
+      fin(r, d.confianza < 0.6 ? 'Lo leí con dudas: revisá bien los datos.' : 'Revisá los datos y guardá.');
+    }).catch(function (er) { if (!S.sh) return; var m = er && er.message === 'img' ? 'No pude abrir esa imagen: cargalo a mano.' : 'No pude leerla ahora: cargalo a mano.'; fin(null, m); });
+  },
   recnew: function () { openRecForm(null); },
   recedit: function (el) { var r = S.recs.filter(function (x) { return x.id === el.dataset.id; })[0]; if (r) openRecForm(r); },
   recsave: function () {
@@ -2562,6 +2711,7 @@ document.addEventListener('change', function (ev) {
   var el = ev.target;
   if (el.type === 'checkbox' && el.dataset.act === 'toggle') { A.toggle(el); return; }
   if ((el.id === 'rstc' || el.id === 'rspct') && S.rs) { S.rs.dolar[el.id === 'rstc' ? 'tc' : 'pct'] = el.value; render(); return; }
+  if (el.type === 'file' && el.id === 'shfile') { var evq = S.form && S.form.ev, fq = el.files && el.files[0]; el.value = ''; if (fq) Share.archivo(fq, evq); return; }
   if (el.type === 'file' && el.id === 'rsfile') {
     var fr = el.files && el.files[0]; if (!fr) return;
     var rr = new FileReader();
@@ -2623,7 +2773,7 @@ document.addEventListener('keydown', function (ev) {
 
 try { if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && location.hostname.indexOf('claude') < 0) navigator.serviceWorker.register('sw.js').catch(function () {}); } catch (e) {}
 render();
-Store.init().then(render).catch(function (e) { console.error(e); S.mode = 'local'; Store.loadLocal(); render(); });
+Store.init().then(render).then(function () { Share.pending(); }).catch(function (e) { console.error(e); S.mode = 'local'; Store.loadLocal(); render(); });
 })();
 </script>
 </body>
