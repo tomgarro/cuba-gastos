@@ -1071,7 +1071,7 @@ function actionMpReportes_(req) {
     if (r.code === 200 && r.texto) { out.push({ nombre: String(x.f.file_name), creado: String(x.f.date_created || '').slice(0, 19), csv: r.texto }); bytes += r.texto.length; }
     else fallidos++;
   });
-  return { ok: true, reportes: out, listados: listas.length, recientes: fs.length, fallidos: fallidos, codigos: codigos.join(' '), hasta: hoy };
+  return { ok: true, reportes: out, listados: listas.length, recientes: fs.length, fallidos: fallidos, codigos: codigos.join(' '), v: '0.23.3', hasta: hoy };
 }
 
 function conectarMercadoPago() {

@@ -82,3 +82,6 @@ Orden por dependencia. Marcar a medida que se completa.
 
 ## v0.23.2
 - Mercado Pago: la respuesta de la app muestra los códigos que devolvió Mercado Pago y el menú 🐕 Cuba → «Probar Mercado Pago (qué ve Cuba)» lista lo que ve cada familia de reportes, para diagnosticar cuando no aparece el reporte programado.
+
+## v0.23.3
+- Mercado Pago: cuando no trae nada, el mensaje dice la versión de la app y la del Apps Script (si el script es viejo lo avisa), para distinguir «falta publicar el Code.gs» de «Mercado Pago no lista el reporte».

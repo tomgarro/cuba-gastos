@@ -63,7 +63,7 @@ const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-
 
   // mensajes claros cuando no hay nada para traer
   listas = { release_report: [], settlement_report: [] };
-  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Todavía no hay reportes generados');
+  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Todavía no hay reportes generados'); assert.ok(/app v\d+\.\d+\.\d+ · script v0\.23\.3 · MP respondió: release:200 settlement:200/.test(await app()), await app());
   listas = { release_report: [{ file_name: 'viejo.csv', date_created: '2020-01-01T00:00:00.000-03:00' }], settlement_report: [] };
   await p.click('[data-act=mpsync]'); await p.waitForSelector('text=ninguno reciente');
 
