@@ -85,3 +85,6 @@ Orden por dependencia. Marcar a medida que se completa.
 
 ## v0.23.3
 - Mercado Pago: cuando no trae nada, el mensaje dice la versión de la app y la del Apps Script (si el script es viejo lo avisa), para distinguir «falta publicar el Code.gs» de «Mercado Pago no lista el reporte».
+
+## v0.23.4
+- Mercado Pago: la lista de reportes se acepta también dentro de un objeto (results, data…) y el diagnóstico dice cuántos reportes vio cada familia (`release:200(0)`) o la forma de la respuesta si no es una lista.

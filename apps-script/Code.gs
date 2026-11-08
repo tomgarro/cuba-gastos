@@ -1027,6 +1027,14 @@ function mpGet_(path, token) {
   } catch (e) { return { code: 0, body: null }; }
 }
 
+/** La lista de reportes puede venir como arreglo suelto o dentro de un objeto (results, data…): se acepta cualquiera. */
+function mpLista_(b) {
+  if (Array.isArray(b)) return b;
+  if (b && typeof b === 'object') { var ks = ['results', 'data', 'reports', 'items', 'files']; for (var i = 0; i < ks.length; i++) if (Array.isArray(b[ks[i]])) return b[ks[i]]; }
+  return null;
+}
+function mpForma_(b) { return b == null ? 'vacía' : Array.isArray(b) ? 'arreglo' : typeof b === 'object' ? 'objeto{' + Object.keys(b).slice(0, 6).join(',') + '}' : typeof b; }
+
 function igual_(a, b) {   // compara sin cortar en la primera diferencia
   a = String(a); b = String(b); var x = a.length ^ b.length;
   for (var i = 0; i < Math.max(a.length, b.length); i++) x |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
@@ -1051,15 +1059,16 @@ function actionMpReportes_(req) {
   var listas = [], codigos = [], hayHttp = false, hayToken = false;
   MP_FAMILIAS.forEach(function (fam) {
     var lst = mpGet_('/v1/account/' + fam + '/list', token);
-    codigos.push(fam.split('_')[0] + ':' + lst.code);
+    var arr = mpLista_(lst.body);
+    codigos.push(fam.split('_')[0] + ':' + lst.code + (lst.code === 200 ? '(' + (arr ? arr.length : 'forma ' + mpForma_(lst.body)) + ')' : ''));
     if (lst.code === 401 || lst.code === 403) { hayToken = true; return; }
     if (lst.code === 0) { hayHttp = true; return; }
-    if (lst.code === 200 && Array.isArray(lst.body)) lst.body.forEach(function (f) { if (f && f.file_name) listas.push({ fam: fam, f: f }); });
+    if (lst.code === 200 && arr) arr.forEach(function (f) { if (f && f.file_name) listas.push({ fam: fam, f: f }); });
   });
   if (!listas.length) {
     if (hayToken && codigos.every(function (c) { return /:40[13]$/.test(c); })) return { ok: true, error: 'mp_token' };
-    if (hayHttp && codigos.every(function (c) { return /:0$/.test(c); })) return { ok: true, error: 'mp_http' };
-    if (!codigos.some(function (c) { return /:200$/.test(c); })) return { ok: true, error: 'mp_lista', codigo: codigos.join(' ') };
+    if (hayHttp && codigos.every(function (c) { return /^[a-z]+:0$/.test(c); })) return { ok: true, error: 'mp_http' };
+    if (!codigos.some(function (c) { return /:200/.test(c); })) return { ok: true, error: 'mp_lista', codigo: codigos.join(' ') };
   }
   var fs = listas.filter(function (x) {
     return /\.csv$/i.test(String(x.f.file_name)) && (!x.f.date_created || String(x.f.date_created).slice(0, 10) >= desde);
@@ -1071,7 +1080,7 @@ function actionMpReportes_(req) {
     if (r.code === 200 && r.texto) { out.push({ nombre: String(x.f.file_name), creado: String(x.f.date_created || '').slice(0, 19), csv: r.texto }); bytes += r.texto.length; }
     else fallidos++;
   });
-  return { ok: true, reportes: out, listados: listas.length, recientes: fs.length, fallidos: fallidos, codigos: codigos.join(' '), v: '0.23.3', hasta: hoy };
+  return { ok: true, reportes: out, listados: listas.length, recientes: fs.length, fallidos: fallidos, codigos: codigos.join(' '), v: '0.23.4', hasta: hoy };
 }
 
 function conectarMercadoPago() {
@@ -1095,8 +1104,9 @@ function probarMercadoPago() {
   var L = [];
   MP_FAMILIAS.forEach(function (fam) {
     var r = mpGet_('/v1/account/' + fam + '/list', token);
-    if (r.code === 200 && Array.isArray(r.body)) {
-      L.push('• ' + fam + ': 200, ' + r.body.length + ' reportes' + r.body.slice(0, 4).map(function (f) { return '\n     ' + String(f.file_name) + ' (' + String(f.date_created || '').slice(0, 10) + ')'; }).join(''));
+    var arr = mpLista_(r.body);
+    if (r.code === 200 && arr) {
+      L.push('• ' + fam + ': 200, ' + arr.length + ' reportes' + arr.slice(0, 4).map(function (f) { return '\n     ' + String(f.file_name) + ' (' + String(f.date_created || '').slice(0, 10) + ')'; }).join(''));
     } else L.push('• ' + fam + ': código ' + r.code + (r.texto ? ' · ' + String(r.texto).slice(0, 160) : ''));
   });
   ui.alert('Mercado Pago: qué ve Cuba', L.join('\n'), ui.ButtonSet.OK);

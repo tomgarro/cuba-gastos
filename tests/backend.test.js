@@ -760,9 +760,16 @@ t('mpReportes devuelve los códigos de Mercado Pago y «Probar Mercado Pago» mu
   const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
   b.ctx.UrlFetchApp = { fetch: u => /release_report/.test(u) ? resp(404, { message: 'not found' }) : resp(200, []) };
   const r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' });
-  assert.strictEqual(r.codigos, 'release:404 settlement:200'); assert.strictEqual(r.listados, 0); assert.strictEqual(r.v, '0.23.3');
+  assert.strictEqual(r.codigos, 'release:404 settlement:200(0)'); assert.strictEqual(r.listados, 0); assert.strictEqual(r.v, '0.23.4');
   let msg = ''; b.ctx.SpreadsheetApp = { getUi: () => ({ alert: (t, m) => { msg = t + ' ' + m; }, ButtonSet: { OK: 1 } }) };
   vm.runInContext('probarMercadoPago()', b.ctx);
   assert.ok(/release_report: código 404/.test(msg) && /settlement_report: 200, 0 reportes/.test(msg) && !/APP_USR/.test(msg), msg);
 });
 console.log('mp diagnóstico ok');
+t('mpReportes acepta la lista dentro de un objeto y cuenta qué vio', () => {
+  const b = boot(); b.log.props.MP_ACCESS_TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-9999'; b.log.props.MP_LINK = 'ABCD-1234-EF56';
+  const hoy = new Date().toISOString().slice(0, 10), resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => typeof body === 'string' ? body : JSON.stringify(body) });
+  b.ctx.UrlFetchApp = { fetch: u => /release_report\/list/.test(u) ? resp(200, { results: [{ file_name: 'r.csv', date_created: hoy + 'T01:00:00Z' }] }) : /settlement_report\/list/.test(u) ? resp(200, { total: 0, algo: 1 }) : resp(200, 'DATE,X\n' + hoy + ',1') };
+  const r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' });
+  assert.strictEqual(r.reportes.length, 1); assert.ok(/release:200\(1\) settlement:200\(forma objeto\{total,algo\}\)/.test(r.codigos), r.codigos);
+});
