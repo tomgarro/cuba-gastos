@@ -79,3 +79,6 @@ Orden por dependencia. Marcar a medida que se completa.
 ## v0.23.1
 - Mercado Pago: «Traer ahora» no encontraba el reporte programado porque se miraba solo la lista de «Liquidaciones» (`settlement_report`); el reporte de «Dinero en cuenta» (`release_report`) tiene su lista aparte. Ahora se miran las dos y los mensajes distinguen «no hay reportes», «hay pero ninguno reciente» y «no pude bajarlos».
 - Tests: `e2e-mp.js` reescrito para el flujo actual (estaba pegado a «Compra con amigos», retirada en v0.23); se saca el bloque viejo de `personal.test.js`.
+
+## v0.23.2
+- Mercado Pago: la respuesta de la app muestra los códigos que devolvió Mercado Pago y el menú 🐕 Cuba → «Probar Mercado Pago (qué ve Cuba)» lista lo que ve cada familia de reportes, para diagnosticar cuando no aparece el reporte programado.

@@ -695,6 +695,7 @@ function onOpen() {
     .addItem('Link para emparejar celulares', 'mostrarEmparejado')
     .addItem('Guardar clave de Gemini', 'guardarClaveGemini')
     .addItem('Conectar Mercado Pago', 'conectarMercadoPago')
+    .addItem('Probar Mercado Pago (qué ve Cuba)', 'probarMercadoPago')
     .addItem('Desconectar Mercado Pago', 'desconectarMercadoPago')
     .addItem('Activar avisos de vencimientos', 'activarAvisos')
     .addItem('Probar avisos (qué pasa con cada celu)', 'probarAvisos')
@@ -1070,7 +1071,7 @@ function actionMpReportes_(req) {
     if (r.code === 200 && r.texto) { out.push({ nombre: String(x.f.file_name), creado: String(x.f.date_created || '').slice(0, 19), csv: r.texto }); bytes += r.texto.length; }
     else fallidos++;
   });
-  return { ok: true, reportes: out, listados: listas.length, recientes: fs.length, fallidos: fallidos, hasta: hoy };
+  return { ok: true, reportes: out, listados: listas.length, recientes: fs.length, fallidos: fallidos, codigos: codigos.join(' '), hasta: hoy };
 }
 
 function conectarMercadoPago() {
@@ -1085,6 +1086,20 @@ function conectarMercadoPago() {
   var props = PropertiesService.getScriptProperties();
   props.setProperty(MP.TOKEN, k); props.setProperty(MP.USER, String(me.body.id)); props.setProperty(MP.LINK, link);
   ui.alert('Listo: cuenta de Mercado Pago #' + me.body.id + ' conectada (solo lectura).\n\nTu código de enlace es:\n\n' + link + '\n\nPegalo en la app: Personal → Mercado Pago. Anotalo ahora; si lo perdés, volvé a conectar.');
+}
+
+/** Menú: muestra qué contesta Mercado Pago a cada lista de reportes (códigos y nombres de archivo; nunca el token). */
+function probarMercadoPago() {
+  var ui = SpreadsheetApp.getUi(), token = PropertiesService.getScriptProperties().getProperty(MP.TOKEN);
+  if (!token) { ui.alert('Mercado Pago no está conectado: menú 🐕 Cuba → Conectar Mercado Pago.'); return; }
+  var L = [];
+  MP_FAMILIAS.forEach(function (fam) {
+    var r = mpGet_('/v1/account/' + fam + '/list', token);
+    if (r.code === 200 && Array.isArray(r.body)) {
+      L.push('• ' + fam + ': 200, ' + r.body.length + ' reportes' + r.body.slice(0, 4).map(function (f) { return '\n     ' + String(f.file_name) + ' (' + String(f.date_created || '').slice(0, 10) + ')'; }).join(''));
+    } else L.push('• ' + fam + ': código ' + r.code + (r.texto ? ' · ' + String(r.texto).slice(0, 160) : ''));
+  });
+  ui.alert('Mercado Pago: qué ve Cuba', L.join('\n'), ui.ButtonSet.OK);
 }
 
 function desconectarMercadoPago() {

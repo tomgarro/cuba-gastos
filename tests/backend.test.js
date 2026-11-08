@@ -755,3 +755,14 @@ t('mpReportes: errores claros (token malo, sin red, listas vacías, descarga fal
   assert.strictEqual(falla.reportes.length, 0); assert.ok(falla.fallidos >= 1);
 });
 console.log(n + ' pruebas del backend (mp incluidas)');
+t('mpReportes devuelve los códigos de Mercado Pago y «Probar Mercado Pago» muestra qué ve Cuba sin el token', () => {
+  const b = boot(); b.log.props.MP_ACCESS_TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-9999'; b.log.props.MP_LINK = 'ABCD-1234-EF56';
+  const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
+  b.ctx.UrlFetchApp = { fetch: u => /release_report/.test(u) ? resp(404, { message: 'not found' }) : resp(200, []) };
+  const r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' });
+  assert.strictEqual(r.codigos, 'release:404 settlement:200'); assert.strictEqual(r.listados, 0);
+  let msg = ''; b.ctx.SpreadsheetApp = { getUi: () => ({ alert: (t, m) => { msg = t + ' ' + m; }, ButtonSet: { OK: 1 } }) };
+  vm.runInContext('probarMercadoPago()', b.ctx);
+  assert.ok(/release_report: código 404/.test(msg) && /settlement_report: 200, 0 reportes/.test(msg) && !/APP_USR/.test(msg), msg);
+});
+console.log('mp diagnóstico ok');
