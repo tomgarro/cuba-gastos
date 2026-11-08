@@ -20,9 +20,11 @@ const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-
     hoy + 'T14:00:00.000-03:00,7003,,release,SETTLEMENT,9000.00,0.00,9000.00,ARS'
   ].join('\n');
   const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => (typeof body === 'string' ? body : JSON.stringify(body)) });
-  let listas = { release_report: [{ file_name: 'release-report-1.csv', date_created: hoy + 'T09:00:00.000-03:00' }], settlement_report: [] };
+  const posts = []; let postCode = 202;
+  let listas = { release_report: [{ file_name: 'release-report-1.csv', date_created: new Date().toISOString() }], settlement_report: [] };
   sheet.ctx.UrlFetchApp = { fetch: (u, o) => {
-    llamadas.n++; assert.strictEqual(o.method, 'get'); assert.strictEqual(o.headers.Authorization, 'Bearer ' + TOKEN);
+    llamadas.n++; assert.strictEqual(o.headers.Authorization, 'Bearer ' + TOKEN);
+    if (o.method === 'post') { posts.push(u); return resp(postCode, {}); }
     const m = /account\/(release_report|settlement_report)\/(.+)$/.exec(u); if (!m) return resp(404, {});
     if (m[2] === 'list') return resp(200, listas[m[1]]);
     return m[1] === 'release_report' && m[2] === 'release-report-1.csv' ? resp(200, csv) : resp(404, {});
@@ -61,11 +63,14 @@ const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-
   // otra vez: no duplica nada
   await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Todo al día');
 
-  // mensajes claros cuando no hay nada para traer
+  // sin reporte reciente: Cuba lo pide y avisa que está en camino (solo se pide una vez mientras se genera)
   listas = { release_report: [], settlement_report: [] };
-  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Todavía no hay reportes generados'); assert.ok(/app v\d+\.\d+\.\d+ · script v0\.23\.4 · MP respondió: release:200\(0\) settlement:200\(0\)/.test(await app()), await app());
-  listas = { release_report: [{ file_name: 'viejo.csv', date_created: '2020-01-01T00:00:00.000-03:00' }], settlement_report: [] };
-  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=ninguno reciente');
+  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Le pedí el reporte a Mercado Pago');
+  assert.strictEqual(posts.length, 1); assert.ok(/\/v1\/account\/release_report$/.test(posts[0]), posts[0]);
+  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Le pedí el reporte a Mercado Pago'); assert.strictEqual(posts.length, 1, 'mientras se genera no pide otro');
+  // si Mercado Pago no deja pedirlo, lo dice con el código
+  delete sheet.log.props.MP_PEDIDO; postCode = 403;
+  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=No pude pedirle el reporte a Mercado Pago (403');
 
   // el token nunca viajó ni quedó en la Sheet; lo que se importó está cifrado
   assert.ok(wire.every(w => !w.includes(TOKEN) && !/APP_USR/.test(w)), 'el token no sale del Apps Script');
@@ -78,5 +83,5 @@ const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-
   await p.click('[data-act=mpdesc]'); assert.strictEqual(await p.locator('#mpclave').count(), 1);
   await browser.close();
   assert.deepStrictEqual(errs, [], errs.join('\n'));
-  console.log('ok  Mercado Pago: baja el reporte de «Dinero en cuenta», sin duplicar, mensajes claros y el token nunca sale del Apps Script');
+  console.log('ok  Mercado Pago: baja el reporte de «Dinero en cuenta», lo pide si falta, sin duplicar, mensajes claros y el token nunca sale del Apps Script');
 })().catch(e => { console.error(e); process.exit(1); });

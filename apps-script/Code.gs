@@ -1007,10 +1007,12 @@ function guardarClaveGemini() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Mercado Pago (solo lectura)                                         */
+/* Mercado Pago (lee plata, nunca la mueve)                             */
 /* El Access Token vive SOLO en las Propiedades del script: nunca en   */
-/* la Sheet, el repo ni la app. Acá solo se hacen pedidos GET; no hay  */
-/* ningún código que cree pagos, transferencias ni retiros.            */
+/* la Sheet, el repo ni la app. Casi todo son pedidos GET. La única    */
+/* escritura permitida es PEDIR UN REPORTE (release_report y su        */
+/* config), con lista cerrada en mpPost_: no hay código que cree       */
+/* pagos, transferencias ni retiros.                                   */
 /* La app recibe un «código de enlace» (MP_LINK) que no sirve para     */
 /* nada fuera de este script y que Odi no tiene: sin él, mpReportes */
 /* no devuelve nada.                                                    */
@@ -1028,6 +1030,18 @@ function mpGet_(path, token) {
 }
 
 /** La lista de reportes puede venir como arreglo suelto o dentro de un objeto (results, data…): se acepta cualquiera. */
+/** Única escritura permitida: pedir un reporte (y, si falta, su configuración). Cualquier otra ruta se rechaza acá. */
+var MP_POST_OK = ['/v1/account/release_report', '/v1/account/release_report/config'];
+function mpPost_(path, payload, token) {
+  if (MP_POST_OK.indexOf(path) < 0) throw new Error('POST no permitido: ' + path);
+  try {
+    var r = UrlFetchApp.fetch(MP.BASE + path, { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + token }, payload: JSON.stringify(payload) });
+    var texto = r.getContentText(), body = null;
+    try { body = JSON.parse(texto); } catch (e) {}
+    return { code: r.getResponseCode(), body: body, texto: texto };
+  } catch (e) { return { code: 0, body: null, texto: '' }; }
+}
+
 function mpLista_(b) {
   if (Array.isArray(b)) return b;
   if (b && typeof b === 'object') { var ks = ['results', 'data', 'reports', 'items', 'files']; for (var i = 0; i < ks.length; i++) if (Array.isArray(b[ks[i]])) return b[ks[i]]; }
@@ -1049,13 +1063,13 @@ function igual_(a, b) {   // compara sin cortar en la primera diferencia
  * Solo con el código de enlace. El token nunca sale de acá.
  */
 var MP_FAMILIAS = ['release_report', 'settlement_report'];
+var MP_PEDIDO = 'MP_PEDIDO';   // cuándo se pidió el último reporte (para no pedir de más)
+var MP_CONFIG_BASE = { file_name_prefix: 'release-report-cuba', include_withdrawal_at_end: false, execute_after_withdrawal: false, display_timezone: 'GMT-03', report_translation: 'en',
+  separator: ',', check_available_balance: false, compensate_detail: false, notification_email_list: [], frequency: { hour: 0, type: 'daily', value: 1 },
+  columns: ['DATE', 'SOURCE_ID', 'EXTERNAL_REFERENCE', 'RECORD_TYPE', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT', 'GROSS_AMOUNT'].map(function (k) { return { key: k }; }) };
 
-function actionMpReportes_(req) {
-  var props = PropertiesService.getScriptProperties(), token = props.getProperty(MP.TOKEN), link = props.getProperty(MP.LINK);
-  if (!token || !link) return { ok: true, sin_token: true };
-  if (!igual_(text_(req.clave, 40), link)) fail_('no_autorizado', 'Ese código de enlace no es el de esta cuenta.');
-  var hoy = new Date().toISOString().slice(0, 10);
-  var desde = isDate_(req.desde) ? req.desde : new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10);
+/** Lista los reportes de las dos familias: [{ fam, f }] más los códigos de respuesta. */
+function mpListas_(token) {
   var listas = [], codigos = [], hayHttp = false, hayToken = false;
   MP_FAMILIAS.forEach(function (fam) {
     var lst = mpGet_('/v1/account/' + fam + '/list', token);
@@ -1065,12 +1079,50 @@ function actionMpReportes_(req) {
     if (lst.code === 0) { hayHttp = true; return; }
     if (lst.code === 200 && arr) arr.forEach(function (f) { if (f && f.file_name) listas.push({ fam: fam, f: f }); });
   });
-  if (!listas.length) {
-    if (hayToken && codigos.every(function (c) { return /:40[13]$/.test(c); })) return { ok: true, error: 'mp_token' };
-    if (hayHttp && codigos.every(function (c) { return /^[a-z]+:0$/.test(c); })) return { ok: true, error: 'mp_http' };
-    if (!codigos.some(function (c) { return /:200/.test(c); })) return { ok: true, error: 'mp_lista', codigo: codigos.join(' ') };
+  return { listas: listas, codigos: codigos, hayHttp: hayHttp, hayToken: hayToken };
+}
+
+/** Si no hay un reporte reciente, se le pide uno a Mercado Pago para el período (los reportes que armás en su web no se ven por la API). */
+function mpPedirReporte_(token, desde, listas) {
+  var props = PropertiesService.getScriptProperties(), ahora = Date.now();
+  var ult = Number(props.getProperty(MP_PEDIDO)) || 0;
+  if (ahora - ult < 10 * 60 * 1000) return { estado: 'en_curso' };   // ya se pidió hace poco: está generándose
+  var reciente = listas.some(function (x) { return x.fam === 'release_report' && /\.csv$/i.test(String(x.f.file_name)) && x.f.date_created && ahora - Date.parse(x.f.date_created) < 6 * 3600 * 1000; });
+  if (reciente) return { estado: 'hay' };
+  var cuerpo = { begin_date: desde + 'T03:00:00Z', end_date: new Date(ahora - 60000).toISOString().slice(0, 19) + 'Z' };
+  var r = mpPost_('/v1/account/release_report', cuerpo, token);
+  if (r.code === 0) return { estado: 'error', codigo: 0, texto: 'sin respuesta' };
+  if ((r.code === 400 || r.code === 404 || r.code === 409) && !/begin_date|end_date/.test(String(r.texto))) {   // sin configuración previa: se crea la mínima y se reintenta una vez
+    var c = mpPost_('/v1/account/release_report/config', MP_CONFIG_BASE, token);
+    if (c.code === 200 || c.code === 201 || c.code === 409) r = mpPost_('/v1/account/release_report', cuerpo, token);
+    else return { estado: 'error', codigo: c.code, texto: 'config: ' + String(c.texto).slice(0, 140) };
   }
-  var fs = listas.filter(function (x) {
+  if (r.code === 200 || r.code === 201 || r.code === 202) { props.setProperty(MP_PEDIDO, String(ahora)); return { estado: 'pedido' }; }
+  return { estado: 'error', codigo: r.code, texto: String(r.texto).slice(0, 140) };
+}
+
+function actionMpReportes_(req) {
+  var props = PropertiesService.getScriptProperties(), token = props.getProperty(MP.TOKEN), link = props.getProperty(MP.LINK);
+  if (!token || !link) return { ok: true, sin_token: true };
+  if (!igual_(text_(req.clave, 40), link)) fail_('no_autorizado', 'Ese código de enlace no es el de esta cuenta.');
+  var hoy = new Date().toISOString().slice(0, 10);
+  var desde = isDate_(req.desde) ? req.desde : new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10);
+  var L = mpListas_(token);
+  if (!L.listas.length) {
+    if (L.hayToken && L.codigos.every(function (c) { return /:40[13]$/.test(c); })) return { ok: true, error: 'mp_token' };
+    if (L.hayHttp && L.codigos.every(function (c) { return /^[a-z]+:0$/.test(c); })) return { ok: true, error: 'mp_http' };
+    if (!L.codigos.some(function (c) { return /:200/.test(c); })) return { ok: true, error: 'mp_lista', codigo: L.codigos.join(' ') };
+  }
+  var pedido = mpPedirReporte_(token, desde, L.listas);
+  if (pedido.estado === 'pedido' || pedido.estado === 'en_curso') {   // da unos segundos para que aparezca
+    for (var k = 0; k < 3; k++) {
+      Utilities.sleep(4000);
+      var otra = mpListas_(token);
+      var nuevo = otra.listas.some(function (x) { return x.fam === 'release_report' && x.f.date_created && Date.now() - Date.parse(x.f.date_created) < 15 * 60 * 1000; });
+      if (nuevo) { L = otra; pedido.estado = 'listo'; break; }
+    }
+  }
+  var fs = L.listas.filter(function (x) {
     return /\.csv$/i.test(String(x.f.file_name)) && (!x.f.date_created || String(x.f.date_created).slice(0, 10) >= desde);
   }).sort(function (a, b) { return String(b.f.date_created || '') < String(a.f.date_created || '') ? -1 : 1; }).slice(0, MP.REPORTES);
   var out = [], bytes = 0, fallidos = 0;
@@ -1080,21 +1132,10 @@ function actionMpReportes_(req) {
     if (r.code === 200 && r.texto) { out.push({ nombre: String(x.f.file_name), creado: String(x.f.date_created || '').slice(0, 19), csv: r.texto }); bytes += r.texto.length; }
     else fallidos++;
   });
-  return { ok: true, reportes: out, listados: listas.length, recientes: fs.length, fallidos: fallidos, codigos: codigos.join(' '), v: '0.23.4', hasta: hoy };
-}
-
-function conectarMercadoPago() {
-  var ui = SpreadsheetApp.getUi();
-  var r = ui.prompt('Token de Mercado Pago', 'Pegá el Access Token de PRODUCCIÓN de tu aplicación (queda solo en las Propiedades del script, no en la Sheet):', ui.ButtonSet.OK_CANCEL);
-  if (r.getSelectedButton() !== ui.Button.OK) return;
-  var k = r.getResponseText().replace(/[\s"']/g, '');
-  if (!/^APP_USR-[A-Za-z0-9_\-]{20,}$/.test(k)) { ui.alert('Ese token no parece válido (empieza con APP_USR-). No se guardó nada.'); return; }
-  var me = mpGet_('/users/me', k);
-  if (me.code !== 200 || !me.body || !me.body.id) { ui.alert('Mercado Pago no aceptó el token (código ' + me.code + '). No se guardó nada.'); return; }
-  var h = Utilities.getUuid().replace(/-/g, '').slice(0, 12).toUpperCase(), link = h.slice(0, 4) + '-' + h.slice(4, 8) + '-' + h.slice(8, 12);
-  var props = PropertiesService.getScriptProperties();
-  props.setProperty(MP.TOKEN, k); props.setProperty(MP.USER, String(me.body.id)); props.setProperty(MP.LINK, link);
-  ui.alert('Listo: cuenta de Mercado Pago #' + me.body.id + ' conectada (solo lectura).\n\nTu código de enlace es:\n\n' + link + '\n\nPegalo en la app: Personal → Mercado Pago. Anotalo ahora; si lo perdés, volvé a conectar.');
+  var res = { ok: true, reportes: out, listados: L.listas.length, recientes: fs.length, fallidos: fallidos, codigos: L.codigos.join(' '), v: '0.24.0', hasta: hoy };
+  if (pedido.estado === 'pedido' || pedido.estado === 'en_curso') res.pedido = true;
+  if (pedido.estado === 'error') { res.pedido_error = (pedido.codigo || '?') + (pedido.texto ? ' ' + pedido.texto : ''); }
+  return res;
 }
 
 /** Menú: muestra qué contesta Mercado Pago a cada lista de reportes (códigos y nombres de archivo; nunca el token). */
@@ -1109,6 +1150,10 @@ function probarMercadoPago() {
       L.push('• ' + fam + ': 200, ' + arr.length + ' reportes' + arr.slice(0, 4).map(function (f) { return '\n     ' + String(f.file_name) + ' (' + String(f.date_created || '').slice(0, 10) + ')'; }).join(''));
     } else L.push('• ' + fam + ': código ' + r.code + (r.texto ? ' · ' + String(r.texto).slice(0, 160) : ''));
   });
+  var cfg = mpGet_('/v1/account/release_report/config', token);
+  L.push('• config de reportes: código ' + cfg.code + (cfg.code === 200 ? ' (ya hay una)' : cfg.texto ? ' · ' + String(cfg.texto).slice(0, 100) : ''));
+  var ped = Number(PropertiesService.getScriptProperties().getProperty(MP_PEDIDO)) || 0;
+  L.push('• último reporte pedido por Cuba: ' + (ped ? new Date(ped).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'ninguno'));
   ui.alert('Mercado Pago: qué ve Cuba', L.join('\n'), ui.ButtonSet.OK);
 }
 

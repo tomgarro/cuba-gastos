@@ -731,7 +731,7 @@ t('mpReportes: baja los CSV de las dos familias, solo GET, y el token no sale', 
   const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => (typeof body === 'string' ? body : JSON.stringify(body)) });
   b.ctx.UrlFetchApp = { fetch: (u, o) => {
     urls.push(u); assert.strictEqual(o.method, 'get');
-    if (/release_report\/list/.test(u)) return resp(200, [{ file_name: 'release-report-1.csv', date_created: hoy + 'T10:00:00.000-03:00' }, { file_name: 'viejo.csv', date_created: '2020-01-01T00:00:00Z' }]);
+    if (/release_report\/list/.test(u)) return resp(200, [{ file_name: 'release-report-1.csv', date_created: new Date().toISOString() }, { file_name: 'viejo.csv', date_created: '2020-01-01T00:00:00Z' }]);
     if (/settlement_report\/list/.test(u)) return resp(404, { message: 'no' });
     if (/release_report\/release-report-1\.csv/.test(u)) return resp(200, 'DATE,DESCRIPTION\n' + hoy + ',x');
     return resp(500, '');
@@ -760,7 +760,7 @@ t('mpReportes devuelve los códigos de Mercado Pago y «Probar Mercado Pago» mu
   const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
   b.ctx.UrlFetchApp = { fetch: u => /release_report/.test(u) ? resp(404, { message: 'not found' }) : resp(200, []) };
   const r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' });
-  assert.strictEqual(r.codigos, 'release:404 settlement:200(0)'); assert.strictEqual(r.listados, 0); assert.strictEqual(r.v, '0.23.4');
+  assert.strictEqual(r.codigos, 'release:404 settlement:200(0)'); assert.strictEqual(r.listados, 0); assert.strictEqual(r.v, '0.24.0');
   let msg = ''; b.ctx.SpreadsheetApp = { getUi: () => ({ alert: (t, m) => { msg = t + ' ' + m; }, ButtonSet: { OK: 1 } }) };
   vm.runInContext('probarMercadoPago()', b.ctx);
   assert.ok(/release_report: código 404/.test(msg) && /settlement_report: 200, 0 reportes/.test(msg) && !/APP_USR/.test(msg), msg);
@@ -773,3 +773,43 @@ t('mpReportes acepta la lista dentro de un objeto y cuenta qué vio', () => {
   const r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' });
   assert.strictEqual(r.reportes.length, 1); assert.ok(/release:200\(1\) settlement:200\(forma objeto\{total,algo\}\)/.test(r.codigos), r.codigos);
 });
+
+// Cuba le pide el reporte a Mercado Pago cuando no hay uno reciente (los programados desde la web no se ven por la API).
+function mpBoot() { const b = boot(); b.log.props.MP_ACCESS_TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-9999'; b.log.props.MP_LINK = 'ABCD-1234-EF56'; return b; }
+const rsp = (code, body) => ({ getResponseCode: () => code, getContentText: () => typeof body === 'string' ? body : JSON.stringify(body) });
+t('mpReportes pide el reporte, espera que aparezca, lo baja y no vuelve a pedir enseguida', () => {
+  const b = mpBoot(), posts = []; let creado = false;
+  b.ctx.UrlFetchApp = { fetch: (u, o) => {
+    if (o.method === 'post') { posts.push({ u, p: JSON.parse(o.payload) }); creado = true; return rsp(202, { id: 1, status: 'pending' }); }
+    if (/release_report\/list/.test(u)) return rsp(200, creado ? [{ file_name: 'release-report-9.csv', date_created: new Date().toISOString() }] : []);
+    if (/settlement_report\/list/.test(u)) return rsp(200, []);
+    return /release-report-9\.csv/.test(u) ? rsp(200, 'DATE,X\n2026-11-08,1') : rsp(404, {});
+  } };
+  const r = b.call('mpReportes', { clave: 'ABCD-1234-EF56', desde: '2026-11-05' });
+  assert.strictEqual(posts.length, 1); assert.ok(/\/v1\/account\/release_report$/.test(posts[0].u));
+  assert.strictEqual(posts[0].p.begin_date, '2026-11-05T03:00:00Z'); assert.ok(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(posts[0].p.end_date));
+  assert.strictEqual(r.reportes.length, 1); assert.ok(!r.pedido, 'ya estaba listo');
+  b.call('mpReportes', { clave: 'ABCD-1234-EF56', desde: '2026-11-05' }); assert.strictEqual(posts.length, 1, 'no pide otro');
+});
+t('mpReportes: si tarda, avisa «pedido»; sin configuración la crea y reintenta; si falla, dice el código', () => {
+  // tarda: el reporte no aparece en la espera
+  let b = mpBoot(), posts = 0;
+  b.ctx.UrlFetchApp = { fetch: (u, o) => { if (o.method === 'post') { posts++; return rsp(202, {}); } return rsp(200, []); } };
+  let r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' }); assert.strictEqual(r.pedido, true); assert.strictEqual(posts, 1); assert.ok(b.log.sleeps >= 3);
+  r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' }); assert.strictEqual(posts, 1, 'mientras se genera no pide otro'); assert.strictEqual(r.pedido, true);
+  // sin configuración: la crea (con las columnas que lee la app) y reintenta una vez
+  b = mpBoot(); const llam = [];
+  b.ctx.UrlFetchApp = { fetch: (u, o) => { if (o.method === 'post') { llam.push(u.replace('https://api.mercadopago.com', '')); if (/config$/.test(u)) { const c = JSON.parse(o.payload); assert.ok(c.columns.some(x => x.key === 'NET_CREDIT_AMOUNT') && c.columns.some(x => x.key === 'SOURCE_ID') && c.report_translation === 'en'); return rsp(201, {}); } return llam.length === 1 ? rsp(404, { message: 'config not found' }) : rsp(202, {}); } return rsp(200, []); } };
+  r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' }); assert.deepStrictEqual(llam, ['/v1/account/release_report', '/v1/account/release_report/config', '/v1/account/release_report']); assert.strictEqual(r.pedido, true);
+  // falla: se informa el código
+  b = mpBoot(); b.ctx.UrlFetchApp = { fetch: (u, o) => o.method === 'post' ? rsp(403, { message: 'forbidden' }) : rsp(200, []) };
+  r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' }); assert.ok(/^403 /.test(r.pedido_error) && !r.pedido, JSON.stringify(r));
+});
+t('mpPost_ rechaza cualquier ruta que no sea pedir un reporte', () => {
+  const b = mpBoot(); let n2 = 0; b.ctx.UrlFetchApp = { fetch: () => { n2++; return rsp(200, {}); } };
+  ['/v1/payments', '/v1/account/release_report/schedule', '/v1/money_requests', '/v1/account/release_report/../payments'].forEach(p => {
+    assert.throws(() => vm.runInContext('mpPost_(' + JSON.stringify(p) + ', {}, "x")', b.ctx), /POST no permitido/);
+  });
+  assert.strictEqual(n2, 0, 'no salió ningún pedido');
+});
+console.log('mp: pedir reporte ok');

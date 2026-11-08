@@ -48,3 +48,7 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 
 - **Se activa:** importar un reporte de Mercado Pago que incluya un pago a una veterinaria, pet shop o alimento balanceado. Cuba «olfatea» algo suyo, el aviso lo cuenta y el celu vibra apenas.
 - **Se apaga:** borrar la variable `guau` y su uso en `A.mpimp` (`src/app.html`).
+
+## v0.24 · Cuba trae el reporte
+- **Se activa:** cuando Cuba le pidió el reporte a Mercado Pago y, al volver a mirar, el reporte llegó con gastos nuevos: el aviso dice que Cuba lo trajo en el hocico y el celu vibra apenas.
+- **Se apaga:** en `mpSync` (src/app.html) borrar la variable `trajo` y dejar solo el `toast('Mercado Pago: ' + M.msg)`. Respeta que no haya vibración si el dispositivo no la soporta.

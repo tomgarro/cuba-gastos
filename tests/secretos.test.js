@@ -16,7 +16,13 @@ lista(raiz).filter(f => /\.(js|html|gs|md|json|py|css|svg|txt|webmanifest)$/.tes
 });
 // la app (celular) nunca conoce el token ni cómo se guarda
 ['index.html', 'src/app.html'].forEach(f => { const t = fs.readFileSync(path.join(raiz, f), 'utf8'); assert.ok(!/MP_ACCESS_TOKEN|Bearer /.test(t), f + ' no debe tocar el token de Mercado Pago'); });
-// el Apps Script solo lee: ningún pedido a Mercado Pago que no sea GET
+// el Apps Script lee de Mercado Pago; lo único que escribe es PEDIR UN REPORTE (lista cerrada, en un solo lugar)
 const gs = fs.readFileSync(path.join(raiz, 'apps-script/Code.gs'), 'utf8');
-assert.ok(!/mercadopago[^\n]*method:\s*'(post|put|delete|patch)'/i.test(gs) && (gs.match(/MP\.BASE/g) || []).length === 1, 'un solo punto de salida a Mercado Pago, solo GET');
-console.log('ok  secretos: ' + revisados + ' archivos sin claves; la app no conoce el token; Mercado Pago solo en lectura');
+assert.ok((gs.match(/MP\.BASE/g) || []).length === 2, 'solo dos puntos de salida a Mercado Pago: mpGet_ y mpPost_');
+assert.ok(!/method:\s*'(put|delete|patch)'/i.test(gs.slice(gs.indexOf('var MP = '))), 'ni PUT, ni DELETE, ni PATCH');
+const ok = JSON.parse(gs.match(/var MP_POST_OK = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
+assert.deepStrictEqual(ok, ['/v1/account/release_report', '/v1/account/release_report/config'], 'los únicos POST permitidos son pedir un reporte y su configuración');
+const llamadas = [...gs.matchAll(/mpPost_\(\s*'([^']+)'/g)].map(m => m[1]);
+assert.ok(llamadas.length >= 2 && llamadas.every(x => ok.includes(x)), 'todo mpPost_ va a una ruta de la lista: ' + llamadas.join(', '));
+assert.ok(!/(payments|transfer|money_request|withdraw|refund|chargeback)['\/]/i.test(gs.slice(gs.indexOf('var MP = '), gs.indexOf('function probarMercadoPago'))), 'nada que toque pagos, transferencias, retiros ni reembolsos');
+console.log('ok  secretos: ' + revisados + ' archivos sin claves; la app no conoce el token; Mercado Pago: solo lee y pide reportes');
