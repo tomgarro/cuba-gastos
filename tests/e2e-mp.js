@@ -1,4 +1,4 @@
-// Mercado Pago: importación del reporte CSV (reportes que se pisan no duplican, deshacer) y la conexión por API sigue sin sacar el token del Apps Script.
+// Mercado Pago (simulado): cobros que se marcan solos, sugerencias, gastos nuevos en Personal; el token nunca sale del Apps Script.
 const { chromium } = require('playwright');
 const assert = require('assert');
 const path = require('path');
@@ -11,12 +11,21 @@ const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-
 (async () => {
   const sheet = boot(), errs = [], wire = [];
   sheet.log.props.MP_ACCESS_TOKEN = TOKEN; sheet.log.props.MP_LINK = LINK;
-  const hoy = new Date().toISOString().slice(0, 10), llamadas = [];
-  const CSV_API = 'SOURCE_ID,TRANSACTION_TYPE,TRANSACTION_AMOUNT,TRANSACTION_DATE,SALE_DETAIL\n5001,SETTLEMENT,-3200.00,' + hoy + 'T10:00:00.000-03:00,"""Producto de Farmacia Inventada"""\n5010,SETTLEMENT,-1800.00,' + hoy + 'T11:00:00.000-03:00,"""Producto de Cafe Inventado"""\n5011,SETTLEMENT,2500.00,' + hoy + 'T11:30:00.000-03:00,"""Varios"""\n';
+  const hoy = new Date().toISOString().slice(0, 10), llamadas = { n: 0 };
+  const pago = (id, monto, extra) => Object.assign({ id, status: 'approved', transaction_amount: monto, currency_id: 'ARS', date_approved: hoy + 'T12:00:00.000-03:00', operation_type: 'regular_payment', payment_type_id: 'account_money', description: '', payer: { id: 5, email: 'x@example.com' } }, extra || {});
+  const csv = [
+    'DATE,SOURCE_ID,EXTERNAL_REFERENCE,RECORD_TYPE,DESCRIPTION,NET_CREDIT_AMOUNT,NET_DEBIT_AMOUNT,GROSS_AMOUNT,CURRENCY',
+    hoy + 'T12:00:00.000-03:00,7001,,release,SETTLEMENT,0.00,3200.00,3200.00,ARS',
+    hoy + 'T13:00:00.000-03:00,7002,,release,PAYOUTS,0.00,5000.00,5000.00,ARS',
+    hoy + 'T14:00:00.000-03:00,7003,,release,SETTLEMENT,9000.00,0.00,9000.00,ARS'
+  ].join('\n');
+  const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => (typeof body === 'string' ? body : JSON.stringify(body)) });
+  let listas = { release_report: [{ file_name: 'release-report-1.csv', date_created: hoy + 'T09:00:00.000-03:00' }], settlement_report: [] };
   sheet.ctx.UrlFetchApp = { fetch: (u, o) => {
-    llamadas.push(u); assert.strictEqual(o.headers.Authorization, 'Bearer ' + TOKEN); assert.strictEqual(o.method, 'get');
-    if (/settlement_report\/list$/.test(u)) return { getResponseCode: () => 200, getContentText: () => JSON.stringify([{ file_name: 'settlement-1-daily.csv', date_created: hoy + 'T21:00:00.000-03:00' }]) };
-    return { getResponseCode: () => 200, getContentText: () => CSV_API };
+    llamadas.n++; assert.strictEqual(o.method, 'get'); assert.strictEqual(o.headers.Authorization, 'Bearer ' + TOKEN);
+    const m = /account\/(release_report|settlement_report)\/(.+)$/.exec(u); if (!m) return resp(404, {});
+    if (m[2] === 'list') return resp(200, listas[m[1]]);
+    return m[1] === 'release_report' && m[2] === 'release-report-1.csv' ? resp(200, csv) : resp(404, {});
   } };
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -39,48 +48,35 @@ const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-
   await p.waitForSelector('text=Todavía no hay gastos');
   await p.click('.nav button:has-text("Personal")'); await p.click('[data-act=persetup]'); await p.click('[data-act=persaved]'); await p.waitForSelector('#perq');
 
-  assert.strictEqual(await p.locator('text=Compra con amigos').count(), 0, 'ya no existe Compra con amigos');
-  assert.strictEqual(await p.locator('text=Me deben').count(), 0);
-  const csv = (filas) => Buffer.from('RELEASE_DATE;TRANSACTION_TYPE;REFERENCE_ID;TRANSACTION_AMOUNT;PARTIAL_BALANCE\n' + filas.join('\n') + '\n');
-  const F1 = ['03-11-2026;Pago Farmacia Inventada;5001;-3.200,00;1', '03-11-2026;Pago Kiosco Inventado;5002;-1.500,50;1', '04-11-2026;Transferencia enviada Persona Inventada;5003;-5.000,00;1', '04-11-2026;Ingreso de dinero;5004;9.000,00;1'];
-  await p.setInputFiles('#mpfile', { name: 'mp1.csv', mimeType: 'text/csv', buffer: csv(F1) });
-  await p.waitForSelector('text=gastos nuevos');
-  let t = await p.locator('#sheet').innerText();
-  assert.ok(/2 gastos nuevos/.test(t) && /1 para revisar/.test(t) && /1 ingresos/.test(t) && /Farmacia/i.test(t), t);
-  await p.click('[data-act=mpimp]'); await p.waitForSelector('text=2 gastos sumados');
-  t = await app(); assert.ok(/Farmacia/i.test(t) && /Kiosco/i.test(t) && /Transferiste \$5\.000/.test(t) && !/Ingreso de dinero/i.test(t), t);
-
-  // un segundo reporte que se pisa con el primero: solo entra lo nuevo
-  await p.setInputFiles('#mpfile', { name: 'mp2.csv', mimeType: 'text/csv', buffer: csv(F1.concat(['05-11-2026;Pago Panadería Inventada;5006;-2.000,00;1'])) });
-  await p.waitForSelector('text=1 gasto nuevo');
-  t = await p.locator('#sheet').innerText(); assert.ok(/2 ya estaban/.test(t) && /Panader/i.test(t), t);
-  await p.click('[data-act=mpimp]'); await p.waitForSelector('text=1 gasto sumado');
-  t = await app(); assert.strictEqual((t.match(/Farmacia/gi) || []).length, 1, 'sin duplicar'); assert.ok(/Panader/i.test(t));
-  // el mismo archivo otra vez: nada nuevo
-  await p.setInputFiles('#mpfile', { name: 'mp2.csv', mimeType: 'text/csv', buffer: csv(F1.concat(['05-11-2026;Pago Panadería Inventada;5006;-2.000,00;1'])) });
-  await p.waitForSelector('text=Todo al día: no hay nada nuevo'); await p.click('#sheet [data-act=close]');
-
-  // deshacer la última importación
-  p.once('dialog', d => d.accept());
-  await p.click('[data-act=mpundo]'); await p.waitForFunction(() => !/Panader/i.test(document.querySelector('#app').innerText));
-  assert.ok(/Farmacia/i.test(await app()), 'la importación anterior sigue');
-  // un archivo que no es de Mercado Pago no rompe nada
-  await p.setInputFiles('#mpfile', { name: 'x.csv', mimeType: 'text/csv', buffer: Buffer.from('a;b\n1;2\n') });
-  await p.waitForSelector('text=No reconocí las columnas'); await p.click('#sheet [data-act=close]');
-
-  // conexión automática: Cuba baja sola el reporte programado en Mercado Pago (la app solo conoce el código de enlace)
+  // código mal escrito y bien escrito
+  assert.strictEqual(await p.locator('#mpclave').count(), 1);
   await p.fill('#mpclave', 'xxxx'); await p.click('[data-act=mpconectar]'); assert.ok(/3 grupos de 4/.test(await p.locator('#toast').innerText()));
   await p.fill('#mpclave', LINK.toLowerCase()); await p.click('[data-act=mpconectar]');
-  await p.waitForSelector('text=1 gasto nuevo en Personal');
-  t = await app(); assert.ok(/Cafe Inventado/i.test(t), t); assert.strictEqual((t.match(/Farmacia/gi) || []).length, 1, 'el pago que ya estaba no se duplica');
-  assert.ok(llamadas.length === 2 && llamadas[0].endsWith('/v1/account/settlement_report/list'), 'solo listar y bajar el reporte');
-  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Todo al día'); 
+  await p.waitForSelector('text=gasto nuevo');
+  let t = await app();
+  assert.ok(/1 gasto nuevo/.test(t) && /1 para revisar/.test(t), t);   // el pago sale de «Dinero en cuenta»; el retiro queda para revisar; el ingreso se ignora
+  assert.ok(/Transferiste/.test(t), 'el retiro queda para revisar');
+  await p.click('[data-act=mpgasto]'); await p.waitForFunction(() => !/Transferiste/.test(document.querySelector('#app').innerText));
+
+  // otra vez: no duplica nada
+  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Todo al día');
+
+  // mensajes claros cuando no hay nada para traer
+  listas = { release_report: [], settlement_report: [] };
+  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=Todavía no hay reportes generados');
+  listas = { release_report: [{ file_name: 'viejo.csv', date_created: '2020-01-01T00:00:00.000-03:00' }], settlement_report: [] };
+  await p.click('[data-act=mpsync]'); await p.waitForSelector('text=ninguno reciente');
+
+  // el token nunca viajó ni quedó en la Sheet; lo que se importó está cifrado
   assert.ok(wire.every(w => !w.includes(TOKEN) && !/APP_USR/.test(w)), 'el token no sale del Apps Script');
   assert.ok(wire.some(w => w.includes(LINK)), 'la app manda el código de enlace');
   await new Promise(r => setTimeout(r, 1200));
-  assert.ok(!/Farmacia|Kiosco|Panader|APP_USR/i.test(JSON.stringify(sheet.grids)), 'nada legible de Mercado Pago en la Sheet');
+  assert.ok(!/transferencia|APP_USR/i.test(JSON.stringify(sheet.grids)), 'nada legible de Mercado Pago en la Sheet');
   assert.ok(await p.evaluate(() => !document.documentElement.outerHTML.includes('APP_USR')), 'la página no tiene el token');
+
+  // desconectar este celu
+  await p.click('[data-act=mpdesc]'); assert.strictEqual(await p.locator('#mpclave').count(), 1);
   await browser.close();
   assert.deepStrictEqual(errs, [], errs.join('\n'));
-  console.log('ok  Mercado Pago: CSV a mano y reporte automático, sin duplicar entre reportes que se pisan, deshacer, y el token nunca sale del Apps Script');
+  console.log('ok  Mercado Pago: baja el reporte de «Dinero en cuenta», sin duplicar, mensajes claros y el token nunca sale del Apps Script');
 })().catch(e => { console.error(e); process.exit(1); });

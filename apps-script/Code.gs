@@ -1033,30 +1033,44 @@ function igual_(a, b) {   // compara sin cortar en la primera diferencia
 }
 
 /**
- * Reportes de liberaciones que Mercado Pago ya generó (los que programás vos en Mercado Pago → Reportes).
+ * Reportes que Mercado Pago ya generó (los que programás vos en Mercado Pago → Reportes).
+ * Mercado Pago tiene dos familias y las listas son APARTE: «Dinero en cuenta» (release_report, la billetera: lo que
+ * querés ver en Personal) y «Liquidaciones» (settlement_report, solo ventas). Se miran las dos.
  * Solo lectura: lista los reportes y baja el CSV de los más nuevos; la app los lee y arma los gastos.
  * Solo con el código de enlace. El token nunca sale de acá.
  */
+var MP_FAMILIAS = ['release_report', 'settlement_report'];
+
 function actionMpReportes_(req) {
   var props = PropertiesService.getScriptProperties(), token = props.getProperty(MP.TOKEN), link = props.getProperty(MP.LINK);
   if (!token || !link) return { ok: true, sin_token: true };
   if (!igual_(text_(req.clave, 40), link)) fail_('no_autorizado', 'Ese código de enlace no es el de esta cuenta.');
   var hoy = new Date().toISOString().slice(0, 10);
   var desde = isDate_(req.desde) ? req.desde : new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10);
-  var lst = mpGet_('/v1/account/settlement_report/list', token);
-  if (lst.code === 401 || lst.code === 403) return { ok: true, error: 'mp_token' };
-  if (lst.code === 0) return { ok: true, error: 'mp_http' };
-  if (lst.code !== 200 || !Array.isArray(lst.body)) return { ok: true, error: 'mp_lista', codigo: lst.code };
-  var fs = lst.body.filter(function (f) {
-    return f && /\.csv$/i.test(String(f.file_name || '')) && (!f.date_created || String(f.date_created).slice(0, 10) >= desde);
-  }).sort(function (a, b) { return String(b.date_created || '') < String(a.date_created || '') ? -1 : 1; }).slice(0, MP.REPORTES);
-  var out = [], bytes = 0;
-  fs.forEach(function (f) {
-    if (bytes > 1500000) return;
-    var r = mpGet_('/v1/account/settlement_report/' + encodeURIComponent(f.file_name), token);
-    if (r.code === 200 && r.texto) { out.push({ nombre: String(f.file_name), creado: String(f.date_created || '').slice(0, 19), csv: r.texto }); bytes += r.texto.length; }
+  var listas = [], codigos = [], hayHttp = false, hayToken = false;
+  MP_FAMILIAS.forEach(function (fam) {
+    var lst = mpGet_('/v1/account/' + fam + '/list', token);
+    codigos.push(fam.split('_')[0] + ':' + lst.code);
+    if (lst.code === 401 || lst.code === 403) { hayToken = true; return; }
+    if (lst.code === 0) { hayHttp = true; return; }
+    if (lst.code === 200 && Array.isArray(lst.body)) lst.body.forEach(function (f) { if (f && f.file_name) listas.push({ fam: fam, f: f }); });
   });
-  return { ok: true, reportes: out, listados: lst.body.length, hasta: hoy };
+  if (!listas.length) {
+    if (hayToken && codigos.every(function (c) { return /:40[13]$/.test(c); })) return { ok: true, error: 'mp_token' };
+    if (hayHttp && codigos.every(function (c) { return /:0$/.test(c); })) return { ok: true, error: 'mp_http' };
+    if (!codigos.some(function (c) { return /:200$/.test(c); })) return { ok: true, error: 'mp_lista', codigo: codigos.join(' ') };
+  }
+  var fs = listas.filter(function (x) {
+    return /\.csv$/i.test(String(x.f.file_name)) && (!x.f.date_created || String(x.f.date_created).slice(0, 10) >= desde);
+  }).sort(function (a, b) { return String(b.f.date_created || '') < String(a.f.date_created || '') ? -1 : 1; }).slice(0, MP.REPORTES);
+  var out = [], bytes = 0, fallidos = 0;
+  fs.forEach(function (x) {
+    if (bytes > 1500000) return;
+    var r = mpGet_('/v1/account/' + x.fam + '/' + encodeURIComponent(x.f.file_name), token);
+    if (r.code === 200 && r.texto) { out.push({ nombre: String(x.f.file_name), creado: String(x.f.date_created || '').slice(0, 19), csv: r.texto }); bytes += r.texto.length; }
+    else fallidos++;
+  });
+  return { ok: true, reportes: out, listados: listas.length, recientes: fs.length, fallidos: fallidos, hasta: hoy };
 }
 
 function conectarMercadoPago() {

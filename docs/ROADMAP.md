@@ -75,3 +75,7 @@ Orden por dependencia. Marcar a medida que se completa.
 - Se retira «Compra con amigos» (no queda nada que limpiar en el backend; ver ARQUITECTURA).
 - Mercado Pago: importación del reporte CSV con vista previa, sin duplicar entre reportes que se pisan y con «Deshacer». + detalle sorpresa 🥚
 - Mercado Pago automático: Cuba baja sola el reporte diario programado (lista + descarga, solo lectura) y lo importa; el CSV a mano queda de respaldo.
+
+## v0.23.1
+- Mercado Pago: «Traer ahora» no encontraba el reporte programado porque se miraba solo la lista de «Liquidaciones» (`settlement_report`); el reporte de «Dinero en cuenta» (`release_report`) tiene su lista aparte. Ahora se miran las dos y los mensajes distinguen «no hay reportes», «hay pero ninguno reciente» y «no pude bajarlos».
+- Tests: `e2e-mp.js` reescrito para el flujo actual (estaba pegado a «Compra con amigos», retirada en v0.23); se saca el bloque viejo de `personal.test.js`.

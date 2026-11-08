@@ -724,34 +724,34 @@ t('IA nueva: leerTicket, entenderGastos e iaTexto validan, limpian y no filtran 
   assert.strictEqual(b.call('read').rev, rev, 'no escribe nada');
 });
 
-t('Mercado Pago: solo lee reportes ya generados, necesita código de enlace y no filtra el token', () => {
-  const b = withPeople();
-  const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-9999';
-  assert.strictEqual(b.call('mpReportes', { clave: 'X' }).sin_token, true, 'sin token no llama a nadie');
-  b.log.props.MP_ACCESS_TOKEN = TOKEN; b.log.props.MP_LINK = 'AAAA-BBBB-CCCC';
-  const pedidos = [], CSV = 'SOURCE_ID,TRANSACTION_DATE,TRANSACTION_AMOUNT\n1,2026-11-07T10:00:00.000-03:00,-100.00\n';
-  const lista = [{ file_name: 'settlement-1-daily-2026-11-07.csv', date_created: '2026-11-07T21:00:00.000-03:00' }, { file_name: 'settlement-1-daily-2026-11-06.csv', date_created: '2026-11-06T21:00:00.000-03:00' }, { file_name: 'viejo.csv', date_created: '2026-09-01T21:00:00.000-03:00' }, { file_name: 'x.xlsx', date_created: '2026-11-07T21:00:00.000-03:00' }];
+// Mercado Pago: «Dinero en cuenta» (release_report) y «Liquidaciones» (settlement_report) tienen listas aparte; se miran las dos.
+t('mpReportes: baja los CSV de las dos familias, solo GET, y el token no sale', () => {
+  const b = boot(); b.log.props.MP_ACCESS_TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-9999'; b.log.props.MP_LINK = 'ABCD-1234-EF56';
+  const hoy = new Date().toISOString().slice(0, 10), urls = [];
+  const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => (typeof body === 'string' ? body : JSON.stringify(body)) });
   b.ctx.UrlFetchApp = { fetch: (u, o) => {
-    pedidos.push({ u, o });
-    if (/settlement_report\/list$/.test(u)) return { getResponseCode: () => 200, getContentText: () => JSON.stringify(lista) };
-    return { getResponseCode: () => 200, getContentText: () => CSV };
+    urls.push(u); assert.strictEqual(o.method, 'get');
+    if (/release_report\/list/.test(u)) return resp(200, [{ file_name: 'release-report-1.csv', date_created: hoy + 'T10:00:00.000-03:00' }, { file_name: 'viejo.csv', date_created: '2020-01-01T00:00:00Z' }]);
+    if (/settlement_report\/list/.test(u)) return resp(404, { message: 'no' });
+    if (/release_report\/release-report-1\.csv/.test(u)) return resp(200, 'DATE,DESCRIPTION\n' + hoy + ',x');
+    return resp(500, '');
   } };
-  assert.strictEqual(err(() => b.call('mpReportes', { clave: 'MALA' })).code, 'no_autorizado');
-  assert.strictEqual(err(() => b.call('mpReportes', {})).code, 'no_autorizado');
-  assert.strictEqual(pedidos.length, 0, 'con clave mala no se llama a Mercado Pago');
-  const r = J(b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC', desde: '2026-11-01' }));
-  assert.deepStrictEqual(r.reportes.map(x => x.nombre), ['settlement-1-daily-2026-11-07.csv', 'settlement-1-daily-2026-11-06.csv'], 'solo CSV y desde la fecha, el más nuevo primero');
-  assert.strictEqual(r.reportes[0].csv, CSV);
-  assert.ok(pedidos.every(p => p.o.method === 'get' && !p.o.payload), 'solo GET');
-  assert.ok(pedidos.every(p => /^https:\/\/api\.mercadopago\.com\/v1\/account\/settlement_report\/(list|settlement-[\w.-]+\.csv)$/.test(p.u) && !/TOKEN|APP_USR/.test(p.u)), 'solo esas consultas, con el token en el encabezado');
-  assert.ok(pedidos.every(p => p.o.headers.Authorization === 'Bearer ' + TOKEN));
-  b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 401, getContentText: () => '{}' }) };
-  assert.strictEqual(b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' }).error, 'mp_token');
-  b.ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 404, getContentText: () => '{}' }) };
-  assert.deepStrictEqual([b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' }).error, b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' }).codigo], ['mp_lista', 404]);
-  b.ctx.UrlFetchApp = { fetch: () => { throw new Error('sin red ' + TOKEN); } };
-  const caido = b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' });
-  assert.strictEqual(caido.error, 'mp_http'); assert.ok(!JSON.stringify(caido).includes('APP_USR'));
-  const rev = b.call('read').rev; b.call('mpReportes', { clave: 'AAAA-BBBB-CCCC' }); assert.strictEqual(b.call('read').rev, rev, 'no escribe nada en la Sheet');
-  assert.ok(!JSON.stringify(b.call('read')).includes('APP_USR') && !JSON.stringify(b.call('read')).includes('AAAA-BBBB'), 'read no filtra el token ni el código');
+  const r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' });
+  assert.strictEqual(r.reportes.length, 1); assert.strictEqual(r.reportes[0].nombre, 'release-report-1.csv');
+  assert.strictEqual(r.listados, 2); assert.strictEqual(r.recientes, 1); assert.strictEqual(r.fallidos, 0);
+  assert.ok(urls.some(u => /release_report\/list/.test(u)) && urls.some(u => /settlement_report\/list/.test(u)));
+  assert.ok(!JSON.stringify(r).includes('APP_USR'));
+  assert.strictEqual(err(() => b.call('mpReportes', { clave: 'XXXX-XXXX-XXXX' })).code, 'no_autorizado');
 });
+t('mpReportes: errores claros (token malo, sin red, listas vacías, descarga fallida)', () => {
+  const mk = f => { const b = boot(); b.log.props.MP_ACCESS_TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-9999'; b.log.props.MP_LINK = 'ABCD-1234-EF56'; b.ctx.UrlFetchApp = { fetch: f }; return b; };
+  const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
+  const hoy = new Date().toISOString().slice(0, 10), clave = { clave: 'ABCD-1234-EF56' };
+  assert.strictEqual(mk(() => resp(401, {})).call('mpReportes', clave).error, 'mp_token');
+  assert.strictEqual(mk(() => { throw new Error('sin red'); }).call('mpReportes', clave).error, 'mp_http');
+  assert.strictEqual(mk(() => resp(500, {})).call('mpReportes', clave).error, 'mp_lista');
+  const vacio = mk(() => resp(200, [])).call('mpReportes', clave); assert.deepStrictEqual(J([vacio.reportes, vacio.listados]), [[], 0]);
+  const falla = mk(u => /\/list$/.test(u) ? resp(200, [{ file_name: 'a.csv', date_created: hoy + 'T00:00:00Z' }]) : resp(500, {})).call('mpReportes', clave);
+  assert.strictEqual(falla.reportes.length, 0); assert.ok(falla.fallidos >= 1);
+});
+console.log(n + ' pruebas del backend (mp incluidas)');

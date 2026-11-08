@@ -88,7 +88,7 @@ Se sacó de la app: estaba bien armada pero mal pensada para el uso real. No hab
 
 ## Mercado Pago (v0.22 → v0.23)
 
-La API de pagos (`/v1/payments/search`) no ve la billetera común, así que desde v0.23 Apps Script solo hace dos GET de lectura: `/v1/account/settlement_report/list` y la descarga de los CSV ya generados (los que programás en Mercado Pago → Reportes). La acción `mpReportes` exige el código de enlace; el token vive solo en las Propiedades del script. La app lee los CSV, anota los gastos en Personal (cifrado) y deja «para revisar» los retiros y las transferencias. Nunca escribe en Mercado Pago ni crea reportes.
+La API de pagos (`/v1/payments/search`) no ve la billetera común, así que desde v0.23 Apps Script solo hace dos GET de lectura: `/v1/account/release_report/list` («Dinero en cuenta») y `/v1/account/settlement_report/list` («Liquidaciones»), más la descarga de los CSV ya generados (los que programás en Mercado Pago → Reportes). La acción `mpReportes` exige el código de enlace; el token vive solo en las Propiedades del script. La app lee los CSV, anota los gastos en Personal (cifrado) y deja «para revisar» los retiros y las transferencias. Nunca escribe en Mercado Pago ni crea reportes.
 
 ## Mercado Pago por CSV (v0.23)
 
