@@ -35,7 +35,7 @@ const URL_APP = require('./con-personal.js')();   // copia con FEATURES.personal
   await A.p.click('[data-act=ob][data-v="1"]'); await A.p.fill('[data-i="0"]', 'Tomi'); await A.p.fill('[data-i="1"]', 'Pau');
   await A.p.click('[data-act=ob][data-v="2"]'); await A.p.click('[data-act=obfinish][data-i="0"]');
   await A.p.waitForSelector('text=Todavía no hay gastos');
-  assert.strictEqual(await A.p.locator('.nav button').count(), 5, 'hay 5 pestañas');
+  assert.strictEqual(await A.p.locator('.nav button').count(), 6, 'hay 6 pestañas (con Personal y Calculadora)');
 
   await A.p.click('.nav button:has-text("Personal")');
   await A.p.waitForSelector('text=Crear mi espacio privado');

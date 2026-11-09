@@ -29,7 +29,7 @@ var CUBA = {
 var TABS = {
   Personas: ['id', 'nombre', 'alias', 'color', 'estado', 'creada'],
   Movimientos: ['id', 'tipo', 'fecha', 'descripcion', 'monto_centavos', 'moneda', 'pagador_id', 'reparto_modo', 'reparto_json',
-    'excepcion', 'motivo_excepcion', 'categoria', 'confianza', 'nota', 'lote_id', 'origen', 'creado_por', 'creado_en', 'anulado', 'reemplaza_id', 'evento_id'],
+    'excepcion', 'motivo_excepcion', 'categoria', 'confianza', 'nota', 'lote_id', 'origen', 'creado_por', 'creado_en', 'anulado', 'reemplaza_id', 'evento_id', 'salda_id'],
   Sueldos: ['id', 'persona_id', 'desde', 'monto_centavos', 'moneda', 'nota', 'creado_por', 'creado_en'],
   Lotes: ['id', 'origen', 'archivo', 'fecha', 'cantidad', 'moneda_original', 'estado'],
   Recurrentes: ['id', 'descripcion', 'monto_estimado_centavos', 'moneda', 'dia_mes', 'categoria', 'pagador_id', 'proximo_vencimiento', 'activo', 'ajuste_meses', 'proximo_ajuste'],
@@ -45,7 +45,7 @@ var TABS = {
 
 /** Pestañas que se crean solas si faltan, y columnas agregadas al final de pestañas viejas (se completan en el encabezado sin tocar los datos). */
 var TABS_NUEVAS = ['Etiquetas', 'Comercios', 'ReglasResumen', 'Resumenes', 'Eventos', 'Personal'];
-var COLS_VIEJAS = { Movimientos: 20, Recurrentes: 9 };
+var COLS_VIEJAS = { Movimientos: [20, 21], Recurrentes: [9] };   // anchos con los que una hoja de una versión anterior puede venir
 
 var ENUM = {
   tipo: ['gasto', 'pago'],
@@ -472,6 +472,7 @@ function normMov_(m, i, personas) {
   var reemplaza = m.reemplaza_id == null || m.reemplaza_id === '' ? '' : idOf_(m.reemplaza_id, tag);
   var creadoPor = m.creado_por == null || m.creado_por === '' ? '' : idOf_(m.creado_por, tag);
   var evento = m.evento_id == null || m.evento_id === '' ? '' : idOf_(m.evento_id, tag);
+  var salda = m.salda_id == null || m.salda_id === '' ? '' : idOf_(m.salda_id, tag);
   return {
     id: id, tipo: m.tipo, fecha: m.fecha,
     descripcion: text_(m.descripcion, 200),
@@ -480,7 +481,7 @@ function normMov_(m, i, personas) {
     excepcion: m.excepcion === true, motivo_excepcion: text_(m.motivo_excepcion, 200),
     categoria: text_(m.categoria, 40), confianza: conf == null ? '' : conf,
     nota: text_(m.nota, 500), lote_id: lote, origen: text_(m.origen || 'manual', 30) || 'manual',
-    creado_por: creadoPor, reemplaza_id: reemplaza, evento_id: evento
+    creado_por: creadoPor, reemplaza_id: reemplaza, evento_id: evento, salda_id: salda
   };
 }
 
@@ -539,8 +540,10 @@ function checkSchema_(names) {
   (names || Object.keys(TABS)).forEach(function (name) {
     var cols = TABS[name];
     var sh = sheet_(name), head = sh.getRange(1, 1, 1, cols.length).getValues()[0];
-    var vieja = COLS_VIEJAS[name];
-    if (vieja && cols.length > vieja) {   // hoja de una versión anterior: si las columnas viejas coinciden y las nuevas están vacías, se completa el encabezado
+    var viejas = COLS_VIEJAS[name] || [];
+    for (var vi = 0; vi < viejas.length; vi++) {
+      var vieja = viejas[vi];
+      if (cols.length <= vieja) continue;   // hoja de una versión anterior: si las columnas viejas coinciden y las nuevas están vacías, se completa el encabezado
       var ok = true, vacias = true;
       for (var j = 0; j < vieja; j++) if (String(head[j]) !== cols[j]) ok = false;
       for (var k = vieja; k < cols.length; k++) if (String(head[k]) !== '') vacias = false;
@@ -549,6 +552,7 @@ function checkSchema_(names) {
         if (sh.getMaxRows() < 2000) sh.insertRowsAfter(sh.getMaxRows(), 2000 - sh.getMaxRows());
         sh.getRange(2, vieja + 1, 1999, cols.length - vieja).setNumberFormat('@');
         head = cols.slice();
+        break;
       }
     }
     for (var i = 0; i < cols.length; i++) {
@@ -584,7 +588,7 @@ function movOut_(r) {
     excepcion: bool_(r.excepcion), motivo_excepcion: String(r.motivo_excepcion), categoria: String(r.categoria),
     confianza: r.confianza === '' ? null : Number(r.confianza), nota: String(r.nota), lote_id: String(r.lote_id),
     origen: String(r.origen), creado_por: String(r.creado_por), creado_en: String(r.creado_en),
-    anulado: bool_(r.anulado), reemplaza_id: String(r.reemplaza_id), evento_id: String(r.evento_id)
+    anulado: bool_(r.anulado), reemplaza_id: String(r.reemplaza_id), evento_id: String(r.evento_id), salda_id: String(r.salda_id)
   };
 }
 function sueldoOut_(r) {
@@ -1132,7 +1136,7 @@ function actionMpReportes_(req) {
     if (r.code === 200 && r.texto) { out.push({ nombre: String(x.f.file_name), creado: String(x.f.date_created || '').slice(0, 19), csv: r.texto }); bytes += r.texto.length; }
     else fallidos++;
   });
-  var res = { ok: true, reportes: out, listados: L.listas.length, recientes: fs.length, fallidos: fallidos, codigos: L.codigos.join(' '), v: '0.24.0', hasta: hoy };
+  var res = { ok: true, reportes: out, listados: L.listas.length, recientes: fs.length, fallidos: fallidos, codigos: L.codigos.join(' '), v: '0.25.0', hasta: hoy };
   if (pedido.estado === 'pedido' || pedido.estado === 'en_curso') res.pedido = true;
   if (pedido.estado === 'error') { res.pedido_error = (pedido.codigo || '?') + (pedido.texto ? ' ' + pedido.texto : ''); }
   return res;

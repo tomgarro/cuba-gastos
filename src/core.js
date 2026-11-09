@@ -163,6 +163,28 @@
     var sp = splitProportional(total, ids, ids.map(function (id) { return r.weights[id]; }));
     return sp ? { sp: sp } : { missing: ids };
   }
+  // Gastos saldados entre sí. Un pago puede apuntar a un gasto (`settles` = id del gasto): no cambia las cuentas (un pago es un pago),
+  // solo deja anotado «este pago fue por este gasto». Si el gasto se editó (el viejo queda anulado y el nuevo lo reemplaza), el vínculo lo sigue.
+  // Devuelve { by: { gastoId: { debts: [{ id, owed, paid, pend }], pagos: [ids], tracked, settled } }, head(id) }.
+  function settlements(all) {
+    var succ = {}; (all || []).forEach(function (e) { if (e.replaces) succ[e.replaces] = e.id; });
+    function head(id) { var n = 0; while (succ[id] && n++ < 50) id = succ[id]; return id; }
+    var live = (all || []).filter(function (e) { return !e.del; }), pays = {};
+    live.forEach(function (e) { if (e.type === 'payment' && e.settles) { var t = head(e.settles); (pays[t] = pays[t] || []).push(e); } });
+    var by = {};
+    live.forEach(function (g) {
+      if (g.type !== 'expense') return;
+      var ps = pays[g.id] || [], debts = [];
+      g.sp.forEach(function (x) {
+        if (x[0] === g.paidBy) return;
+        var paid = 0; ps.forEach(function (p) { if (p.paidBy === x[0] && p.sp[0][0] === g.paidBy && p.cur === g.cur) paid += p.cents; });
+        debts.push({ id: x[0], owed: x[1], paid: paid, pend: Math.max(0, x[1] - paid) });
+      });
+      if (!debts.length) return;
+      by[g.id] = { debts: debts, pagos: ps.map(function (p) { return p.id; }), tracked: ps.length > 0, settled: debts.every(function (d) { return d.pend === 0; }) };
+    });
+    return { by: by, head: head };
+  }
   function splitEqual(total, ids, seed) {
     var n = ids.length;
     if (!n) return null;
@@ -497,7 +519,7 @@
 
   return {
     CATS: CATS, catInfo: catInfo, guessCategory: guessCategory, parseAmount: parseAmount, fmt: fmt,
-    splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit,
+    splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit, settlements: settlements,
     live: live, validate: validate, balances: balances, simplify: simplify, monthKey: monthKey,
     monthStats: monthStats, tidyDesc: tidyDesc, servicioDesc: servicioDesc, prolija: prolija, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
     exportCSV: exportCSV, centsDot: centsDot

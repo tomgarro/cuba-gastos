@@ -94,5 +94,9 @@ Orden por dependencia. Marcar a medida que se completa.
 - Regla nueva de seguridad: lo único que Cuba escribe en Mercado Pago es pedir un reporte (y su configuración mínima si falta), con lista cerrada de rutas en `mpPost_`. `secretos.test.js` y `backend.test.js` lo prueban.
 - Menú «Probar Mercado Pago» muestra también la configuración de reportes y cuándo se pidió el último.
 
+## v0.25.0
+- Pestaña **Calculadora** (monto → cuánto le toca a cada uno según el último sueldo cargado de cada uno); sale de Ajustes.
+- Pagos con concepto y vinculados a un gasto (`salda_id`), botón **Saldar este gasto** en el detalle del gasto y marca «✓ saldado» / «falta $X» en la lista. Hay que republicar el `Code.gs` (columna nueva en `Movimientos`, se completa sola).
+
 ## v0.24.1
 - Personal oculto con un interruptor (`FEATURES.personal` en `src/app.html`); código y backend intactos. Detalle y cómo reactivarlo en `docs/FEATURES.md`.

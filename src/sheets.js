@@ -47,6 +47,7 @@
     if (r.lote_id) e.lote = r.lote_id;
     if (r.reemplaza_id) e.replaces = r.reemplaza_id;
     if (r.evento_id) e.ev = r.evento_id;
+    if (r.salda_id) e.settles = r.salda_id;
     if (r.excepcion) e.exc = true;
     if (r.motivo_excepcion) e.why = r.motivo_excepcion;
     if (r.anulado) e.del = true;
@@ -78,6 +79,7 @@
     if (e.lote) m.lote_id = e.lote;
     if (e.replaces) m.reemplaza_id = e.replaces;
     if (e.ev) m.evento_id = e.ev;
+    if (e.settles) m.salda_id = e.settles;
     return m;
   }
 

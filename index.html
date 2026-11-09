@@ -62,7 +62,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
 .item .r .b{font-size:12px}
 .nav{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
 .nav div{max-width:520px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
-.nav div.n4{grid-template-columns:repeat(4,1fr)}
+.nav div.n6 button{font-size:11px;padding:8px 2px}
+.chip.ok{background:color-mix(in srgb,var(--pos) 16%,transparent);color:var(--pos);border-color:transparent}
+.stl{display:inline-block;font-size:12px;font-weight:700;margin-top:3px}
+.stl.ok{color:var(--pos)}.stl.falta{color:var(--mut)}
 .nav button{background:none;border:0;padding:8px 4px;border-radius:12px;font-size:12px;font-weight:600;color:var(--mut);display:flex;flex-direction:column;align-items:center;gap:2px}
 .nav button span{font-size:20px}
 .nav button.on{color:var(--ink);background:var(--accsoft)}
@@ -338,6 +341,28 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     if (!r.weights) return r;
     var sp = splitProportional(total, ids, ids.map(function (id) { return r.weights[id]; }));
     return sp ? { sp: sp } : { missing: ids };
+  }
+  // Gastos saldados entre sí. Un pago puede apuntar a un gasto (`settles` = id del gasto): no cambia las cuentas (un pago es un pago),
+  // solo deja anotado «este pago fue por este gasto». Si el gasto se editó (el viejo queda anulado y el nuevo lo reemplaza), el vínculo lo sigue.
+  // Devuelve { by: { gastoId: { debts: [{ id, owed, paid, pend }], pagos: [ids], tracked, settled } }, head(id) }.
+  function settlements(all) {
+    var succ = {}; (all || []).forEach(function (e) { if (e.replaces) succ[e.replaces] = e.id; });
+    function head(id) { var n = 0; while (succ[id] && n++ < 50) id = succ[id]; return id; }
+    var live = (all || []).filter(function (e) { return !e.del; }), pays = {};
+    live.forEach(function (e) { if (e.type === 'payment' && e.settles) { var t = head(e.settles); (pays[t] = pays[t] || []).push(e); } });
+    var by = {};
+    live.forEach(function (g) {
+      if (g.type !== 'expense') return;
+      var ps = pays[g.id] || [], debts = [];
+      g.sp.forEach(function (x) {
+        if (x[0] === g.paidBy) return;
+        var paid = 0; ps.forEach(function (p) { if (p.paidBy === x[0] && p.sp[0][0] === g.paidBy && p.cur === g.cur) paid += p.cents; });
+        debts.push({ id: x[0], owed: x[1], paid: paid, pend: Math.max(0, x[1] - paid) });
+      });
+      if (!debts.length) return;
+      by[g.id] = { debts: debts, pagos: ps.map(function (p) { return p.id; }), tracked: ps.length > 0, settled: debts.every(function (d) { return d.pend === 0; }) };
+    });
+    return { by: by, head: head };
   }
   function splitEqual(total, ids, seed) {
     var n = ids.length;
@@ -673,7 +698,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 
   return {
     CATS: CATS, catInfo: catInfo, guessCategory: guessCategory, parseAmount: parseAmount, fmt: fmt,
-    splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit,
+    splitEqual: splitEqual, splitProportional: splitProportional, computeSplits: computeSplits, salaryAt: salaryAt, salaryWeights: salaryWeights, salarySplit: salarySplit, settlements: settlements,
     live: live, validate: validate, balances: balances, simplify: simplify, monthKey: monthKey,
     monthStats: monthStats, tidyDesc: tidyDesc, servicioDesc: servicioDesc, prolija: prolija, quickParse: quickParse, parseCSV: parseCSV, parseSplitwise: parseSplitwise, guessImportMap: guessImportMap, resolveImport: resolveImport,
     exportCSV: exportCSV, centsDot: centsDot
@@ -847,6 +872,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     if (r.lote_id) e.lote = r.lote_id;
     if (r.reemplaza_id) e.replaces = r.reemplaza_id;
     if (r.evento_id) e.ev = r.evento_id;
+    if (r.salda_id) e.settles = r.salda_id;
     if (r.excepcion) e.exc = true;
     if (r.motivo_excepcion) e.why = r.motivo_excepcion;
     if (r.anulado) e.del = true;
@@ -878,6 +904,7 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
     if (e.lote) m.lote_id = e.lote;
     if (e.replaces) m.reemplaza_id = e.replaces;
     if (e.ev) m.evento_id = e.ev;
+    if (e.settles) m.salda_id = e.settles;
     return m;
   }
 
@@ -2101,6 +2128,7 @@ function rebuild() {
   S.all = all;                                                       // todo, para buscar por id
   S.entries = all.filter(function (e) { return !e.ev; });            // lo del mes: los viajes y eventos van aparte
   S.evAll = all.filter(function (e) { return !!e.ev; });
+  S.stl = C.settlements(all);                                        // qué gastos están saldados con pagos vinculados
   if (S.mode === 'sheets') S.closings = CubaSheets.deriveClosings(all);
 }
 var clean = function (o) { return JSON.parse(JSON.stringify(o)); };
@@ -2382,15 +2410,41 @@ function myLine(e) {
   }
   var mine = 0; e.sp.forEach(function (x) { if (x[0] === me) mine += x[1]; });
   var paid = e.paidBy === me ? e.cents : 0, net = paid - mine;
+  var st = S.stl && S.stl.by[e.id];
+  if (st && st.tracked) {   // con pagos vinculados, lo que se muestra es lo que todavía falta
+    if (st.settled) return '';
+    net = 0; st.debts.forEach(function (d) { if (e.paidBy === me) net += d.pend; else if (d.id === me) net = -d.pend; });
+  }
   if (net > 0) return '<div class="b pos">te deben ' + C.fmt(net, e.cur, { noDecimals: true }) + '</div>';
   if (net < 0) return '<div class="b neg">debés ' + C.fmt(-net, e.cur, { noDecimals: true }) + '</div>';
   return '<div class="b mut">sin saldo</div>';
+}
+// Saldado entre ustedes: chip chico en la fila del gasto. Solo aparece si ya hay pagos vinculados (los gastos viejos no se marcan como «pendientes»).
+function stlChip(e) {
+  var t = S.stl && S.stl.by[e.id]; if (!t || !t.tracked) return '';
+  if (t.settled) return '<div class="stl ok">✓ saldado</div>';
+  var falta = 0; t.debts.forEach(function (d) { falta += d.pend; });
+  return '<div class="stl falta">falta ' + C.fmt(falta, e.cur, { noDecimals: true }) + '</div>';
+}
+function stlLink(e) {   // el gasto al que apunta un pago (si sigue vigente)
+  if (e.type !== 'payment' || !e.settles || !S.stl) return null;
+  var id = S.stl.head(e.settles);
+  return S.all.filter(function (x) { return x.id === id && !x.del && x.type === 'expense'; })[0] || null;
+}
+// Gastos que este pago (de F.paidBy a F.to) podría saldar: los que pagó F.to, donde F.paidBy todavía debe algo, en la misma moneda.
+function saldables(F) {
+  if (!S.stl) return [];
+  var out = S.all.filter(function (g) {
+    var t = S.stl.by[g.id]; if (!t || g.paidBy !== F.to || g.cur !== F.cur || (g.ev || '') !== (F.ev || '')) return false;
+    return t.debts.some(function (d) { return d.id === F.paidBy && d.pend > 0; }) || g.id === F.salda;
+  });
+  return out.slice(0, 40);
 }
 function payRow(e) {
   var me = S.meId, to = e.sp[0][0], amt = C.fmt(e.cents, e.cur, { noDecimals: true });
   var cls = e.paidBy === me ? 'out' : (to === me ? 'in' : '');
   var lbl = e.paidBy === me ? 'pagaste' : (to === me ? 'recibiste' : '');
-  return '<button class="item pay" data-act="detail" data-id="' + esc(e.id) + '"><span class="coin" aria-hidden="true">$</span><span class="grow"><div class="s"><b>' + esc(firstName(e.paidBy)) + '</b> le pagó <b>' + amt + '</b> a <b>' + esc(firstName(to)) + '</b>' + (e.note ? ' · ' + esc(e.note) : '') + ' · ' + dLabel(e.date) + '</div></span>' +
+  return '<button class="item pay" data-act="detail" data-id="' + esc(e.id) + '"><span class="coin" aria-hidden="true">$</span><span class="grow"><div class="s"><b>' + esc(firstName(e.paidBy)) + '</b> le pagó <b>' + amt + '</b> a <b>' + esc(firstName(to)) + '</b>' + (stlLink(e) ? ' · por <u>' + esc(stlLink(e).desc) + '</u>' : '') + (e.note ? ' · ' + esc(e.note) : '') + ' · ' + dLabel(e.date) + '</div></span>' +
     '<span class="r">' + (lbl ? '<div class="b mut">' + lbl + '</div><div class="a ' + cls + '">' + amt + '</div>' : '<div class="a mut">' + amt + '</div>') + '</span></button>';
 }
 function entryRow(e) {
@@ -2399,7 +2453,7 @@ function entryRow(e) {
   var sub = e.type === 'payment'
     ? esc(firstName(e.paidBy)) + ' le pagó a ' + esc(firstName(e.sp[0][0])) + ' · ' + dLabel(e.date)
     : 'Pagó ' + esc(firstName(e.paidBy)) + ' · ' + dLabel(e.date);
-  return '<button class="item" data-act="detail" data-id="' + esc(e.id) + '"><span class="emoji">' + info.e + '</span><span class="grow"><div class="t">' + esc(e.desc) + '</div><div class="s">' + sub + '</div></span><span class="r"><div class="a">' + C.fmt(e.cents, e.cur, { noDecimals: true }) + '</div>' + myLine(e) + '</span></button>';
+  return '<button class="item" data-act="detail" data-id="' + esc(e.id) + '"><span class="emoji">' + info.e + '</span><span class="grow"><div class="t">' + esc(e.desc) + '</div><div class="s">' + sub + '</div></span><span class="r"><div class="a">' + C.fmt(e.cents, e.cur, { noDecimals: true }) + '</div>' + myLine(e) + stlChip(e) + '</span></button>';
 }
 function catBars(cats, total, cur) {
   var keys = Object.keys(cats).sort(function (a, b) { return cats[b] - cats[a]; });
@@ -2423,7 +2477,8 @@ function render() {
   if (!S.meId || memIdx(S.meId) < 0) { app.innerHTML = viewWho(); return; }
   var ev = S.evId ? S.eventos.filter(function (x) { return x.id === S.evId; })[0] : null; if (S.evId && !ev) S.evId = null;
   if (S.tab === 'personal' && !FEATURES.personal) S.tab = 'inicio';
-  var v = ev ? viewEvento(ev) : S.tab === 'gastos' ? viewGastos() : S.tab === 'cierre' ? viewCierre() : S.tab === 'personal' ? viewPersonal() : S.tab === 'ajustes' ? viewAjustes() : viewInicio();
+  if (S.tab === 'calculadora' && S.mode !== 'sheets') S.tab = 'inicio';
+  var v = ev ? viewEvento(ev) : S.tab === 'gastos' ? viewGastos() : S.tab === 'cierre' ? viewCierre() : S.tab === 'calculadora' ? viewCalcTab() : S.tab === 'personal' ? viewPersonal() : S.tab === 'ajustes' ? viewAjustes() : viewInicio();
   var banner = '';
   if (S.mode === 'local') banner = '<div class="banner">Modo local: tus datos viven solo en este navegador. Abrí la app desde claude.ai con sesión iniciada para compartirla con tu pareja.</div>';
   else if (S.mode === 'sheets' && S.offline) banner = S.authErr ? '<div class="banner">La Sheet no reconoce este celular (¿cambiaron el token?). Pedí el link nuevo desde el menú Cuba de la Sheet.</div>' : '<div class="banner">Sin conexión con la Sheet: veo lo último que guardé y no puedo anotar hasta que vuelva.</div>';
@@ -2432,7 +2487,11 @@ function render() {
   app.innerHTML = '<div class="top"><div class="brand">' + (S.tab === 'inicio' && S.group.members && S.group.members.length ? '' : cuba('idle', 58)) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
     '<div id="pend" class="pend" style="display:' + (S.pend ? '' : 'none') + '">' + (S.sync === 'espera' ? 'Sin señal: ' + S.pend + (S.pend === 1 ? ' cambio espera' : ' cambios esperan') + ' para enviarse' : 'Guardando…') + '</div>' +
     '<button class="fab" data-act="' + (S.tab === 'personal' ? 'perfoco' : 'new') + '" aria-label="' + (S.tab === 'personal' ? 'Anotar gasto personal' : 'Anotar gasto') + '">+</button>' +
-    '<nav class="nav"><div class="n' + (FEATURES.personal ? 5 : 4) + '">' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['personal', '🔒', 'Personal'], ['ajustes', '⚙️', 'Ajustes']].filter(function (t) { return t[0] !== 'personal' || FEATURES.personal; }).map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
+    '<nav class="nav">' + navHtml() + '</nav>';
+}
+function navHtml() {
+  var tabs = [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['calculadora', '🧮', 'Calculadora'], ['personal', '🔒', 'Personal'], ['ajustes', '⚙️', 'Ajustes']].filter(function (t) { return (t[0] !== 'personal' || FEATURES.personal) && (t[0] !== 'calculadora' || S.mode === 'sheets'); });
+  return '<div class="n' + tabs.length + '" style="grid-template-columns:repeat(' + tabs.length + ',1fr)">' + tabs.map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div>';
 }
 function viewSheetsError() {
   return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('sad', 140) + '</div><h1>No llego a la Sheet</h1><p>' + (S.authErr ? 'La Sheet no reconoce este celular. Abrí el link de emparejado nuevo (menú Cuba de la Sheet).' : 'Revisá la conexión y probá de nuevo.') + '</p>' +
@@ -2561,11 +2620,11 @@ function viewAjustes() {
     return '<div class="row" style="margin-bottom:8px">' + avatar(m.id) + '<input data-in="rename" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '" maxlength="30"></div>';
   }).join('') + (members().length < 8 ? '<div class="row" style="margin-top:6px"><input data-in="newmember" placeholder="Agregar otra persona" maxlength="30"><button class="btn sm" data-act="addmember">Agregar</button></div>' : '') +
     '<label class="f">Yo soy</label><select data-in="me">' + members().map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === S.meId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div>';
-  h += viewSueldo() + viewCalc() + viewRecs() + viewSuscripciones() + viewEventos() + viewResumen() + viewCategorias();
+  h += viewSueldo() + viewRecs() + viewSuscripciones() + viewEventos() + viewResumen() + viewCategorias();
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.24.1</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.25.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
@@ -2715,14 +2774,14 @@ function viewMiMes() {
 // Calculadora: un monto cualquiera repartido según los sueldos vigentes hoy (no anota nada).
 function calcRepartoHtml(txt) {
   var cents = C.parseAmount(txt || ''); if (!cents || cents <= 0) return '<span class="mut">Poné un monto para ver cuánto le toca a cada uno.</span>';
-  var ids = activeMembers().map(function (m) { return m.id; }), r = C.salarySplit(cents, ids, S.sueldos, today());
+  var ids = activeMembers().map(function (m) { return m.id; }), r = C.salarySplit(cents, ids, S.sueldos, '9999-12-31');   // el último sueldo cargado de cada uno
   if (r.mixed) return '<span class="neg">Los sueldos están en monedas distintas: no puedo calcular la proporción.</span>';
   if (!r.sp) return '<span class="neg">Falta el sueldo de ' + (r.missing || []).map(function (i) { return esc(firstName(i)); }).join(' y ') + ' (Mi sueldo, arriba).</span>';
   return r.sp.map(function (x) { return '<div class="stat"><span>' + avatar(x[0]) + ' &nbsp;' + esc(mem(x[0]).name) + ' <span class="mut">(' + Math.round(x[1] * 100 / cents) + ' %)</span></span><b>' + C.fmt(x[1], (S.group && S.group.cur) || 'ARS') + '</b></div>'; }).join('');
 }
-function viewCalc() {
-  if (S.mode !== 'sheets') return '';
-  return '<div class="card"><h3>Calculadora de reparto</h3><p class="mut" style="margin:0 0 8px;font-size:14px">Poné un monto y te digo cuánto le toca a cada uno según los sueldos de hoy. No anota nada.</p><input data-in="calcamt" inputmode="decimal" placeholder="Monto" value="' + esc(S.calcAmt || '') + '" autocomplete="off"><div id="calcout" style="margin-top:8px">' + calcRepartoHtml(S.calcAmt) + '</div></div>';
+function viewCalcTab() {
+  return '<div class="card"><h3>🧮 Calculadora de reparto</h3><p class="mut" style="margin:0 0 8px;font-size:14px">Poné un monto y te digo cuánto le toca a cada uno según el último sueldo cargado de cada uno. No anota nada.</p><input id="calcin" data-in="calcamt" inputmode="decimal" placeholder="Monto" value="' + esc(S.calcAmt || '') + '" autocomplete="off" style="font-size:22px"><div id="calcout" style="margin-top:10px">' + calcRepartoHtml(S.calcAmt) + '</div></div>' +
+    '<p class="mut" style="font-size:13px;margin:0 4px">Los sueldos se cargan en Ajustes → Mi sueldo. Para anotar un gasto con este reparto, usá el botón +.</p>';
 }
 
 // ---------------- compartir comprobantes a Cuba ----------------
@@ -3082,7 +3141,7 @@ function newForm(kind) {
   var ids = members().map(function (m) { return m.id; });
   var who = {}; ids.forEach(function (i) { who[i] = true; });
   var other = ids.filter(function (i) { return i !== S.meId; })[0] || ids[0];
-  return { kind: kind || 'expense', id: null, desc: '', amount: '', cur: (S.group && S.group.cur) || 'ARS', date: today(), paidBy: S.meId, to: other, mode: (kind || 'expense') === 'expense' && salaryOk(today()) ? 'salary' : 'equal', why: '', rec: null, ev: null, who: who, vals: {}, cat: 'otros', catAuto: true, note: '', quick: '' };
+  return { kind: kind || 'expense', id: null, salda: '', desc: '', amount: '', cur: (S.group && S.group.cur) || 'ARS', date: today(), paidBy: S.meId, to: other, mode: (kind || 'expense') === 'expense' && salaryOk(today()) ? 'salary' : 'equal', why: '', rec: null, ev: null, who: who, vals: {}, cat: 'otros', catAuto: true, note: '', quick: '' };
 }
 function openSheet(html) { $('#sheet').innerHTML = html; $('#scrim').className = 'scrim show'; }
 function closeSheet() { $('#scrim').className = 'scrim'; $('#sheet').innerHTML = ''; S.form = null; S.rf = null; S.ef = null; Share.clear(); S.confirmDel = null; Ask.stop(); if (pendingRender) render(); }
@@ -3093,11 +3152,16 @@ function renderForm() {
   if (!F.id) h += '<div class="seg"><button class="' + (!isPay ? 'on' : '') + '" data-act="kind" data-v="expense">Gasto</button><button class="' + (isPay ? 'on' : '') + '" data-act="kind" data-v="payment">Pago entre nosotros</button></div>';
   if (!F.id && !isPay) h += '<label class="chip" style="display:inline-block;margin:0 0 8px;cursor:pointer">📎 Leer un comprobante<input type="file" id="shfile" accept="image/*,application/pdf" hidden></label>' + (S.mode === 'sheets' ? ' <label class="chip" style="display:inline-block;margin:0 0 8px;cursor:pointer">🧾 Ticket por ítems<input type="file" id="tkfile" accept="image/*" hidden></label>' : '');
   if (!F.id) h += '<div class="quick"><input id="quick" data-in="quick" placeholder="' + (isPay ? 'Decilo: «le pagué 20.000»' : 'Anotá rápido: «super 15.200»') + '" value="' + esc(F.quick) + '" autocomplete="off"><button data-act="quick">Cuba, anotá</button>' + (SRec ? '<button data-act="quickvoz" aria-label="Dictar">🎤</button>' : '') + '</div>';
-  h += '<label class="f">' + (isPay ? 'Nota' : 'Descripción') + '</label><input data-in="desc" id="fdesc" value="' + esc(F.desc) + '" placeholder="' + (isPay ? 'Transferencia, efectivo…' : '¿Qué fue?') + '" maxlength="80" autocomplete="off">';
+  h += '<label class="f">' + (isPay ? 'Concepto <span class="mut">(opcional)</span>' : 'Descripción') + '</label><input data-in="desc" id="fdesc" value="' + esc(F.desc) + '" placeholder="' + (isPay ? 'Transferencia, efectivo, por qué es…' : '¿Qué fue?') + '" maxlength="80" autocomplete="off">';
   h += '<div class="two"><div><label class="f">Monto</label><input data-in="amount" inputmode="decimal" value="' + esc(F.amount) + '" placeholder="0,00" autocomplete="off"></div><div><label class="f">Moneda</label><select data-in="cur"' + (evv ? ' disabled' : '') + '><option value="ARS"' + (F.cur === 'ARS' ? ' selected' : '') + '>ARS</option><option value="USD"' + (F.cur === 'USD' ? ' selected' : '') + '>USD</option></select></div></div>';
   h += '<div class="two"><div><label class="f">' + (isPay ? 'Quién paga' : 'Pagó') + '</label><select data-in="paidBy">' + ms.map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === F.paidBy ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div><div><label class="f">Fecha</label><input type="date" data-in="date" value="' + esc(F.date) + '"></div></div>';
   if (isPay) {
     h += '<label class="f">A quién</label><select data-in="to">' + ms.map(function (m) { return '<option value="' + esc(m.id) + '"' + (m.id === F.to ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select>';
+    var sg = saldables(F);
+    if (sg.length || F.salda) h += '<label class="f">¿Salda un gasto? <span class="mut">(opcional)</span></label><select data-in="salda"><option value="">Pago suelto, sin gasto puntual</option>' + sg.map(function (g) {
+      var d = S.stl.by[g.id].debts.filter(function (q) { return q.id === F.paidBy; })[0];
+      return '<option value="' + esc(g.id) + '"' + (g.id === F.salda ? ' selected' : '') + '>' + esc(g.desc) + ' · ' + dLabel(g.date) + (d && d.pend > 0 ? ' · falta ' + C.fmt(d.pend, g.cur, { noDecimals: true }) : ' · saldado') + '</option>';
+    }).join('') + '</select>';
   } else {
     h += '<label class="f">Dividir</label><div class="seg">' + (S.mode === 'sheets' ? [['salary', 'Sueldo']] : []).concat([['equal', 'Igual'], ['exact', 'Montos'], ['percent', '%'], ['shares', 'Partes']]).map(function (m) { return '<button class="' + (F.mode === m[0] ? 'on' : '') + '" data-act="mode" data-v="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>';
     if (S.mode === 'sheets' && !S.sueldos.length) h += '<p class="mut" style="font-size:13px;margin:6px 0 0">Para dividir según el sueldo, cargá cada uno el suyo en Ajustes → Mi sueldo.</p>';
@@ -3146,7 +3210,7 @@ function updatePreview() {
 function openEdit(id) {
   var e = S.all.filter(function (x) { return x.id === id; })[0]; if (!e) return;
   var F = newForm(e.type); F.id = e.id; F.desc = e.type === 'payment' ? (e.note || '') : e.desc; F.amount = String(C.centsDot(e.cents)).replace('.', ','); F.cur = e.cur; F.date = e.date; F.paidBy = e.paidBy; F.cat = e.cat || 'otros'; F.catAuto = false; F.note = e.note || ''; F.ev = e.ev || null;
-  if (e.type === 'payment') F.to = e.sp[0][0];
+  if (e.type === 'payment') { F.to = e.sp[0][0]; F.salda = e.settles && S.stl ? S.stl.head(e.settles) : ''; }
   else {
     F.who = {}; F.mode = 'exact'; F.vals = {};
     e.sp.forEach(function (x) { F.who[x[0]] = true; F.vals[x[0]] = String(C.centsDot(x[1])).replace('.', ','); });
@@ -3158,12 +3222,30 @@ function openEdit(id) {
   }
   S.form = F; renderForm();
 }
+function stlCard(e) {
+  if (e.type === 'payment') {
+    var g = stlLink(e), h0 = e.note ? '<div class="card"><div class="mut" style="font-size:12px">Concepto</div>' + esc(e.note) + '</div>' : '';
+    return h0 + (g ? '<button class="btn ghost full" style="margin-bottom:10px" data-act="detail" data-id="' + esc(g.id) + '">🧾 Pago por: ' + esc(g.desc) + ' · ' + C.fmt(g.cents, g.cur, { noDecimals: true }) + '</button>' : '');
+  }
+  var t = S.stl && S.stl.by[e.id]; if (!t) return '';
+  var fm = function (c) { return C.fmt(c, e.cur); };
+  var h = '<div class="card"><h3>' + (t.tracked && t.settled ? '✓ Saldado entre ustedes' : 'Saldar entre ustedes') + '</h3>';
+  t.debts.forEach(function (d) {
+    h += '<div class="stat"><span>' + esc(mem(d.id).name) + ' le debe a ' + esc(firstName(e.paidBy)) + '</span><b>' + fm(d.owed) + '</b></div>';
+    if (d.paid) h += '<div class="stat"><span class="mut">ya pagó</span><b class="pos">' + fm(d.paid) + '</b></div>';
+    if (d.pend > 0 && !S.readOnly) h += '<button class="btn acc full" style="margin:8px 0 2px" data-act="saldar" data-id="' + esc(e.id) + '" data-q="' + esc(d.id) + '">💸 Saldar este gasto' + (t.debts.length > 1 ? ' (' + esc(firstName(d.id)) + ')' : '') + ' · ' + fm(d.pend) + '</button>';
+  });
+  var pagos = t.pagos.map(function (id) { return S.all.filter(function (x) { return x.id === id; })[0]; }).filter(Boolean);
+  if (pagos.length) h += '<div class="chips" style="margin-top:8px">' + pagos.map(function (p) { return '<button class="chip" data-act="detail" data-id="' + esc(p.id) + '">' + esc(firstName(p.paidBy)) + ' pagó ' + C.fmt(p.cents, p.cur, { noDecimals: true }) + ' · ' + dLabel(p.date) + '</button>'; }).join('') + '</div>';
+  return h + '<p class="mut" style="font-size:12px;margin:8px 0 0">Esto solo deja anotado qué pago fue por este gasto; las cuentas de Cierre ya cuentan todos los pagos.</p></div>';
+}
 function detail(id) {
   var e = S.all.filter(function (x) { return x.id === id; })[0]; if (!e) return;
   var info = C.catInfo(e.type === 'payment' ? 'pago' : e.cat);
   var h = '<div class="sh-head"><h2>' + info.e + ' ' + esc(e.desc) + '</h2><button class="x" data-act="close" aria-label="Cerrar">✕</button></div>';
   h += '<div class="big">' + C.fmt(e.cents, e.cur) + '</div><div class="mut" style="margin-bottom:10px">' + (e.type === 'payment' ? 'Pago' : esc(info.n)) + ' · ' + dLabel(e.date) + (e.approx ? ' · importado (pagó más de una persona)' : '') + '</div>';
   h += '<div class="card"><div class="stat"><span>Pagó</span><b>' + esc(mem(e.paidBy).name) + '</b></div>' + e.sp.map(function (x) { return '<div class="stat"><span>' + (e.type === 'payment' ? 'Recibe' : 'Le toca a') + ' ' + esc(mem(x[0]).name) + '</span><b>' + C.fmt(x[1], e.cur) + '</b></div>'; }).join('') + (e.note && e.type !== 'payment' ? '<div class="mut" style="margin-top:6px;font-size:14px">' + esc(e.note) + '</div>' : '') + (e.exc ? '<div class="mut" style="margin-top:6px;font-size:14px">Excepción: no se repartió por sueldo' + (e.why ? ' · ' + esc(e.why) : '') + '</div>' : '') + '</div>';
+  h += stlCard(e);
   if (S.confirmDel === id) h += '<div class="row"><button class="btn ghost grow" data-act="nodel">No</button><button class="btn grow" style="background:var(--neg);color:#fff" data-act="del" data-id="' + esc(id) + '">Sí, eliminar</button></div>';
   else h += '<div class="row"><button class="btn ghost grow" data-act="edit" data-id="' + esc(id) + '"' + (S.readOnly ? ' disabled' : '') + '>Editar</button><button class="btn ghost grow" data-act="askdel" data-id="' + esc(id) + '"' + (S.readOnly ? ' disabled' : '') + '>Eliminar</button></div>';
   openSheet(h);
@@ -3228,7 +3310,7 @@ var Ask = {
   }
 };
 var A = {
-  tab: function (el) { if (el.dataset.v === 'personal' && !FEATURES.personal) return; S.tab = el.dataset.v; S.evId = null; closeSheet(); render(); window.scrollTo(0, 0); if (S.tab === 'personal') mpAuto(); },
+  tab: function (el) { if (el.dataset.v === 'personal' && !FEATURES.personal) return; S.tab = el.dataset.v; S.evId = null; closeSheet(); render(); window.scrollTo(0, 0); if (S.tab === 'calculadora') { var ci = $('#calcin'); if (ci) ci.focus(); } if (S.tab === 'personal') mpAuto(); },
   ob: function (el) {
     var v = +el.dataset.v;
     if (v === 2) { var ns = S.ob.names.map(function (n) { return n.trim(); }).filter(Boolean); if (ns.length < 2) { toast('Poné al menos dos nombres.'); return; } }
@@ -3252,6 +3334,13 @@ var A = {
   askgo: function () { var i = $('#askq'); Ask.go(i && i.value); },
   askchip: function (el) { var i = $('#askq'); if (i) i.value = el.dataset.q; Ask.go(el.dataset.q); },
   new: function () { if (S.readOnly) { toast('Solo lectura.'); return; } S.form = newForm('expense'); renderForm(); },
+  saldar: function (el) {
+    if (S.readOnly) { toast('Solo lectura.'); return; }
+    var g = S.all.filter(function (x) { return x.id === el.dataset.id; })[0], t = g && S.stl.by[g.id], d = t && t.debts.filter(function (q) { return q.id === el.dataset.q; })[0];
+    if (!d || d.pend <= 0) return;
+    var F = newForm('payment'); F.paidBy = d.id; F.to = g.paidBy; F.cur = g.cur; F.amount = String(C.centsDot(d.pend)).replace('.', ','); F.salda = g.id; F.ev = g.ev || null;
+    S.form = F; renderForm();
+  },
   newpay: function () { if (S.readOnly) { toast('Solo lectura.'); return; } S.form = newForm('payment'); renderForm(); },
   close: function () { closeSheet(); },
   kind: function (el) { var F = S.form; F.kind = el.dataset.v; renderForm(); },
@@ -3322,6 +3411,10 @@ var A = {
     var old = F.id ? S.all.filter(function (x) { return x.id === F.id; })[0] : null;
     var e = { id: F.id || rid(), type: F.kind, desc: isPay ? 'Pago' : desc, cents: r.total, cur: F.cur, date: F.date || today(), paidBy: F.paidBy, sp: r.sp, cat: isPay ? 'pago' : F.cat, note: isPay ? desc : (F.note || ''), by: S.meId, at: new Date().toISOString() };
     if (!isPay && F.why) e.why = F.why;
+    if (isPay && F.salda) e.settles = F.salda;
+    var sold = '', tg = isPay && F.salda && !F.id && S.stl ? S.stl.by[S.stl.head(F.salda)] : null;   // ¿este pago deja saldado el gasto?
+    if (tg) { var dg = tg.debts.filter(function (q) { return q.id === F.paidBy; })[0]; if (dg && r.total >= dg.pend && tg.debts.every(function (q) { return q.id === F.paidBy || q.pend === 0; })) sold = ' · gasto saldado ✓'; }
+    var viejoSaldado = sold && S.all.some(function (g) { return g.id === S.stl.head(F.salda) && g.date <= new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10); });
     if (F.rec) e.src = 'recurrente';
     if (F.ev) e.ev = F.ev;
     var bad = C.validate(e); if (bad) { toast(bad); return; }
@@ -3338,7 +3431,8 @@ var A = {
       if (!rec) return;
       var nx = CubaSheets.addMonth(rec.next, rec.day); while (nx <= (F.date || today())) nx = CubaSheets.addMonth(nx, rec.day);
       return Store.saveRec(Object.assign({}, rec, { cents: r.total, cur: F.cur, next: nx })); // el monto de este mes pasa a ser la referencia del próximo
-    }).then(function () { if (rec && !CubaSheets.dueSoon(S.recs, today(), 7).length) { var pa = $('#app'); pa.classList.add('perk'); setTimeout(function () { pa.classList.remove('perk'); }, 2800); } closeSheet(); toast((old ? 'Cambios guardados' : isPay ? 'Pago anotado' : '¡Anotado! Guau.') + recMsg); render(); }).catch(function (er) { if (btn) btn.disabled = false; fail(er); });
+    }).then(function () { if (rec && !CubaSheets.dueSoon(S.recs, today(), 7).length) { var pa = $('#app'); pa.classList.add('perk'); setTimeout(function () { pa.classList.remove('perk'); }, 2800); } closeSheet(); if (viejoSaldado && !matchMedia('(prefers-reduced-motion: reduce)').matches) { var pb = $('#app'); pb.classList.add('perk'); setTimeout(function () { pb.classList.remove('perk'); }, 2800); }   // 🥚
+      toast((old ? 'Cambios guardados' : isPay ? 'Pago anotado' + sold : '¡Anotado! Guau.') + recMsg); render(); }).catch(function (er) { if (btn) btn.disabled = false; fail(er); });
   },
   detail: function (el) { detail(el.dataset.id); },
   edit: function (el) { openEdit(el.dataset.id); },
@@ -3858,7 +3952,7 @@ function mpSync(auto) {
     if (r.gastos.length) partes.push(r.gastos.length + (r.gastos.length === 1 ? ' gasto nuevo' : ' gastos nuevos') + ' en Personal');
     if (nuevos.length) partes.push(nuevos.length + ' para revisar');
     if (malos) partes.push('no pude leer ' + malos + (malos === 1 ? ' reporte' : ' reportes'));
-    M.msg = partes.length ? partes.join(' · ') : (d.reportes || []).length ? 'Todo al día.' : d.pedido ? 'Le pedí el reporte a Mercado Pago: tarda un ratito en estar listo. Cuba lo vuelve a mirar sola.' : d.pedido_error ? 'No pude pedirle el reporte a Mercado Pago (' + d.pedido_error + '). Podés importar el CSV a mano.' : d.fallidos ? 'Vi ' + d.fallidos + (d.fallidos === 1 ? ' reporte' : ' reportes') + ' en Mercado Pago pero no pude bajarlos. Se reintenta solo; mientras tanto podés importar el CSV a mano.' : d.listados ? 'Mercado Pago tiene ' + d.listados + (d.listados === 1 ? ' reporte' : ' reportes') + ', pero ninguno reciente en CSV. Programá uno diario en CSV (o importá uno a mano).' : 'Todavía no hay reportes generados. En Mercado Pago programá un reporte diario en CSV (o importá uno a mano).' + ' [app v0.24.1 · script ' + (d.v ? 'v' + d.v : 'VIEJO: falta publicar el Code.gs nuevo') + (d.codigos ? ' · MP respondió: ' + d.codigos : '') + ']';
+    M.msg = partes.length ? partes.join(' · ') : (d.reportes || []).length ? 'Todo al día.' : d.pedido ? 'Le pedí el reporte a Mercado Pago: tarda un ratito en estar listo. Cuba lo vuelve a mirar sola.' : d.pedido_error ? 'No pude pedirle el reporte a Mercado Pago (' + d.pedido_error + '). Podés importar el CSV a mano.' : d.fallidos ? 'Vi ' + d.fallidos + (d.fallidos === 1 ? ' reporte' : ' reportes') + ' en Mercado Pago pero no pude bajarlos. Se reintenta solo; mientras tanto podés importar el CSV a mano.' : d.listados ? 'Mercado Pago tiene ' + d.listados + (d.listados === 1 ? ' reporte' : ' reportes') + ', pero ninguno reciente en CSV. Programá uno diario en CSV (o importá uno a mano).' : 'Todavía no hay reportes generados. En Mercado Pago programá un reporte diario en CSV (o importá uno a mano).' + ' [app v0.25.0 · script ' + (d.v ? 'v' + d.v : 'VIEJO: falta publicar el Code.gs nuevo') + (d.codigos ? ' · MP respondió: ' + d.codigos : '') + ']';
     if (d.pedido && !(d.reportes || []).length && (M.reint = (M.reint || 0) + 1) <= 3) setTimeout(function () { mpSync(true); }, 45000); else if (!d.pedido) M.reint = 0;
     var trajo = M.pidio && (d.reportes || []).length && r.gastos.length; if (d.pedido) M.pidio = true; else if ((d.reportes || []).length) M.pidio = false;
     return Per.add(ev).then(function () { if (trajo) { toast('🐕 ¡Guau! Cuba te trajo el reporte en el hocico · ' + M.msg); if (navigator.vibrate) { try { navigator.vibrate([20, 40, 20]); } catch (e) {} } } else if (partes.length || !auto) toast('Mercado Pago: ' + M.msg); });
@@ -3956,7 +4050,7 @@ function sugerirCategoria(d) {
 }
 document.addEventListener('focusout', function (ev) {
   var el = ev.target; if (!el || !el.dataset || el.dataset.in !== 'desc' || !S.form) return;
-  var sv = S.form.kind === 'expense' ? C.servicioDesc(el.value, S.form.date) : null, d = sv ? sv.desc : C.tidyDesc(el.value);
+  var sv = S.form.kind === 'expense' ? C.servicioDesc(el.value, S.form.date) : null, d = sv ? sv.desc : S.form.kind === 'payment' ? el.value : C.tidyDesc(el.value);   // el concepto de un pago es texto libre: no se le cambian las mayúsculas
   if (d !== el.value) el.value = d;
   S.form.desc = d;
   if (sv && S.form.catAuto && S.form.cat !== sv.cat) { S.form.cat = sv.cat; document.querySelectorAll('.cats button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === sv.cat); }); }
@@ -4063,6 +4157,12 @@ document.addEventListener('change', function (ev) {
   }
   else if (S.ef && (k === 'evcur' || k === 'evfrom' || k === 'evto')) { S.ef[k === 'evcur' ? 'cur' : k === 'evfrom' ? 'from' : 'to'] = el.value; }
   else if (S.rf && (k === 'rcur' || k === 'rcat' || k === 'rpaid')) { S.rf[k.slice(1)] = el.value; if (k === 'rcat') S.rf.catAuto = false; }
+  else if (k === 'salda' && S.form) {
+    var F2 = S.form; F2.salda = el.value;
+    if (F2.salda) { var g2 = S.all.filter(function (x) { return x.id === F2.salda; })[0], t2 = S.stl.by[F2.salda], d2 = t2 && t2.debts.filter(function (q) { return q.id === F2.paidBy; })[0]; if (g2 && d2 && d2.pend > 0 && !(C.parseAmount(F2.amount) > 0)) F2.amount = String(C.centsDot(d2.pend)).replace('.', ','); }
+    renderForm();
+  }
+  else if (S.form && S.form.kind === 'payment' && (k === 'paidBy' || k === 'to' || k === 'cur')) { S.form[k] = el.value; if (!saldables(S.form).some(function (g) { return g.id === S.form.salda; })) S.form.salda = ''; renderForm(); }
   else if (k === 'paidBy' || k === 'to' || k === 'cur' || k === 'date') { S.form[k] = el.value; if (k === 'date' && S.form.mode === 'salary' && !salaryOk(el.value)) { S.form.mode = 'equal'; renderForm(); return; } updatePreview(); }
 });
 document.addEventListener('input', function (ev) {

@@ -163,4 +163,13 @@ t('eventos: evento_id viaja en las dos direcciones y las cuentas del evento van 
   assert.strictEqual(S.snapshotToState({ personas: [{ id: 'a', nombre: 'A' }], movimientos: [], eventos: [{ id: 'ev1', nombre: 'Bari', moneda: 'USD', desde: '', hasta: '', estado: 'cerrado', creado_por: 'a' }] }).eventos[0].open, false);
   assert.deepStrictEqual(S.eventoToPayload({ id: 'ev1', name: 'Bari', cur: 'USD', from: '', to: '', open: true, by: 'a' }), { id: 'ev1', nombre: 'Bari', moneda: 'USD', desde: '', hasta: '', estado: 'abierto', creado_por: 'a' });
 });
+t('pagos que saldan un gasto: salda_id viaja en las dos direcciones', () => {
+  const e = { id: 'p1', type: 'payment', desc: 'Pago', cents: 5000, cur: 'ARS', date: '2026-11-03', paidBy: 'm2', sp: [['m1', 5000]], cat: 'pago', note: 'Por la cena', settles: 'g1' };
+  const m = S.entryToMov(e, []);
+  assert.strictEqual(m.salda_id, 'g1');
+  const back = S.rowToEntry(Object.assign({ tipo: 'pago', descripcion: 'Pago', monto_centavos: 5000, moneda: 'ARS', fecha: '2026-11-03', pagador_id: 'm2', reparto_json: '[[\"m1\",5000]]', nota: 'Por la cena' }, { id: 'p1', salda_id: 'g1' }));
+  assert.strictEqual(back.settles, 'g1'); assert.strictEqual(back.note, 'Por la cena');
+  assert.strictEqual(S.entryToMov(Object.assign({}, e, { settles: undefined }), []).salda_id, undefined);
+});
+
 console.log(n + ' pruebas de traducción');

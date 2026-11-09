@@ -73,11 +73,13 @@ const J = x => JSON.parse(JSON.stringify(x));
   const aj = await A.txt(); assert.ok(/suscripciones/i.test(aj) && /Netflix/i.test(aj) && /103\.200 al año/.test(aj), aj.slice(aj.indexOf('SUSCRIP') - 20, aj.indexOf('SUSCRIP') + 500));
 
   // --- Calculadora de reparto (2.000.000 y 1.000.000 → 2/3 y 1/3) ---
+  await A.p.click('.nav [data-v=calculadora]');
   await A.p.fill('[data-in=calcamt]', '300.000');
   const calc = await A.p.locator('#calcout').innerText();
   assert.ok(/Tomi[\s\S]*67 %[\s\S]*\$200\.000,00/.test(calc) && /Pau[\s\S]*33 %[\s\S]*\$100\.000,00/.test(calc), calc);
   await A.p.fill('[data-in=calcamt]', '');
   assert.ok(/Poné un monto/.test(await A.p.locator('#calcout').innerText()));
+  await A.p.click('.nav [data-v=ajustes]'); await openAll(A.p);
 
   // --- Alquiler con ajuste por índice: hoy toca; 10 % → 847.000; el próximo ajuste corre 3 meses ---
   await A.p.click('[data-act=recnew]');

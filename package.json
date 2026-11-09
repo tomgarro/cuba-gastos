@@ -1,12 +1,12 @@
 {
   "name": "cuba-gastos",
-  "version": "0.24.1",
+  "version": "0.25.0",
   "private": true,
   "description": "Cuba: gastos de a dos (PWA)",
   "scripts": {
     "build": "python3 build.py",
     "test": "node tests/core.test.js && node tests/sheets.test.js && node tests/backend.test.js && node tests/cuba.test.js && node tests/resumen.test.js && node tests/avisos.test.js && node tests/compartir.test.js && node tests/preguntas.test.js && node tests/personal.test.js && node tests/ia.test.js && node tests/secretos.test.js",
-    "test:e2e": "node tests/e2e.js && node tests/e2e-db.js && node tests/e2e-sheets.js && node tests/e2e-sueldos.js && node tests/e2e-eventos.js && node tests/e2e-avisos.js && node tests/e2e-compartir.js && node tests/e2e-preguntas.js && node tests/e2e-cuba.js && node tests/e2e-aventuras.js && node tests/e2e-personal.js && node tests/e2e-ia.js && node tests/e2e-mp.js && node tests/e2e-vistas.js && node tests/e2e-features.js && node tests/pwa.js",
+    "test:e2e": "node tests/e2e.js && node tests/e2e-db.js && node tests/e2e-sheets.js && node tests/e2e-sueldos.js && node tests/e2e-eventos.js && node tests/e2e-avisos.js && node tests/e2e-compartir.js && node tests/e2e-preguntas.js && node tests/e2e-cuba.js && node tests/e2e-aventuras.js && node tests/e2e-personal.js && node tests/e2e-ia.js && node tests/e2e-mp.js && node tests/e2e-vistas.js && node tests/e2e-features.js && node tests/e2e-saldar.js && node tests/pwa.js",
     "icons": "node tools/make_icons.js"
   },
   "devDependencies": {

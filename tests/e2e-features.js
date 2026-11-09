@@ -15,7 +15,7 @@ const assert = require('assert');
   }
   let { p, errs } = await abrir(false);
   assert.strictEqual(await p.locator('.nav [data-v=personal]').count(), 0, 'apagado: no hay pestaña Personal');
-  assert.strictEqual(await p.locator('.nav button').count(), 4, 'apagado: quedan 4 pestañas');
+  assert.strictEqual(await p.locator('.nav button').count(), 4, 'apagado: sin Personal ni Calculadora (modo local) quedan 4 pestañas');
   await p.click('.nav [data-v=ajustes]');
   assert.ok(!/Personal|🔒|Mercado Pago/.test(await p.locator('#app').innerText()), 'apagado: Ajustes no nombra Personal ni Mercado Pago');
   assert.deepStrictEqual(errs, [], 'sin errores: ' + errs);

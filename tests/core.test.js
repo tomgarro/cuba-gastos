@@ -247,4 +247,27 @@ t('importar Splitwise: mapeo a personas existentes, moneda del lote y sin duplic
   const amb = C.guessImportMap(imp, [{ id: 'a', name: 'Tomi' }, { id: 'b', name: 'Tomás' }]);
   assert.strictEqual(amb.c1, '', 'dos candidatos para Tomás: que elija la persona');
 });
+t('saldado entre ustedes: pagos vinculados, parciales, otra moneda y gasto editado', () => {
+  const g = { id: 'g1', type: 'expense', cents: 10000, cur: 'ARS', date: '2026-11-01', paidBy: 'a', sp: [['a', 4000], ['b', 6000]], desc: 'Cena' };
+  const pay = (id, cents, extra) => Object.assign({ id, type: 'payment', cents, cur: 'ARS', date: '2026-11-02', paidBy: 'b', sp: [['a', cents]], settles: 'g1' }, extra);
+  let r = C.settlements([g]);
+  assert.strictEqual(r.by.g1.tracked, false); assert.strictEqual(r.by.g1.debts[0].pend, 6000);
+  r = C.settlements([g, pay('p1', 2500)]);
+  assert.deepStrictEqual([r.by.g1.tracked, r.by.g1.settled, r.by.g1.debts[0].pend], [true, false, 3500]);
+  r = C.settlements([g, pay('p1', 2500), pay('p2', 3500)]);
+  assert.strictEqual(r.by.g1.settled, true);
+  r = C.settlements([g, pay('p1', 9999, { cur: 'USD' }), pay('p2', 6000, { paidBy: 'a', sp: [['b', 6000]] })]);
+  assert.strictEqual(r.by.g1.settled, false, 'otra moneda o el sentido contrario no saldan');
+  r = C.settlements([g, pay('p1', 6000, { del: true })]);
+  assert.strictEqual(r.by.g1.tracked, false, 'un pago anulado no cuenta');
+  // el gasto se editó: el viejo queda anulado y el nuevo lo reemplaza; el vínculo lo sigue
+  const g2 = Object.assign({}, g, { id: 'g9', replaces: 'g1', cents: 12000, sp: [['a', 6000], ['b', 6000]] });
+  r = C.settlements([Object.assign({}, g, { del: true }), g2, pay('p1', 6000)]);
+  assert.strictEqual(r.head('g1'), 'g9'); assert.strictEqual(r.by.g9.settled, true); assert.strictEqual(r.by.g1, undefined);
+  // lo que paga el pagador consigo mismo no genera deuda; varios deudores se cuentan por separado
+  const g3 = { id: 'g3', type: 'expense', cents: 9000, cur: 'ARS', date: '2026-11-01', paidBy: 'a', sp: [['a', 3000], ['b', 3000], ['c', 3000]] };
+  r = C.settlements([g3, pay('p3', 3000, { settles: 'g3' })]);
+  assert.deepStrictEqual(r.by.g3.debts.map(d => [d.id, d.pend]), [['b', 0], ['c', 3000]]); assert.strictEqual(r.by.g3.settled, false);
+});
+
 console.log('\n' + n + ' tests ok');

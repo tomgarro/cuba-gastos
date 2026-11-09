@@ -450,6 +450,24 @@ t('hojas de versiones anteriores: se agrega evento_id al encabezado sin tocar lo
   assert.strictEqual(err(() => c.call('read')).code, 'esquema');
 });
 
+t('pagos que saldan un gasto: salda_id se guarda y se lee; hojas de 20 y de 21 columnas se completan solas', () => {
+  const b = boot(); b.call('savePersonas', { personas: P });
+  b.call('addMovimientos', { movimientos: [mov({ id: 'g1' }), mov({ id: 'p1', tipo: 'pago', salda_id: 'g1', nota: 'Por la cena' })] });
+  const r = b.call('read').movimientos;
+  assert.strictEqual(r.filter(m => m.id === 'p1')[0].salda_id, 'g1'); assert.strictEqual(r.filter(m => m.id === 'g1')[0].salda_id, '');
+  assert.strictEqual(err(() => b.call('addMovimientos', { movimientos: [mov({ id: 'p2', tipo: 'pago', salda_id: 'no valido!' })] })).code, 'id_invalido');
+  [20, 21].forEach(ancho => {
+    const c = boot({ lazyTabs: true }); c.call('savePersonas', { personas: P });
+    c.grids.Movimientos.length = 0; c.grids.Movimientos.push(c.TABS.Movimientos.slice(0, ancho));
+    c.grids.Movimientos.push(c.TABS.Movimientos.slice(0, ancho).map(k => ({ id: 'v1', tipo: 'gasto', fecha: '2026-10-01', descripcion: 'Viejo', monto_centavos: 500, moneda: 'ARS', pagador_id: 'm1', reparto_modo: 'igual', reparto_json: '[[\"m1\",250],[\"m2\",250]]', excepcion: false, anulado: false }[k] ?? '')));
+    const rr = c.call('read').movimientos;
+    assert.strictEqual(rr.length, 1); assert.strictEqual(rr[0].salda_id, '');
+    assert.strictEqual(c.grids.Movimientos[0][21], 'salda_id'); assert.strictEqual(c.grids.Movimientos[0].length, 22);
+    c.call('addMovimientos', { movimientos: [mov({ id: 'n1', tipo: 'pago', salda_id: 'v1' })] });
+    assert.strictEqual(c.call('read').movimientos.filter(m => m.id === 'n1')[0].salda_id, 'v1');
+  });
+});
+
 t('avisos: vence pronto / hoy / vencido, una sola vez por etapa, sin montos al celu y reintenta si no salió', () => {
   const b = boot(); b.call('savePersonas', { personas: P });
   const rec = (id, d, ven, over) => Object.assign({ id, descripcion: d, monto_estimado_centavos: 1234500, moneda: 'ARS', dia_mes: 10, categoria: 'luz', pagador_id: 'm1', proximo_vencimiento: ven, activo: true }, over || {});
@@ -760,7 +778,7 @@ t('mpReportes devuelve los códigos de Mercado Pago y «Probar Mercado Pago» mu
   const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
   b.ctx.UrlFetchApp = { fetch: u => /release_report/.test(u) ? resp(404, { message: 'not found' }) : resp(200, []) };
   const r = b.call('mpReportes', { clave: 'ABCD-1234-EF56' });
-  assert.strictEqual(r.codigos, 'release:404 settlement:200(0)'); assert.strictEqual(r.listados, 0); assert.strictEqual(r.v, '0.24.0');
+  assert.strictEqual(r.codigos, 'release:404 settlement:200(0)'); assert.strictEqual(r.listados, 0); assert.strictEqual(r.v, '0.25.0');
   let msg = ''; b.ctx.SpreadsheetApp = { getUi: () => ({ alert: (t, m) => { msg = t + ' ' + m; }, ButtonSet: { OK: 1 } }) };
   vm.runInContext('probarMercadoPago()', b.ctx);
   assert.ok(/release_report: código 404/.test(msg) && /settlement_report: 200, 0 reportes/.test(msg) && !/APP_USR/.test(msg), msg);

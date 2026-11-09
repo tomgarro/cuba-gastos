@@ -52,3 +52,7 @@ Para leer cuando quieras. Cada uno: cómo se activa y cómo se apaga.
 ## v0.24 · Cuba trae el reporte
 - **Se activa:** cuando Cuba le pidió el reporte a Mercado Pago y, al volver a mirar, el reporte llegó con gastos nuevos: el aviso dice que Cuba lo trajo en el hocico y el celu vibra apenas.
 - **Se apaga:** en `mpSync` (src/app.html) borrar la variable `trajo` y dejar solo el `toast('Mercado Pago: ' + M.msg)`. Respeta que no haya vibración si el dispositivo no la soporta.
+
+## v0.25 · Cuenta vieja, cola contenta
+- **Se activa:** saldar del todo un gasto que tiene más de 60 días (con un pago vinculado a él): Cuba mueve la cola un rato. Sin aviso extra; sin movimiento con «reducir movimiento».
+- **Se apaga:** borrar la variable `viejoSaldado` y su uso en `A.save` (`src/app.html`).

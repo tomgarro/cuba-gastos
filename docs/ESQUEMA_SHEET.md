@@ -14,13 +14,14 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 - El sueldo vigente a una fecha es el de mayor `desde` menor o igual a esa fecha.
 
 ## Movimientos (solo se agrega)
-`id | tipo | fecha | descripcion | monto_centavos | moneda | pagador_id | reparto_modo | reparto_json | excepcion | motivo_excepcion | categoria | confianza | nota | lote_id | origen | creado_por | creado_en | anulado | reemplaza_id | evento_id`
+`id | tipo | fecha | descripcion | monto_centavos | moneda | pagador_id | reparto_modo | reparto_json | excepcion | motivo_excepcion | categoria | confianza | nota | lote_id | origen | creado_por | creado_en | anulado | reemplaza_id | evento_id | salda_id`
 - `tipo`: `gasto` o `pago`.
 - `reparto_modo`: `sueldo` (por defecto), `igual`, `porcentaje` o `exacto`.
 - `reparto_json`: `[["persona_id", centavos], ...]`; la suma es exactamente `monto_centavos`.
 - `excepcion`: `TRUE` si no usó el reparto por sueldo.
 - `origen`: `manual`, `splitwise`, `telegram`, `mercadopago`, `tarjeta`…
 - `anulado`: `TRUE` marca como borrado. Editar = anular el viejo y agregar uno nuevo con `reemplaza_id`.
+- `nota` en un pago es su concepto (texto libre). `salda_id` (solo pagos, opcional): el `id` del gasto por el que se paga. No cambia las cuentas; solo deja anotado qué pago fue por qué gasto. Si el gasto se edita, el vínculo sigue apuntando al id viejo y la app lo sigue por `reemplaza_id`.
 
 ## Lotes (importaciones)
 `id | origen | archivo | fecha | cantidad | moneda_original | estado`
@@ -81,3 +82,4 @@ La Sheet contiene datos financieros: compartirla solo con las dos cuentas de la 
 - `Recurrentes` es configuración y se edita en el lugar. `monto_estimado_centavos` pasa a ser lo último que se pagó de verdad; `proximo_vencimiento` avanza un mes al anotarlo. Lo pagado vive en `Movimientos` con `origen = recurrente`.
 
 - `evento_id` (columna 21 de `Movimientos`) se agregó en v0.14: una Sheet anterior se completa sola (el backend escribe el encabezado si la columna está vacía; no toca ningún dato). La pestaña `Eventos` también se crea sola.
+- `salda_id` (columna 22 de `Movimientos`) se agregó en v0.25.0 y se completa sola igual, tanto en hojas de 20 como de 21 columnas.
