@@ -5,7 +5,7 @@ const path = require('path');
 const { boot } = require('./fake-sheet.js');
 const EXEC = 'https://script.google.com/macros/s/TEST/exec';
 const cfg = Buffer.from(JSON.stringify({ u: EXEC, t: 'TOK' })).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
-const URL_APP = require('url').pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
+const URL_APP = require('./con-personal.js')();   // copia con FEATURES.personal = true (Personal está apagado por defecto)
 const TOKEN = 'APP_USR-1234567890123456-111111-abcdef0123456789abcdef0123456789-9999', LINK = 'ABCD-1234-EF56';
 
 (async () => {

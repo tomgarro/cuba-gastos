@@ -93,3 +93,6 @@ Orden por dependencia. Marcar a medida que se completa.
 - Mercado Pago: Cuba pide el reporte «Dinero en cuenta» por API cuando no hay uno de las últimas 6 horas (los programados desde la web no se ven por la API). Espera unos segundos, lo baja y lo importa; si tarda, avisa y lo vuelve a mirar sola.
 - Regla nueva de seguridad: lo único que Cuba escribe en Mercado Pago es pedir un reporte (y su configuración mínima si falta), con lista cerrada de rutas en `mpPost_`. `secretos.test.js` y `backend.test.js` lo prueban.
 - Menú «Probar Mercado Pago» muestra también la configuración de reportes y cuándo se pidió el último.
+
+## v0.24.1
+- Personal oculto con un interruptor (`FEATURES.personal` en `src/app.html`); código y backend intactos. Detalle y cómo reactivarlo en `docs/FEATURES.md`.

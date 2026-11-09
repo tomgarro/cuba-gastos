@@ -62,6 +62,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
 .item .r .b{font-size:12px}
 .nav{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
 .nav div{max-width:520px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
+.nav div.n4{grid-template-columns:repeat(4,1fr)}
 .nav button{background:none;border:0;padding:8px 4px;border-radius:12px;font-size:12px;font-weight:600;color:var(--mut);display:flex;flex-direction:column;align-items:center;gap:2px}
 .nav button span{font-size:20px}
 .nav button.on{color:var(--ink);background:var(--accsoft)}
@@ -2071,6 +2072,10 @@ textarea{min-height:110px;font-size:13px;font-family:ui-monospace,Menlo,monospac
 (function () {
 'use strict';
 var C = CubaCore, P = CubaPersonal;
+// ---- Interruptores de funciones (ver docs/FEATURES.md). Para volver a activar Personal: poné personal en true. ----
+// «Personal» = pestaña 🔒, gastos propios cifrados, topes, metas, Mercado Pago, «Yo» en tickets y «guardar en mi Personal» del resumen de tarjeta.
+// El código y el backend (savePersonal, hoja Personal, Mercado Pago) siguen intactos: solo se oculta.
+var FEATURES = { personal: false };
 var $ = function (s) { return document.querySelector(s); };
 var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
 var rid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); };
@@ -2417,6 +2422,7 @@ function render() {
   if (!S.group) { app.innerHTML = viewOnboarding(); return; }
   if (!S.meId || memIdx(S.meId) < 0) { app.innerHTML = viewWho(); return; }
   var ev = S.evId ? S.eventos.filter(function (x) { return x.id === S.evId; })[0] : null; if (S.evId && !ev) S.evId = null;
+  if (S.tab === 'personal' && !FEATURES.personal) S.tab = 'inicio';
   var v = ev ? viewEvento(ev) : S.tab === 'gastos' ? viewGastos() : S.tab === 'cierre' ? viewCierre() : S.tab === 'personal' ? viewPersonal() : S.tab === 'ajustes' ? viewAjustes() : viewInicio();
   var banner = '';
   if (S.mode === 'local') banner = '<div class="banner">Modo local: tus datos viven solo en este navegador. Abrí la app desde claude.ai con sesión iniciada para compartirla con tu pareja.</div>';
@@ -2426,7 +2432,7 @@ function render() {
   app.innerHTML = '<div class="top"><div class="brand">' + (S.tab === 'inicio' && S.group.members && S.group.members.length ? '' : cuba('idle', 58)) + '<span>Cuba<br><small>' + esc(S.group.name || 'Casa') + '</small></span></div><button class="chip" data-act="tab" data-v="ajustes">' + esc(firstName(S.meId)) + ' ▾</button></div>' + banner + v +
     '<div id="pend" class="pend" style="display:' + (S.pend ? '' : 'none') + '">' + (S.sync === 'espera' ? 'Sin señal: ' + S.pend + (S.pend === 1 ? ' cambio espera' : ' cambios esperan') + ' para enviarse' : 'Guardando…') + '</div>' +
     '<button class="fab" data-act="' + (S.tab === 'personal' ? 'perfoco' : 'new') + '" aria-label="' + (S.tab === 'personal' ? 'Anotar gasto personal' : 'Anotar gasto') + '">+</button>' +
-    '<nav class="nav"><div>' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['personal', '🔒', 'Personal'], ['ajustes', '⚙️', 'Ajustes']].map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
+    '<nav class="nav"><div class="n' + (FEATURES.personal ? 5 : 4) + '">' + [['inicio', '🏠', 'Inicio'], ['gastos', '🧾', 'Gastos'], ['cierre', '🤝', 'Cierre'], ['personal', '🔒', 'Personal'], ['ajustes', '⚙️', 'Ajustes']].filter(function (t) { return t[0] !== 'personal' || FEATURES.personal; }).map(function (t) { return '<button class="' + (S.tab === t[0] ? 'on' : '') + '" data-act="tab" data-v="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div></nav>';
 }
 function viewSheetsError() {
   return '<div class="ob"><div class="cuba" style="align-self:center">' + cuba('sad', 140) + '</div><h1>No llego a la Sheet</h1><p>' + (S.authErr ? 'La Sheet no reconoce este celular. Abrí el link de emparejado nuevo (menú Cuba de la Sheet).' : 'Revisá la conexión y probá de nuevo.') + '</p>' +
@@ -2559,7 +2565,7 @@ function viewAjustes() {
   h += '<div class="card"><h3>Traer de Splitwise</h3><p class="mut" style="margin:0 0 10px;font-size:14px">En Splitwise (web): grupo → <b>Exportar como hoja de cálculo</b>. Subí el archivo .csv o pegá su contenido acá. Los saldos finales tienen que coincidir con los de Splitwise.</p>' +
     '<input type="file" id="file" accept=".csv,text/csv,text/plain" style="margin-bottom:8px"><textarea id="paste" data-in="paste" placeholder="…o pegá el CSV acá"></textarea><button class="btn full" style="margin-top:8px" data-act="impprev">Revisar importación</button>' + (S.imp ? impHtml() : '') + lotesHtml() + '</div>';
   h += '<div class="card"><h3>Exportar</h3><p class="mut" style="margin:0 0 10px;font-size:14px">Tu historial completo en CSV (mismo formato que Splitwise).</p><button class="btn ghost full" data-act="export">Generar CSV</button>' + (S.exportText ? '<textarea readonly id="exp">' + esc(S.exportText) + '</textarea><button class="btn sm full" style="margin-top:8px" data-act="copyexp">Copiar</button>' : '') + '</div>';
-  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.24.0</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
+  h += '<div class="card"><h3>Estado</h3><div class="stat"><span>Datos</span><b>' + (S.mode === 'sheets' ? (S.offline ? 'Sheet (sin conexión)' : 'compartidos en la Sheet ✓') : S.mode === 'db' ? 'compartidos ✓' : 'solo en este navegador') + '</b></div><div class="stat"><span>Movimientos</span><b>' + C.live(S.entries).length + '</b></div><div class="stat"><span>Versión de la app</span><b id="appver">v0.24.1</b></div>'+ (S.mode === 'sheets' ? '<button class="btn ghost sm" style="margin-top:10px" data-act="disconnect">Desconectar este celular</button>' : '<details style="margin-top:10px"><summary class="mut" style="font-size:14px">Conectar con la Sheet</summary><label class="f">Dirección de la app web</label><input data-in="shurl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"><label class="f">Token</label><input data-in="shtok" placeholder="el que muestra el menú Cuba" autocomplete="off"><button class="btn sm full" style="margin-top:8px" data-act="connect">Conectar</button></details>') + '</div>';
   return foldCards(h);
 }
 function pctLine(date) {
@@ -2704,7 +2710,7 @@ function viewMiMes() {
   h += '<div class="stat"><span>Tu parte de lo compartido que ya va</span><b>− ' + f(r.gastado) + '</b></div>';
   h += '<div class="stat"><span>Tu parte de lo que vence este mes' + (r.items.length ? ' <span class="mut" style="font-size:13px">(' + r.items.map(function (i) { return esc(i.desc); }).join(', ') + ')</span>' : '') + '</span><b>− ' + f(r.porPagar) + '</b></div>';
   h += '<div class="stat" style="border-top:1px solid var(--line);margin-top:4px"><span><b>Te queda para lo tuyo</b></span><b class="' + (r.queda < 0 ? 'neg' : 'pos') + '">' + f(r.queda) + '</b></div>';
-  return h + '<p class="mut" style="font-size:13px;margin:8px 0 0">Estimado: cuenta solo lo compartido y los recurrentes (los montos son aproximados). Tus gastos personales no están.</p></div>';
+  return h + '<p class="mut" style="font-size:13px;margin:8px 0 0">Estimado: cuenta solo lo compartido y los recurrentes (los montos son aproximados).' + (FEATURES.personal ? ' Tus gastos personales no están.' : '') + '</p></div>';
 }
 // Calculadora: un monto cualquiera repartido según los sueldos vigentes hoy (no anota nada).
 function calcRepartoHtml(txt) {
@@ -2885,7 +2891,7 @@ function viewResumen() {
   var row = function (x) {
     var i = its.indexOf(x), c = C.catInfo(x.cat);
     return '<div class="rsrow"><span class="grow"><div class="t">' + esc(x.nombre) + '</div><div class="s">' + dLarga(x.fecha) + ' · ' + c.e + ' ' + esc(c.n) + (x.why ? ' · ' + esc(x.why) : '') + '</div></span>' +
-      '<span class="r"><div class="a">' + (x.cur === 'USD' ? C.fmt(x.cents, 'USD') + (rsPesos(x).cur === 'ARS' ? '<div class="s">≈ ' + C.fmt(rsPesos(x).cents, 'ARS', { noDecimals: true }) + '</div>' : '') : C.fmt(x.cents, x.cur, { noDecimals: x.cur === 'ARS' })) + '</div><button class="chip' + (x.comparte ? ' on' : '') + '" data-act="rstog" data-i="' + i + '" aria-pressed="' + !!x.comparte + '">' + (x.comparte ? 'Compartido' : 'Personal') + '</button></span></div>';
+      '<span class="r"><div class="a">' + (x.cur === 'USD' ? C.fmt(x.cents, 'USD') + (rsPesos(x).cur === 'ARS' ? '<div class="s">≈ ' + C.fmt(rsPesos(x).cents, 'ARS', { noDecimals: true }) + '</div>' : '') : C.fmt(x.cents, x.cur, { noDecimals: x.cur === 'ARS' })) + '</div><button class="chip' + (x.comparte ? ' on' : '') + '" data-act="rstog" data-i="' + i + '" aria-pressed="' + !!x.comparte + '">' + (x.comparte ? 'Compartido' : FEATURES.personal ? 'Personal' : 'No compartido') + '</button></span></div>';
   };
   if (S.rsBusy) h += '<p class="mut" style="font-size:14px">Cuba está pensando qué es cada cosa…</p>';
   if (posibles.length) h += '<h3 style="margin:14px 0 4px">¿Ya estaba cargado? (' + posibles.length + ')</h3><p class="mut" style="font-size:13px;margin:0 0 4px">Mismo monto y fecha cercana a algo que ya subieron. No se cargan salvo que digas que es otro gasto.</p>' + posibles.map(function (x) {
@@ -2894,7 +2900,7 @@ function viewResumen() {
   }).join('');
   if (nuevos.length) h += '<h3 style="margin:14px 0 4px">Para decidir (' + nuevos.length + ')</h3>' + nuevos.map(row).join('');
   if (reglas.length) h += '<h3 style="margin:14px 0 4px">Ya sabía (' + reglas.length + ')</h3>' + reglas.map(row).join('');
-  if (ya.length) h += '<p class="mut" style="font-size:13px;margin:10px 0 0">' + ya.length + ' ya estaban cargados en Cuba o en tu Personal.</p>';
+  if (ya.length) h += '<p class="mut" style="font-size:13px;margin:10px 0 0">' + ya.length + (FEATURES.personal ? ' ya estaban cargados en Cuba o en tu Personal.' : ' ya estaban cargados en Cuba.') + '</p>';
   if (its.some(function (x) { return x.cur === 'USD' && rsVivo(x); })) {
     var dz2 = S.rs.dolar;
     h += '<div class="preview" style="margin-top:10px"><b>Dólar tarjeta</b> (solo para los consumos en USD)<div class="row" style="display:flex;gap:8px;margin-top:6px;align-items:center"><label class="grow" style="font-size:13px">Cotización<input id="rstc" inputmode="decimal" value="' + esc(dz2.tc) + '" placeholder="TC vendedor"></label><label style="width:90px;font-size:13px">Percepción %<input id="rspct" inputmode="decimal" value="' + esc(dz2.pct) + '"></label></div>' +
@@ -2902,7 +2908,7 @@ function viewResumen() {
   }
   var pers = rsPersonales();
   if (Per.ready()) h += '<label class="stat" style="align-items:center;gap:8px;margin-top:10px"><span>🔒 Guardar los <b>' + pers.length + '</b> consumos no compartidos en mi Personal</span><input type="checkbox" data-act="rsper" style="width:22px;height:22px;flex:none"' + (R.pers !== false ? ' checked' : '') + '></label>';
-  else h += '<div class="mut" style="font-size:12px;margin-top:8px">Si abrís tu espacio Personal, también podés guardar acá lo que no es compartido.</div>';
+  else if (FEATURES.personal) h += '<div class="mut" style="font-size:12px;margin-top:8px">Si abrís tu espacio Personal, también podés guardar acá lo que no es compartido.</div>';
   var tot = {}; sel.forEach(function (x) { var q = rsPesos(x); tot[q.cur] = (tot[q.cur] || 0) + q.cents; });
   h += '<div class="stat" style="margin-top:10px"><span>Compartidos que se cargan</span><b>' + sel.length + (sel.length ? ' · ' + Object.keys(tot).map(function (k) { return C.fmt(tot[k], k, { noDecimals: k === 'ARS' }); }).join(' + ') : '') + '</b></div>';
   h += '<button class="btn acc full" style="margin-top:8px" data-act="rsgo"' + (S.readOnly || S.rsBusy || !(sel.length || (R.pers !== false && Per.ready() && pers.length)) ? ' disabled' : '') + '>Cargar ' + sel.length + (sel.length === 1 ? ' gasto compartido' : ' gastos compartidos') + (R.pers !== false && Per.ready() && pers.length ? ' + ' + pers.length + ' a mi Personal' : '') + '</button>' +
@@ -2954,7 +2960,7 @@ var Per = {
       this.ev = JSON.parse(localStorage.getItem(LSPE + S.meId) || '[]') || [];
     } catch (e) {}
   },
-  ready: function () { this.load(); return !!this.key; },
+  ready: function () { if (!FEATURES.personal) return false; this.load(); return !!this.key; },
   state: function () { this.load(); return this.st || (this.st = P.armar(this.ev)); },
   guardar: function () { this.st = null; try { localStorage.setItem(LSPE + S.meId, JSON.stringify(this.ev)); } catch (e) {} },
   subir: function (lista) {   // cifra y manda a la Sheet: llega ilegible; si no hay señal queda en la cola
@@ -2966,12 +2972,14 @@ var Per = {
     });
   },
   add: function (lista) {
+    if (!FEATURES.personal) return Promise.resolve(0);
     this.load(); var ya = {}; this.ev.forEach(function (e) { ya[e.id] = 1; });
     var nuevos = lista.filter(function (e) { return !ya[e.id]; }); if (!nuevos.length) return Promise.resolve(0);
     this.ev = this.ev.concat(nuevos); this.guardar(); render();
     return this.subir(nuevos).then(function () { return nuevos.length; });
   },
   remoto: function (rows) {   // lo que bajó de la Sheet: se descifra acá; lo que falte allá se vuelve a mandar
+    if (!FEATURES.personal) return;
     var self = this; this.load(); this.rows = rows || [];
     var tengo = {}, alla = {}; this.ev.forEach(function (e) { tengo[e.id] = 1; }); this.rows.forEach(function (r) { alla[r.id] = 1; });
     var nuevas = this.rows.filter(function (r) { return !tengo[r.id]; });
@@ -3220,7 +3228,7 @@ var Ask = {
   }
 };
 var A = {
-  tab: function (el) { S.tab = el.dataset.v; S.evId = null; closeSheet(); render(); window.scrollTo(0, 0); if (S.tab === 'personal') mpAuto(); },
+  tab: function (el) { if (el.dataset.v === 'personal' && !FEATURES.personal) return; S.tab = el.dataset.v; S.evId = null; closeSheet(); render(); window.scrollTo(0, 0); if (S.tab === 'personal') mpAuto(); },
   ob: function (el) {
     var v = +el.dataset.v;
     if (v === 2) { var ns = S.ob.names.map(function (n) { return n.trim(); }).filter(Boolean); if (ns.length < 2) { toast('Poné al menos dos nombres.'); return; } }
@@ -3850,7 +3858,7 @@ function mpSync(auto) {
     if (r.gastos.length) partes.push(r.gastos.length + (r.gastos.length === 1 ? ' gasto nuevo' : ' gastos nuevos') + ' en Personal');
     if (nuevos.length) partes.push(nuevos.length + ' para revisar');
     if (malos) partes.push('no pude leer ' + malos + (malos === 1 ? ' reporte' : ' reportes'));
-    M.msg = partes.length ? partes.join(' · ') : (d.reportes || []).length ? 'Todo al día.' : d.pedido ? 'Le pedí el reporte a Mercado Pago: tarda un ratito en estar listo. Cuba lo vuelve a mirar sola.' : d.pedido_error ? 'No pude pedirle el reporte a Mercado Pago (' + d.pedido_error + '). Podés importar el CSV a mano.' : d.fallidos ? 'Vi ' + d.fallidos + (d.fallidos === 1 ? ' reporte' : ' reportes') + ' en Mercado Pago pero no pude bajarlos. Se reintenta solo; mientras tanto podés importar el CSV a mano.' : d.listados ? 'Mercado Pago tiene ' + d.listados + (d.listados === 1 ? ' reporte' : ' reportes') + ', pero ninguno reciente en CSV. Programá uno diario en CSV (o importá uno a mano).' : 'Todavía no hay reportes generados. En Mercado Pago programá un reporte diario en CSV (o importá uno a mano).' + ' [app v0.24.0 · script ' + (d.v ? 'v' + d.v : 'VIEJO: falta publicar el Code.gs nuevo') + (d.codigos ? ' · MP respondió: ' + d.codigos : '') + ']';
+    M.msg = partes.length ? partes.join(' · ') : (d.reportes || []).length ? 'Todo al día.' : d.pedido ? 'Le pedí el reporte a Mercado Pago: tarda un ratito en estar listo. Cuba lo vuelve a mirar sola.' : d.pedido_error ? 'No pude pedirle el reporte a Mercado Pago (' + d.pedido_error + '). Podés importar el CSV a mano.' : d.fallidos ? 'Vi ' + d.fallidos + (d.fallidos === 1 ? ' reporte' : ' reportes') + ' en Mercado Pago pero no pude bajarlos. Se reintenta solo; mientras tanto podés importar el CSV a mano.' : d.listados ? 'Mercado Pago tiene ' + d.listados + (d.listados === 1 ? ' reporte' : ' reportes') + ', pero ninguno reciente en CSV. Programá uno diario en CSV (o importá uno a mano).' : 'Todavía no hay reportes generados. En Mercado Pago programá un reporte diario en CSV (o importá uno a mano).' + ' [app v0.24.1 · script ' + (d.v ? 'v' + d.v : 'VIEJO: falta publicar el Code.gs nuevo') + (d.codigos ? ' · MP respondió: ' + d.codigos : '') + ']';
     if (d.pedido && !(d.reportes || []).length && (M.reint = (M.reint || 0) + 1) <= 3) setTimeout(function () { mpSync(true); }, 45000); else if (!d.pedido) M.reint = 0;
     var trajo = M.pidio && (d.reportes || []).length && r.gastos.length; if (d.pedido) M.pidio = true; else if ((d.reportes || []).length) M.pidio = false;
     return Per.add(ev).then(function () { if (trajo) { toast('🐕 ¡Guau! Cuba te trajo el reporte en el hocico · ' + M.msg); if (navigator.vibrate) { try { navigator.vibrate([20, 40, 20]); } catch (e) {} } } else if (partes.length || !auto) toast('Mercado Pago: ' + M.msg); });

@@ -254,7 +254,7 @@ const J = x => JSON.parse(JSON.stringify(x));
     assert.strictEqual(await B.p.locator('.rsrow').count(), 7, 'siete consumos (el impuesto no cuenta)');
     const fila = re => B.p.locator('.rsrow', { hasText: re });
     assert.ok(/Compartido/.test(await fila(/LUZ/).innerText()), 'la luz parece del hogar');
-    assert.ok(/Personal/.test(await fila(/Subte/).innerText()), 'lo que Cuba no conoce arranca personal');
+    assert.ok(/No compartido/.test(await fila(/Subte/).innerText()), 'lo que Cuba no conoce arranca personal');
     await fila(/Farmacia/).locator('.chip').click();                       // lo decido yo
     await fila(/AGUA/).locator('.chip').click();                           // y el agua la saco
     await B.p.click('[data-act=rsgo]');

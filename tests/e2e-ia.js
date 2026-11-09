@@ -6,7 +6,7 @@ const path = require('path');
 const { boot } = require('./fake-sheet.js');
 const EXEC = 'https://script.google.com/macros/s/TEST/exec';
 const cfg = Buffer.from(JSON.stringify({ u: EXEC, t: 'TOK' })).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
-const URL_APP = require('url').pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
+const URL_APP = require('./con-personal.js')();   // copia con FEATURES.personal = true (Personal está apagado por defecto)
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 (async () => {
